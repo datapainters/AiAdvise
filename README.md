@@ -86,32 +86,39 @@ the zone for you), then set `domain_name` to the new apex and
 only the certificate and the alias change. Worth leaving the
 `ai.datapainters.com` alias in place for a while so any shared links survive.
 
-### 2. Apply the bootstrap stack
+### 2. Bootstrap — ALREADY DONE
 
-Run once, from your own machine, with admin credentials:
+Applied against account `638646121967` in `us-east-2` on 2026-11-18, via the
+AWS API rather than Terraform (the stack that creates the state backend
+cannot itself start with one). Twelve resources exist:
 
-```bash
-cd infra/bootstrap
-terraform init
-terraform apply \
-  -var="github_owner=YOUR_GH_USER" \
-  -var="github_repo=advisory-platform"
-```
+| Resource | Name |
+|---|---|
+| State bucket | `advisory-tfstate-638646121967` (versioned, encrypted, private) |
+| Lock table | `advisory-tflock` |
+| OIDC provider | `token.actions.githubusercontent.com` |
+| Deploy role | `advisory-github-deploy` |
+| ECR repository | `advisory/api` (immutable tags, scan on push) |
 
-Keep the four outputs. Its state stays local and gitignored on purpose — it
-is the stack that creates the remote backend.
+`infra/bootstrap/imports.tf` holds `import` blocks so Terraform adopts these
+into state rather than trying to recreate them. Run it once, then delete that
+file — instructions are in its header.
+
+The trust policy is scoped to `repo:datapainters/AiAdvise`. That string is
+case-sensitive; if the repo is renamed or the casing differs, every deploy
+fails with a confusing `AssumeRoleWithWebIdentity` error.
 
 ### 3. Set GitHub repository variables
 
-Settings → Secrets and variables → Actions → *Variables*. None of these are
-secrets; the OIDC trust is what grants access, and it is scoped to this repo.
+Settings → Secrets and variables → Actions → *Variables*. None are secrets —
+the OIDC trust is what grants access, and it is scoped to this repo.
 
 | Variable | Value |
 |---|---|
-| `AWS_DEPLOY_ROLE` | `github_deploy_role_arn` output |
-| `TF_STATE_BUCKET` | `state_bucket` output |
-| `TF_STATE_LOCK_TABLE` | `state_lock_table` output |
-| `PROJECT_NAME` | `advisory` (or whatever you set `project` to) |
+| `AWS_DEPLOY_ROLE` | `arn:aws:iam::638646121967:role/advisory-github-deploy` |
+| `TF_STATE_BUCKET` | `advisory-tfstate-638646121967` |
+| `TF_STATE_LOCK_TABLE` | `advisory-tflock` |
+| `PROJECT_NAME` | `advisory` |
 
 Create a `production` environment too, and add yourself as a required
 reviewer if you want a human gate before each deploy.

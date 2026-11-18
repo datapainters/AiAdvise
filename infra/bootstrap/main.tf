@@ -208,15 +208,20 @@ data "aws_iam_policy_document" "github_deploy_iam" {
       "iam:GetRolePolicy",
       "iam:ListRolePolicies",
       "iam:ListAttachedRolePolicies",
+      "iam:ListInstanceProfilesForRole",
       "iam:CreateServiceLinkedRole",
-      "iam:CreateOpenIDConnectProvider",
-      "iam:GetOpenIDConnectProvider",
-      "iam:TagOpenIDConnectProvider",
     ]
-    resources = [
-      "arn:aws:iam::${local.account_id}:role/${local.name_prefix}-*",
-      "arn:aws:iam::${local.account_id}:oidc-provider/*",
-    ]
+    resources = ["arn:aws:iam::${local.account_id}:role/${local.name_prefix}-*"]
+  }
+
+  # Read-only on the OIDC provider. The deploy role does not need to create
+  # one -- bootstrap already did, and letting a CI pipeline mint identity
+  # providers is more authority than it should hold.
+  statement {
+    sid       = "ReadOidcProvider"
+    effect    = "Allow"
+    actions   = ["iam:GetOpenIDConnectProvider"]
+    resources = ["arn:aws:iam::${local.account_id}:oidc-provider/*"]
   }
 
   statement {
@@ -236,7 +241,8 @@ data "aws_iam_policy_document" "github_deploy_iam" {
   statement {
     sid       = "StateLocking"
     effect    = "Allow"
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
+    actions = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem",
+    "dynamodb:DescribeTable"]
     resources = [aws_dynamodb_table.tflock.arn]
   }
 }

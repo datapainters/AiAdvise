@@ -15,6 +15,14 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      replace_api_service:
+        description: >-
+          Force-replace the API service. Needed when a change AWS cannot make
+          in place (notably moving between public and private subnets) leaves
+          apply failing with InvalidParameterException.
+        type: boolean
+        default: false
 
 # Never run two deploys at once; the second would fight the first for the
 # Terraform state lock and lose in a confusing way.
@@ -82,7 +90,12 @@ jobs:
       - name: Apply
         working-directory: infra/envs/prod
         run: |
-          terraform apply -input=false -auto-approve \
+          replace=""
+          if [ "${{ inputs.replace_api_service }}" = "true" ]; then
+            echo "Forcing replacement of the API service."
+            replace="-replace=module.api.aws_ecs_express_gateway_service.api"
+          fi
+          terraform apply -input=false -auto-approve $replace \
             -var="api_image=${{ steps.ecr.outputs.registry }}/${{ vars.PROJECT_NAME }}/api:${{ github.sha }}"
 
       - name: Read outputs

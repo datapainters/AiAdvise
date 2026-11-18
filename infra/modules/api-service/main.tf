@@ -252,7 +252,17 @@ resource "aws_ecs_cluster" "this" {
 #
 # The provider does not mark subnets as force-new, so it plans a harmless
 # looking in-place update that then fails at apply. Binding the service to
-# this value turns any subnet change into a replacement, which AWS allows.
+# this value turns a LATER subnet change into a replacement, which AWS does
+# allow.
+#
+# Note the limitation, learned the hard way: replace_triggered_by fires when
+# the referenced value CHANGES, not when it is first created. Adding this
+# block does not retroactively force the replacement you are currently stuck
+# on -- the first apply just creates the terraform_data and then fails the
+# same way. To get out of that state, either run
+#   terraform apply -replace=module.api.aws_ecs_express_gateway_service.api
+# (the deploy workflow exposes this as a manual input), or delete the
+# service out of band and let the next apply recreate it.
 #
 # Replacement means a new endpoint hostname, and the API is briefly down
 # while the old service drains. The deploy workflow re-reads api_url after

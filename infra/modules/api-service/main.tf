@@ -290,6 +290,13 @@ resource "aws_ecs_express_gateway_service" "api" {
 
   health_check_path = var.health_check_path
 
+  # Without this, apply returns as soon as the service is accepted, and the
+  # deploy's smoke test then polls a load balancer whose DNS has not
+  # propagated -- every attempt returns 000 and the deploy fails even though
+  # the service comes up healthy a minute later. Waiting costs a few minutes
+  # of apply time and removes a whole class of false failure.
+  wait_for_steady_state = true
+
   primary_container {
     image          = var.image
     container_port = var.container_port

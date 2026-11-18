@@ -248,10 +248,14 @@ data "aws_iam_policy_document" "github_deploy_iam" {
   }
 
   statement {
-    sid       = "StateLocking"
-    effect    = "Allow"
-    actions = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem",
-    "dynamodb:DescribeTable"]
+    sid    = "StateLocking"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:DescribeTable",
+    ]
     resources = [aws_dynamodb_table.tflock.arn]
   }
 }

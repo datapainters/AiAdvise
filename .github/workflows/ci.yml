@@ -79,7 +79,9 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Format check
-        run: terraform fmt -check -recursive infra/
+        # -diff so a failure shows exactly what to change, rather than just
+        # naming the offending files and leaving you to guess.
+        run: terraform fmt -check -diff -recursive infra/
 
       - name: Validate modules
         # Each module gets its own init so a syntax error is attributed to the

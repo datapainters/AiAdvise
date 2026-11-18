@@ -137,7 +137,7 @@ resource "aws_db_instance" "this" {
   multi_az                = var.multi_az
   backup_retention_period = 7
   backup_window           = "08:00-09:00"
-  maintenance_window       = "sun:09:30-sun:10:30"
+  maintenance_window      = "sun:09:30-sun:10:30"
   copy_tags_to_snapshot   = true
 
   auto_minor_version_upgrade = true

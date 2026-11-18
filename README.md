@@ -70,11 +70,21 @@ web/                React + Vite + TypeScript
 
 ## First-time setup
 
-### 1. Pick a domain and register it
+### 1. Domain
 
-`infra/envs/prod/terraform.tfvars` has `domain_name = "example.com"` as a
-placeholder. Set it to the real one. The Route 53 hosted zone must exist
-before the first apply — registering through Route 53 creates it.
+Currently serving at **`ai.datapainters.com`**, a subdomain of an existing
+zone, as an interim home while the real name is decided.
+
+Note the two separate variables. `domain_name` is the hostname the site
+answers on; `hosted_zone_name` is the zone that contains it. They differ for
+a subdomain, and conflating them fails the plan — a zone lookup for
+`ai.datapainters.com` finds nothing.
+
+To cut over to a real domain: register it (through Route 53, which creates
+the zone for you), then set `domain_name` to the new apex and
+`hosted_zone_name` back to `null`. CloudFront keeps the same distribution;
+only the certificate and the alias change. Worth leaving the
+`ai.datapainters.com` alias in place for a while so any shared links survive.
 
 ### 2. Apply the bootstrap stack
 

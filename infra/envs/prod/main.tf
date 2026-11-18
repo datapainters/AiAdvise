@@ -78,7 +78,18 @@ variable "region" {
 
 variable "domain_name" {
   type        = string
-  description = "Apex domain for the site."
+  description = "Hostname the site is served at. May be a subdomain."
+}
+
+variable "hosted_zone_name" {
+  type        = string
+  description = <<-EOT
+    The Route 53 zone that contains domain_name, when they differ. Serving at
+    ai.datapainters.com means the zone is datapainters.com -- looking up a
+    zone named after the subdomain finds nothing and fails the plan. Leave
+    null when the site sits at the apex of its own zone.
+  EOT
+  default     = null
 }
 
 variable "subject_alternative_names" {
@@ -122,7 +133,7 @@ variable "lab_admin_principal_arns" {
 ###############################################################################
 
 data "aws_route53_zone" "primary" {
-  name         = var.domain_name
+  name         = coalesce(var.hosted_zone_name, var.domain_name)
   private_zone = false
 }
 

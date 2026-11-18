@@ -403,6 +403,14 @@ resource "aws_ecs_express_gateway_service" "api" {
     image          = var.image
     container_port = var.container_port
 
+    # Without this, Express Mode creates its own log group
+    # (/aws/ecs/<cluster>/<service>-<suffix>) which never expires, and the
+    # group defined above sits empty while CloudWatch charges accrue
+    # indefinitely. Pointing it here puts logs under the retention policy.
+    aws_logs_configuration {
+      log_group = aws_cloudwatch_log_group.api.name
+    }
+
     dynamic "environment" {
       for_each = local.container_environment
 

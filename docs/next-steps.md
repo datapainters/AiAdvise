@@ -17,7 +17,25 @@ five-minute version — use that for the bootstrap apply and day-to-day work,
 enable MFA on root, and delete any root access keys. The GitHub deploy role
 this repo creates is already correctly scoped and does not involve root.
 
-## 1. Authentication (blocking — do this before real client data)
+## 1. Admin flows — clients, engagements and users (now the blocker)
+
+Authentication is done: users live in Postgres, tokens are HS256 signed
+with a key from Secrets Manager, and every read and write derives its
+engagement from the verified token rather than a request parameter.
+
+What is missing is any way to *create* the things it authorizes. There are
+no clients, no engagements, and no client users, so an admin signs in to an
+empty portal and the write path has nothing valid to reference. Next
+increment, roughly in order: admin endpoints to create a client, open an
+engagement against it, and invite a user to that client; then the
+corresponding screens behind a `ROLE_ADMIN` check.
+
+Worth deciding at the same time: how a client user first sets their
+password. An invite token mailed to them is the usual answer, and it needs
+somewhere to send mail from — `datapainters.com` already has Zoho,
+so that is probably the path of least resistance.
+
+## 1b. Old authentication notes (kept for context)
 
 `TopicController` accepts an `engagementId` from the caller and trusts it.
 Any client who can reach the API can read and modify any other client's

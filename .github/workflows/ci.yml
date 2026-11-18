@@ -86,8 +86,18 @@ jobs:
       - name: Validate modules
         # Each module gets its own init so a syntax error is attributed to the
         # module that contains it rather than surfacing as a mystery in prod.
+        #
+        # Modules declaring configuration_aliases are skipped: an aliased
+        # provider is supplied by the caller, so validating such a module
+        # standalone fails with "Provider configuration not present" no matter
+        # how correct it is. The plan against infra/envs/prod below covers
+        # them properly, with the providers actually wired in.
         run: |
           for dir in infra/modules/*/; do
+            if grep -rq 'configuration_aliases' "$dir"; then
+              echo "skipping $dir (needs a caller to supply its aliased provider)"
+              continue
+            fi
             echo "::group::validate $dir"
             terraform -chdir="$dir" init -backend=false -input=false
             terraform -chdir="$dir" validate

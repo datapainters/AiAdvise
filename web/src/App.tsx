@@ -6,7 +6,7 @@ function Nav() {
   return (
     <nav className="nav">
       <Link to="/" className="brand">
-        Advisory
+        Data Painters
       </Link>
       <div className="nav-links">
         <Link to="/approach">Approach</Link>
@@ -24,7 +24,7 @@ function Home() {
         <p className="lede">
           Most AI programs stall for the same reason: the model was never the hard part.
           The hard part is the data it has to read, the systems it has to write to, and
-          the people who have to trust the output.
+          the people who have to trust the output. That is the part we work on.
         </p>
         <Link to="/portal" className="cta">
           Client portal
@@ -44,7 +44,8 @@ function Home() {
           <h2>Data readiness</h2>
           <p>
             The unglamorous prerequisite. What your data looks like now, what it needs
-            to look like, and the shortest path between the two.
+            to look like, and the shortest path between the two — schema, quality,
+            access, and the migrations nobody wants to own.
           </p>
         </article>
         <article>
@@ -185,7 +186,7 @@ export default function App() {
         <Route path="*" element={<main className="page"><h1>Not found</h1></main>} />
       </Routes>
       <footer className="footer">
-        <span>&copy; {new Date().getFullYear()} Advisory</span>
+        <span>&copy; {new Date().getFullYear()} Data Painters</span>
       </footer>
     </div>
   );

@@ -157,9 +157,18 @@ module "database" {
 module "api" {
   source = "../../modules/api-service"
 
-  project            = var.project
-  vpc_id             = module.network.vpc_id
-  private_subnet_ids = module.network.private_subnet_ids
+  project = var.project
+  vpc_id  = module.network.vpc_id
+
+  # PUBLIC subnets, deliberately. Express Mode decides the load balancer
+  # scheme from the subnets it is given, and private subnets produce an
+  # internal ALB that the browser cannot reach -- which is exactly what the
+  # first deploy produced. The tasks themselves are still only reachable
+  # through the Express-managed load balancer and security group.
+  #
+  # Postgres stays in the private subnets and is reachable only from this
+  # service's security group.
+  subnet_ids = module.network.public_subnet_ids
 
   image          = var.api_image
   cpu            = var.api_cpu

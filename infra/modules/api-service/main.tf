@@ -30,8 +30,24 @@ variable "vpc_id" {
   type = string
 }
 
-variable "private_subnet_ids" {
+variable "subnet_ids" {
   type = list(string)
+
+  description = <<-EOT
+    Subnets for the service. At least two are required.
+
+    IMPORTANT: Express Mode derives whether the load balancer is
+    internet-facing or internal from these subnets -- there is no argument
+    for it. Public subnets yield an ingress path with accessType PUBLIC;
+    private subnets yield PRIVATE, and nothing outside the VPC can reach the
+    API. This is only discoverable after apply, via the ingress_paths
+    attribute or `aws ecs describe-express-gateway-service`.
+  EOT
+
+  validation {
+    condition     = length(var.subnet_ids) >= 2
+    error_message = "Express Mode requires at least 2 subnets."
+  }
 }
 
 variable "image" {
@@ -258,7 +274,7 @@ resource "aws_ecs_express_gateway_service" "api" {
   }
 
   network_configuration {
-    subnets         = var.private_subnet_ids
+    subnets         = var.subnet_ids
     security_groups = [aws_security_group.api.id]
   }
 

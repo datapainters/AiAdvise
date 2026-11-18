@@ -139,19 +139,37 @@ jobs:
             --paths "/index.html" "/"
 
       - name: Smoke test
+        # --max-time is load-bearing, not tidiness. Without it, curl against
+        # an unroutable host hangs on TCP connect for ~2 minutes per attempt,
+        # so this loop took over an hour to report a failure it had
+        # established on the first try -- and blocked the queued deploy that
+        # carried the fix. Bounded attempts keep a failure fast.
+        timeout-minutes: 8
         run: |
           echo "Waiting for the API to answer its readiness probe..."
           for attempt in $(seq 1 30); do
             code=$(curl -s -o /dev/null -w "%{http_code}" \
+              --connect-timeout 5 --max-time 10 \
               "${{ steps.tf.outputs.api_url }}/actuator/health/readiness" || true)
             if [ "$code" = "200" ]; then
               echo "API ready after ${attempt} attempt(s)."
               exit 0
             fi
             echo "  attempt ${attempt}: HTTP ${code}"
-            sleep 10
+            last_code="$code"
+            sleep 5
           done
-          echo "::error::API did not become ready within 5 minutes."
+          if [ "$last_code" = "000" ]; then
+            echo "::error::Never connected to the API (every attempt returned 000)."
+            echo "000 means the TCP connection failed, not that the app is unhealthy."
+            echo "Most likely the Express service came up with an internal load"
+            echo "balancer. Check it with:"
+            echo "  aws ecs describe-express-gateway-service --service-arn <arn> \\"
+            echo "    --query 'service.activeConfigurations[0].ingressPaths'"
+            echo "accessType must be PUBLIC; PRIVATE means the subnets are private."
+          else
+            echo "::error::API reachable but never became ready (last status ${last_code})."
+          fi
           exit 1
 
       - name: Summary

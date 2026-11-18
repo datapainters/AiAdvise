@@ -245,7 +245,28 @@ resource "aws_ecs_cluster" "this" {
   }
 }
 
+# AWS refuses to move an existing Express service between subnet types:
+#
+#   InvalidParameterException: Changing subnet types is not supported for
+#   ECS express gateway services.
+#
+# The provider does not mark subnets as force-new, so it plans a harmless
+# looking in-place update that then fails at apply. Binding the service to
+# this value turns any subnet change into a replacement, which AWS allows.
+#
+# Replacement means a new endpoint hostname, and the API is briefly down
+# while the old service drains. The deploy workflow re-reads api_url after
+# every apply and rebuilds the front end against it, so nothing is left
+# pointing at the old address.
+resource "terraform_data" "subnet_binding" {
+  input = var.subnet_ids
+}
+
 resource "aws_ecs_express_gateway_service" "api" {
+  lifecycle {
+    replace_triggered_by = [terraform_data.subnet_binding]
+  }
+
   # NOT `name` -- this resource calls it service_name, unlike aws_ecs_service.
   service_name = local.name
   cluster      = aws_ecs_cluster.this.name

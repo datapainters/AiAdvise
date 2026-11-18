@@ -14,6 +14,12 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # A documentation edit should not spend fifteen minutes applying
+    # infrastructure that has not changed. CI still runs on these.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.gitignore'
   workflow_dispatch:
     inputs:
       replace_api_service:

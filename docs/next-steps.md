@@ -2,20 +2,36 @@
 
 Ordered by what would hurt most if left undone.
 
-## 0. Stop using root (do this first, it takes ten minutes)
+## 0. Account access — mostly done 2026-11-18
 
-The identity connected to this account is the account root user. Root is the
-one principal in AWS whose permissions cannot be reduced, whose access cannot
-be scoped to a resource, and which ignores SCPs, permission boundaries and
-every other guardrail. If a root access key leaks, the blast radius is the
-entire account including the billing console, and the only remediation is
-rotating it and auditing everything.
+Audited and acted on:
 
-Fix: create an administrative principal — an IAM Identity Center user is the
-current recommendation, a plain IAM user with `AdministratorAccess` is the
-five-minute version — use that for the bootstrap apply and day-to-day work,
-enable MFA on root, and delete any root access keys. The GitHub deploy role
-this repo creates is already correctly scoped and does not involve root.
+- **Root MFA**: already enabled. Nothing to do.
+- **Root access keys**: none exist. Nothing to delete, and the connector
+  does not authenticate with them.
+- **`marley`** (IAM user, created 2021-08-31, from the previous business):
+  member of the `Admins` group, which grants `AdministratorAccess`, with no
+  MFA and an access key that had **never been used in five years**. That key
+  is now `Inactive`. A dormant full-admin credential with no MFA is pure
+  attack surface, so deactivating it removes risk without removing anything
+  anyone relies on.
+- **`wes`**: created, added to `Admins`, console access with a one-time
+  password in Secrets Manager at `admin/wes-initial-console-password`,
+  forced reset at first sign-in.
+
+Still outstanding, and both need a human at a console:
+
+1. **Add MFA to `wes`** immediately after first sign-in. An admin user with
+   a password and no MFA is roughly what made `marley` a problem.
+2. **Decide `marley`'s fate.** Deactivating the key was the reversible step.
+   If the previous business is wound up, delete the key, the login profile
+   and the user. If anything still depends on it, give it MFA and rotate the
+   key instead. Leaving it dormant-but-present is the one option with no
+   upside.
+
+Then switch day-to-day work to `wes` and stop using root. Note that the AWS
+connector used for this project authenticates as root, so it would need
+reconnecting as `wes` to follow suit.
 
 ## 1. Admin flows — clients, engagements and users (now the blocker)
 

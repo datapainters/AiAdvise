@@ -117,6 +117,16 @@ variable "db_instance_class" {
   default = "db.t4g.small"
 }
 
+variable "bootstrap_admin_email" {
+  type        = string
+  description = <<-EOT
+    Email for the first admin account. Only has any effect while the user
+    table is empty. The password is generated into Secrets Manager at
+    <project>/bootstrap-admin -- read it from there, then change it.
+  EOT
+  default     = null
+}
+
 variable "enable_eks_lab" {
   type        = bool
   description = "Stand up the demo Kubernetes cluster. Costs ~$73/month idle."
@@ -178,6 +188,8 @@ module "api" {
   # api owns the Postgres ingress rule; see the note in modules/database.
   db_secret_arn        = module.database.secret_arn
   db_security_group_id = module.database.security_group_id
+
+  bootstrap_admin_email = var.bootstrap_admin_email
 
   environment = {
     SPRING_PROFILES_ACTIVE = "prod"

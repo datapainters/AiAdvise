@@ -19,6 +19,10 @@ terraform {
       source  = "hashicorp/aws"
       version = ">= 6.23"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.6"
+    }
   }
 }
 
@@ -94,6 +98,16 @@ variable "log_retention_days" {
   default = 30
 }
 
+variable "bootstrap_admin_email" {
+  type        = string
+  description = <<-EOT
+    Email for the initial admin account, created on startup only while the
+    user table is empty. Leave null once a real admin exists; the account is
+    not removed if you do, because the service never deletes users.
+  EOT
+  default     = null
+}
+
 variable "environment" {
   type        = map(string)
   description = "Plain environment variables for the container."
@@ -105,6 +119,94 @@ data "aws_caller_identity" "current" {}
 
 locals {
   name = "${var.project}-api"
+
+  # The JWT secret ARN is the module's own concern rather than the caller's,
+  # so it is merged in here instead of being threaded through var.environment.
+  container_environment = merge(
+    var.environment,
+    { JWT_SECRET_ARN = aws_secretsmanager_secret.jwt.arn },
+    var.bootstrap_admin_email == null ? {} : {
+      BOOTSTRAP_ADMIN_SECRET_ARN = aws_secretsmanager_secret.bootstrap_admin[0].arn
+    },
+  )
+
+  # Secrets the task role may read. The bootstrap entry disappears from the
+  # policy once bootstrap_admin_email is cleared.
+  readable_secret_arns = concat(
+    [var.db_secret_arn, aws_secretsmanager_secret.jwt.arn],
+    var.bootstrap_admin_email == null ? [] : [aws_secretsmanager_secret.bootstrap_admin[0].arn],
+  )
+}
+
+###############################################################################
+# JWT signing key
+#
+# Generated here and stored in Secrets Manager so it never appears in the
+# image, the task definition or `docker inspect`. HS256, so this single value
+# both signs and verifies.
+#
+# Rotating it is a deliberate act with a visible consequence: every issued
+# token stops verifying and users have to sign in again. There is no
+# automatic rotation for that reason -- taint this resource when you want it.
+###############################################################################
+
+resource "random_password" "jwt" {
+  length = 64
+  # Alphanumeric only. The value is used as raw HMAC key material, and
+  # punctuation buys no entropy worth the encoding risk at this length.
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "jwt" {
+  name        = "${var.project}/jwt-signing-key"
+  description = "HS256 signing key for ${local.name} access tokens"
+}
+
+resource "aws_secretsmanager_secret_version" "jwt" {
+  secret_id     = aws_secretsmanager_secret.jwt.id
+  secret_string = jsonencode({ key = random_password.jwt.result })
+}
+
+###############################################################################
+# Bootstrap admin
+#
+# A fresh database has no users, so there is no way in. When
+# bootstrap_admin_email is set, the service creates that one admin on startup
+# -- and only while the user table is completely empty, so it can never
+# resurrect or overwrite an account later.
+#
+# The password is generated here and kept in Secrets Manager rather than
+# passed as a plain environment variable, because task definitions are
+# readable by anyone with ecs:DescribeTaskDefinition. Read it once with:
+#
+#   aws secretsmanager get-secret-value \
+#     --secret-id <project>/bootstrap-admin --query SecretString --output text
+#
+# then sign in and change it.
+###############################################################################
+
+resource "random_password" "bootstrap_admin" {
+  count = var.bootstrap_admin_email == null ? 0 : 1
+
+  length  = 24
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "bootstrap_admin" {
+  count = var.bootstrap_admin_email == null ? 0 : 1
+
+  name        = "${var.project}/bootstrap-admin"
+  description = "Initial admin password for ${local.name}"
+}
+
+resource "aws_secretsmanager_secret_version" "bootstrap_admin" {
+  count = var.bootstrap_admin_email == null ? 0 : 1
+
+  secret_id = aws_secretsmanager_secret.bootstrap_admin[0].id
+  secret_string = jsonencode({
+    email    = var.bootstrap_admin_email
+    password = random_password.bootstrap_admin[0].result
+  })
 }
 
 ###############################################################################
@@ -164,10 +266,10 @@ resource "aws_iam_role" "task" {
 
 data "aws_iam_policy_document" "task" {
   statement {
-    sid       = "ReadDatabaseSecret"
+    sid       = "ReadSecrets"
     effect    = "Allow"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.db_secret_arn]
+    resources = local.readable_secret_arns
   }
 
   # ECS Exec, so you can get a shell in a running task without a bastion.
@@ -302,7 +404,7 @@ resource "aws_ecs_express_gateway_service" "api" {
     container_port = var.container_port
 
     dynamic "environment" {
-      for_each = var.environment
+      for_each = local.container_environment
 
       content {
         name  = environment.key

@@ -46,6 +46,11 @@ app:
     # Overridden by CORS_ALLOWED_ORIGINS, which Terraform sets from the
     # site's real domain names.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  jwt:
+    # Local development only. Deployed environments read the key from
+    # Secrets Manager via JWT_SECRET_ARN and ignore this entirely; if neither
+    # is present the application refuses to start rather than inventing one.
+    secret: ${APP_JWT_SECRET:local-development-signing-key-not-for-any-real-use}
 
 ---
 # Local development: plain Postgres on localhost, no Secrets Manager.

@@ -33,6 +33,18 @@ api_memory = 1024
 
 db_instance_class = "db.t4g.small"
 
+# TODO(wes): set this to the address you want as the first admin, then apply.
+# Nobody can sign in until you do. It is left blank deliberately rather than
+# guessed: the bootstrap runs once, only while the user table is empty, and
+# the service never deletes users -- so a wrong address leaves a stray admin
+# account behind that has to be removed by hand in the database.
+#
+# After the apply, read the generated password:
+#   aws secretsmanager get-secret-value --secret-id advisory/bootstrap-admin \
+#     --query SecretString --output text
+#
+# bootstrap_admin_email = "you@datapainters.com"
+
 # Flip to true only while you are actually demoing. ~$73/month idle.
 enable_eks_lab           = false
 lab_admin_principal_arns = []

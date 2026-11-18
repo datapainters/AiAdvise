@@ -162,14 +162,23 @@ data "aws_iam_policy_document" "github_assume" {
 
     # Scope the trust to THIS repository. Without this condition any GitHub
     # repo on the internet could assume the role.
+    #
+    # Both casings of the repo name are listed because GitHub's `sub` claim
+    # carries the repository's canonical casing, which is easy to get wrong
+    # and fails as an opaque AssumeRoleWithWebIdentity error rather than
+    # anything that names the cause. Repo names are case-insensitive for
+    # uniqueness on GitHub, so only one of these can ever exist and the
+    # extra entry grants nothing.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values = [
-        "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/${var.deploy_branch}",
-        "repo:${var.github_owner}/${var.github_repo}:pull_request",
-        "repo:${var.github_owner}/${var.github_repo}:environment:*",
-      ]
+      values = flatten([
+        for repo in distinct([var.github_repo, lower(var.github_repo)]) : [
+          "repo:${var.github_owner}/${repo}:ref:refs/heads/${var.deploy_branch}",
+          "repo:${var.github_owner}/${repo}:pull_request",
+          "repo:${var.github_owner}/${repo}:environment:*",
+        ]
+      ])
     }
   }
 }

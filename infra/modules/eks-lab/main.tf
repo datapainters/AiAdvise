@@ -14,10 +14,10 @@
 # Auto Mode is used deliberately: it manages the node lifecycle for you, so a
 # cold cluster costs the control plane fee and nothing else.
 #
-# >>> VERIFY ON FIRST PLAN <<<
-# The Auto Mode argument shape (compute_config / storage_config /
-# kubernetes_network_config) is recent. If plan objects, reconcile against the
-# aws_eks_cluster docs for your provider version.
+# Auto Mode argument shape verified against AWS provider 6.73.0. Note that
+# compute_config.enabled, kubernetes_network_config.elastic_load_balancing
+# .enabled and storage_config.block_storage.enabled must ALL be true together,
+# and Auto Mode additionally requires bootstrap_self_managed_addons = false.
 ###############################################################################
 
 terraform {

@@ -7,11 +7,10 @@
 # the ALB, logs and data transfer. Up to 25 Express services in compatible
 # subnets share one ALB, so adding a second service later costs no new ALB.
 #
-# >>> VERIFY ON FIRST PLAN <<<
-# aws_ecs_express_gateway_service shipped in AWS provider 6.23.0 and is newer
-# than most of this stack. If `terraform plan` disputes an argument name here,
-# check the resource docs and adjust -- the surrounding IAM and logging is
-# conventional and will not be the problem.
+# Schema verified against AWS provider 6.73.0. Two things to know if you edit
+# this resource:
+#   * the service name argument is `service_name`, not `name`
+#   * there is no url attribute; the public endpoint arrives via ingress_paths
 ###############################################################################
 
 terraform {
@@ -231,8 +230,9 @@ resource "aws_ecs_cluster" "this" {
 }
 
 resource "aws_ecs_express_gateway_service" "api" {
-  name    = local.name
-  cluster = aws_ecs_cluster.this.name
+  # NOT `name` -- this resource calls it service_name, unlike aws_ecs_service.
+  service_name = local.name
+  cluster      = aws_ecs_cluster.this.name
 
   execution_role_arn      = aws_iam_role.execution.arn
   task_role_arn           = aws_iam_role.task.arn
@@ -247,9 +247,6 @@ resource "aws_ecs_express_gateway_service" "api" {
     image          = var.image
     container_port = var.container_port
 
-    # >>> VERIFY: if plan rejects this block, the container reads the same
-    # values from ENV defaults baked into the Dockerfile, except
-    # CORS_ALLOWED_ORIGINS -- which would then need passing another way.
     dynamic "environment" {
       for_each = var.environment
 
@@ -274,13 +271,25 @@ resource "aws_ecs_express_gateway_service" "api" {
   tags = { Name = local.name }
 }
 
+locals {
+  # Express Mode has no single "url" attribute. The public endpoint comes back
+  # through the ingress_paths list, so normalise it into a usable URL. The
+  # scheme check is defensive: the endpoint is a bare hostname today, and this
+  # keeps working if the provider starts including one.
+  raw_endpoint = try(aws_ecs_express_gateway_service.api.ingress_paths[0].endpoint, null)
+
+  service_url = local.raw_endpoint == null ? null : (
+    startswith(local.raw_endpoint, "http") ? local.raw_endpoint : "https://${local.raw_endpoint}"
+  )
+}
+
 output "service_url" {
   description = "Public HTTPS URL Express Mode assigned to the service."
-  value       = try(aws_ecs_express_gateway_service.api.service_url, null)
+  value       = local.service_url
 }
 
 output "service_arn" {
-  value = aws_ecs_express_gateway_service.api.arn
+  value = aws_ecs_express_gateway_service.api.service_arn
 }
 
 output "cluster_name" {
@@ -288,7 +297,7 @@ output "cluster_name" {
 }
 
 output "service_name" {
-  value = aws_ecs_express_gateway_service.api.name
+  value = aws_ecs_express_gateway_service.api.service_name
 }
 
 output "security_group_id" {

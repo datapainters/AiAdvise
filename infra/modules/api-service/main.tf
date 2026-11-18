@@ -180,14 +180,13 @@ resource "aws_iam_role" "infrastructure" {
   assume_role_policy = data.aws_iam_policy_document.ecs_service_assume.json
 }
 
-# AWS publishes a managed policy for the ECS infrastructure role that covers
-# load balancer management. If the ARN below does not resolve on first apply,
-# list candidates with:
-#   aws iam list-policies --scope AWS --query \
-#     "Policies[?contains(PolicyName,'ECSInfrastructureRolePolicy')].Arn"
+# Verified against the live account: this is the managed policy AWS publishes
+# for the Express Mode infrastructure role. Note the irregular casing --
+# lowercase "for", and no "Policy" suffix, unlike its siblings
+# (AmazonECSInfrastructureRolePolicyForVolumes). Do not "correct" it.
 resource "aws_iam_role_policy_attachment" "infrastructure_managed" {
   role       = aws_iam_role.infrastructure.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRolePolicyForLoadBalancers"
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices"
 }
 
 ###############################################################################

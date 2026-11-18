@@ -137,11 +137,18 @@ Read this section before showing the portal to anyone.
   caller and trusts it, so any client could read another client's topics.
   This must be fixed before real data goes in. Options are in
   [docs/next-steps.md](docs/next-steps.md).
-- **Two Terraform resources are newer than the rest of this stack** and are
-  marked `>>> VERIFY ON FIRST PLAN <<<` in the source:
+- **Two resource argument shapes are still unverified** and are marked
+  `>>> VERIFY ON FIRST PLAN <<<` in the source:
   `aws_ecs_express_gateway_service` (provider 6.23.0+) and the EKS Auto Mode
-  argument block. If plan objects to an argument name, reconcile against the
-  resource docs — the surrounding IAM and logging is conventional.
+  argument block. Every IAM policy ARN in this repo *has* been checked
+  against the live account, so if plan objects it will be an argument name,
+  not a permission.
+- **You are using root credentials.** The connected identity is
+  `arn:aws:iam::<account>:root`. Root cannot be scoped, cannot be revoked
+  without rotating everything, and bypasses every guardrail you might add
+  later. Create an IAM user or an Identity Center principal with
+  `AdministratorAccess`, use that for the bootstrap apply, and put MFA on
+  root. This is step 0 in [docs/next-steps.md](docs/next-steps.md).
 - **Dependency versions in `pom.xml` are unverified.** This repo was
   scaffolded in a sandbox with Maven Central blocked, so the Java side has
   never been compiled. Expect to bump a version or two on first `mvn verify`.

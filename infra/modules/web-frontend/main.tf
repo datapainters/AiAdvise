@@ -103,8 +103,13 @@ resource "aws_acm_certificate_validation" "cdn" {
 # Origin bucket
 ###############################################################################
 
+data "aws_caller_identity" "current" {}
+
+# S3 bucket names are globally unique across every AWS account on earth, so a
+# plain "advisory-web" would collide with a stranger's bucket and fail apply
+# with a misleading AccessDenied. Suffixing the account id makes it ours.
 resource "aws_s3_bucket" "web" {
-  bucket = local.name
+  bucket = "${local.name}-${data.aws_caller_identity.current.account_id}"
 }
 
 resource "aws_s3_bucket_public_access_block" "web" {

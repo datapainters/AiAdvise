@@ -45,7 +45,11 @@ variable "subnet_ids" {
 variable "kubernetes_version" {
   type        = string
   description = "Keep this current. Falling to extended support costs 6x."
-  default     = "1.34"
+  # 1.37 is the newest in standard support, which runs to 2027-12-01.
+  # Checked against DescribeClusterVersions on 2026-11-17. For reference,
+  # 1.34 standard support ends 2026-12-02 -- two weeks out -- so do not
+  # pin anything older than this without re-checking.
+  default = "1.37"
 }
 
 variable "admin_principal_arns" {

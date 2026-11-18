@@ -1,0 +1,153 @@
+# Advisory platform
+
+Marketing site and client portal for the advisory practice. React front end,
+Spring Boot API, PostgreSQL, all on AWS, deployed by GitHub Actions.
+
+## Architecture
+
+```
+                         ┌──────────────┐
+    browser ────TLS────▶ │  CloudFront  │ ──▶ S3 (private, OAC)   static site
+                         └──────────────┘
+                                │
+                                │  (separate origin)
+                                ▼
+                         ┌──────────────┐
+                         │  ECS Express │ ──▶ Fargate tasks       Spring API
+                         │  (ALB + TLS) │
+                         └──────────────┘
+                                │
+                                ▼
+                         ┌──────────────┐
+                         │ RDS Postgres │   private subnets only
+                         └──────────────┘
+```
+
+The API runs on **ECS Express Mode**, not EKS. Express Mode provisions the
+service, load balancer, TLS, autoscaling and health checks from a container
+image plus three IAM roles, at no charge above the underlying resources, and
+consolidates up to 25 services behind one shared ALB.
+
+Kubernetes is still here, as `infra/modules/eks-lab` — an apply-on-demand
+cluster for client demos. It is **off by default**, because an EKS control
+plane bills about $73/month idle and about $438/month if its Kubernetes
+version slips out of standard support. See
+[docs/adr/0001-fargate-now-eks-later.md](docs/adr/0001-fargate-now-eks-later.md).
+
+### Rough monthly cost
+
+| Component | Configuration | Est. |
+|---|---|---|
+| Fargate | 0.5 vCPU / 1 GB, 1–2 tasks | $20–40 |
+| ALB | shared, via Express Mode | ~$17 |
+| RDS Postgres | db.t4g.small, single-AZ, 20 GB gp3 | ~$28 |
+| NAT gateway | one, not one per AZ | ~$33 |
+| CloudFront + S3 | low traffic, PriceClass_100 | $1–5 |
+| Secrets, logs, ECR | | $3–8 |
+| **Total** | | **~$100–130** |
+| *EKS lab, when enabled* | *control plane + Auto Mode nodes* | *+$73 and up* |
+
+The NAT gateway is the line item worth revisiting first: if the API never
+needs outbound internet, replacing it with VPC endpoints for ECR, Secrets
+Manager and CloudWatch removes it.
+
+## Layout
+
+```
+infra/
+  bootstrap/        one-time: state backend, OIDC, deploy role, ECR
+  modules/
+    network/        VPC, subnets, NAT, S3 gateway endpoint
+    database/       RDS Postgres + Secrets Manager
+    api-service/    ECS Express Mode service, three IAM roles
+    web-frontend/   S3 + CloudFront + ACM + Route 53
+    eks-lab/        optional on-demand EKS (Auto Mode)
+  envs/prod/        composition + tfvars
+services/api/       Spring Boot, Flyway migrations, distroless image
+web/                React + Vite + TypeScript
+.github/workflows/  ci.yml, deploy.yml, eks-lab.yml
+```
+
+## First-time setup
+
+### 1. Pick a domain and register it
+
+`infra/envs/prod/terraform.tfvars` has `domain_name = "example.com"` as a
+placeholder. Set it to the real one. The Route 53 hosted zone must exist
+before the first apply — registering through Route 53 creates it.
+
+### 2. Apply the bootstrap stack
+
+Run once, from your own machine, with admin credentials:
+
+```bash
+cd infra/bootstrap
+terraform init
+terraform apply \
+  -var="github_owner=YOUR_GH_USER" \
+  -var="github_repo=advisory-platform"
+```
+
+Keep the four outputs. Its state stays local and gitignored on purpose — it
+is the stack that creates the remote backend.
+
+### 3. Set GitHub repository variables
+
+Settings → Secrets and variables → Actions → *Variables*. None of these are
+secrets; the OIDC trust is what grants access, and it is scoped to this repo.
+
+| Variable | Value |
+|---|---|
+| `AWS_DEPLOY_ROLE` | `github_deploy_role_arn` output |
+| `TF_STATE_BUCKET` | `state_bucket` output |
+| `TF_STATE_LOCK_TABLE` | `state_lock_table` output |
+| `PROJECT_NAME` | `advisory` (or whatever you set `project` to) |
+
+Create a `production` environment too, and add yourself as a required
+reviewer if you want a human gate before each deploy.
+
+### 4. Merge to main
+
+CI runs on the PR; `deploy.yml` takes over on merge. There are no AWS access
+keys anywhere in this setup — GitHub presents a short-lived OIDC token and
+AWS exchanges it for temporary credentials.
+
+## Local development
+
+```bash
+# Postgres
+docker run -d --name advisory-db -p 5432:5432 \
+  -e POSTGRES_DB=advisory -e POSTGRES_USER=advisory_app \
+  -e POSTGRES_PASSWORD=localdev postgres:17
+
+# API — Flyway creates the schema on boot
+cd services/api && mvn spring-boot:run -Dspring-boot.run.profiles=local
+
+# Front end
+cd web && npm install && npm run dev
+```
+
+`make help` lists the shortcuts.
+
+## Known gaps
+
+Read this section before showing the portal to anyone.
+
+- **No authentication.** `TopicController` takes an engagement id from the
+  caller and trusts it, so any client could read another client's topics.
+  This must be fixed before real data goes in. Options are in
+  [docs/next-steps.md](docs/next-steps.md).
+- **Two Terraform resources are newer than the rest of this stack** and are
+  marked `>>> VERIFY ON FIRST PLAN <<<` in the source:
+  `aws_ecs_express_gateway_service` (provider 6.23.0+) and the EKS Auto Mode
+  argument block. If plan objects to an argument name, reconcile against the
+  resource docs — the surrounding IAM and logging is conventional.
+- **Dependency versions in `pom.xml` are unverified.** This repo was
+  scaffolded in a sandbox with Maven Central blocked, so the Java side has
+  never been compiled. Expect to bump a version or two on first `mvn verify`.
+  The React build *was* verified and passes typecheck.
+- **Secrets are read once at startup.** Turning on RDS rotation without
+  changing `DataSourceConfig` would break the service one rotation period
+  after deploy.
+- **No staging environment.** `infra/envs/` has one directory. Copy it to
+  `staging/` with its own state key when you want somewhere to break things.

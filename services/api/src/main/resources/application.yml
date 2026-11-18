@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: advisory-api
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema. Hibernate must never touch it.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: 8080
+  shutdown: graceful
+  # Fargate's load balancer drains connections; let in-flight work finish.
+  tomcat:
+    connection-timeout: 5s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Only what the load balancer and your own dashboards need.
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+app:
+  cors:
+    # Overridden by CORS_ALLOWED_ORIGINS, which Terraform sets from the
+    # site's real domain names.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
+---
+# Local development: plain Postgres on localhost, no Secrets Manager.
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:postgresql://localhost:5432/advisory
+    username: advisory_app
+    password: localdev
+
+---
+# Production: DataSourceConfig builds the DataSource from the secret named
+# by DB_SECRET_ARN, so nothing is configured here.
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+logging:
+  level:
+    root: INFO
+    com.advisory: INFO
+    org.hibernate.SQL: WARN

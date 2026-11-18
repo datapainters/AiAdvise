@@ -1,0 +1,233 @@
+###############################################################################
+# Production environment — composes the modules.
+#
+# Run `terraform init` with the backend values printed by the bootstrap stack:
+#
+#   terraform init \
+#     -backend-config="bucket=<state_bucket>" \
+#     -backend-config="dynamodb_table=<state_lock_table>"
+#
+# The CI workflow does this for you from repository variables.
+###############################################################################
+
+terraform {
+  required_version = ">= 1.9"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 6.23"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.6"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = ">= 4.0"
+    }
+  }
+
+  backend "s3" {
+    key     = "prod/terraform.tfstate"
+    region  = "us-east-2"
+    encrypt = true
+    # bucket and dynamodb_table come from -backend-config at init time.
+  }
+}
+
+provider "aws" {
+  region = var.region
+
+  default_tags {
+    tags = {
+      Project     = var.project
+      Environment = "prod"
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
+# CloudFront certificates must live in us-east-1 no matter where you deploy.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Project     = var.project
+      Environment = "prod"
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
+###############################################################################
+# Variables
+###############################################################################
+
+variable "project" {
+  type    = string
+  default = "advisory"
+}
+
+variable "region" {
+  type    = string
+  default = "us-east-2"
+}
+
+variable "domain_name" {
+  type        = string
+  description = "Apex domain for the site."
+}
+
+variable "subject_alternative_names" {
+  type    = list(string)
+  default = []
+}
+
+variable "api_image" {
+  type        = string
+  description = "ECR image for the API. CI overrides this on every deploy."
+}
+
+variable "api_cpu" {
+  type    = number
+  default = 512
+}
+
+variable "api_memory" {
+  type    = number
+  default = 1024
+}
+
+variable "db_instance_class" {
+  type    = string
+  default = "db.t4g.small"
+}
+
+variable "enable_eks_lab" {
+  type        = bool
+  description = "Stand up the demo Kubernetes cluster. Costs ~$73/month idle."
+  default     = false
+}
+
+variable "lab_admin_principal_arns" {
+  type    = list(string)
+  default = []
+}
+
+###############################################################################
+# Composition
+###############################################################################
+
+data "aws_route53_zone" "primary" {
+  name         = var.domain_name
+  private_zone = false
+}
+
+module "network" {
+  source = "../../modules/network"
+
+  project    = var.project
+  cidr_block = "10.40.0.0/16"
+  single_nat = true
+}
+
+module "database" {
+  source = "../../modules/database"
+
+  project            = var.project
+  vpc_id             = module.network.vpc_id
+  private_subnet_ids = module.network.private_subnet_ids
+  instance_class     = var.db_instance_class
+}
+
+module "api" {
+  source = "../../modules/api-service"
+
+  project            = var.project
+  vpc_id             = module.network.vpc_id
+  private_subnet_ids = module.network.private_subnet_ids
+
+  image          = var.api_image
+  cpu            = var.api_cpu
+  memory         = var.api_memory
+  container_port = 8080
+
+  # api owns the Postgres ingress rule; see the note in modules/database.
+  db_secret_arn        = module.database.secret_arn
+  db_security_group_id = module.database.security_group_id
+
+  environment = {
+    SPRING_PROFILES_ACTIVE = "prod"
+    DB_SECRET_ARN          = module.database.secret_arn
+    AWS_REGION             = var.region
+    CORS_ALLOWED_ORIGINS   = join(",", [for n in concat([var.domain_name], var.subject_alternative_names) : "https://${n}"])
+  }
+}
+
+module "web" {
+  source = "../../modules/web-frontend"
+
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
+
+  project                   = var.project
+  domain_name               = var.domain_name
+  subject_alternative_names = var.subject_alternative_names
+  hosted_zone_id            = data.aws_route53_zone.primary.zone_id
+}
+
+module "eks_lab" {
+  source = "../../modules/eks-lab"
+  count  = var.enable_eks_lab ? 1 : 0
+
+  project              = var.project
+  vpc_id               = module.network.vpc_id
+  subnet_ids           = module.network.private_subnet_ids
+  admin_principal_arns = var.lab_admin_principal_arns
+}
+
+###############################################################################
+# Outputs
+###############################################################################
+
+output "aws_region" {
+  description = "Region this environment is deployed in; used by make rollback."
+  value       = var.region
+}
+
+output "site_url" {
+  value = module.web.site_url
+}
+
+output "api_url" {
+  value = module.api.service_url
+}
+
+output "web_bucket" {
+  value = module.web.bucket_name
+}
+
+output "cloudfront_distribution_id" {
+  value = module.web.distribution_id
+}
+
+output "ecs_cluster_name" {
+  value = module.api.cluster_name
+}
+
+output "ecs_service_name" {
+  value = module.api.service_name
+}
+
+output "database_endpoint" {
+  value = module.database.endpoint
+}
+
+output "eks_lab_kubeconfig_command" {
+  value = var.enable_eks_lab ? module.eks_lab[0].kubeconfig_command : "EKS lab not enabled"
+}

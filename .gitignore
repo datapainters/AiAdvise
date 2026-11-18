@@ -1,0 +1,36 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Keep committed: terraform.tfvars (no secrets belong in it)
+*.auto.tfvars
+
+# Java
+services/api/target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# Node
+web/node_modules/
+web/dist/
+npm-debug.log*
+
+# Local env
+.env
+.env.local
+*.pem
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

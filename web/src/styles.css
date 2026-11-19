@@ -348,6 +348,70 @@ button:hover {
   color: var(--ink-soft);
 }
 
+/* Admin */
+.admin-section {
+  margin-top: 2.5rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--rule);
+  max-width: 46rem;
+}
+
+.admin-section h2 {
+  font-size: 1.1rem;
+  margin: 0 0 1rem;
+}
+
+.admin-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.admin-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rule);
+  flex-wrap: wrap;
+}
+
+.muted {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+.hint {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  margin: -0.4rem 0 0;
+}
+
+.issued {
+  max-width: 46rem;
+}
+
+.issued p {
+  margin: 0 0 0.75rem;
+}
+
+/* Monospace and generously spaced: this gets read aloud or retyped. */
+.one-time {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.25rem;
+  letter-spacing: 0.12em;
+  padding: 0.75rem 1rem;
+  margin: 0 0 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 /* Footer */
 .footer {
   max-width: var(--max);

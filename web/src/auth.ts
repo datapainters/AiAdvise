@@ -14,6 +14,12 @@ export interface User {
   name: string;
   role: 'CLIENT' | 'ADMIN';
   clientId: number | null;
+  /**
+   * True until a user issued a one-time password has chosen their own. The
+   * server backs this up: such a token carries no CLIENT or ADMIN authority,
+   * so skipping the prompt gets 403 on everything but the change itself.
+   */
+  mustChangePassword: boolean;
 }
 
 export function getToken(): string | null {

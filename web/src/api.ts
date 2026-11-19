@@ -121,3 +121,104 @@ export function updateTopicStatus(id: number, status: Topic['status']): Promise<
     body: JSON.stringify({ status }),
   });
 }
+
+/**
+ * Changes the signed-in user's password and swaps in the token that comes
+ * back. The old token may carry only PASSWORD_RESET, so storing the new one is
+ * what actually unlocks the rest of the portal.
+ *
+ * Like login(), this bypasses request(): a wrong current password is a 401
+ * that must not clear the session and bounce the user to the sign-in page --
+ * they are already signed in, they just mistyped.
+ */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<User> {
+  const token = getToken();
+
+  const response = await fetch(`${BASE_URL}/api/auth/password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+
+  if (response.status === 401) {
+    throw new Error('Current password is not correct.');
+  }
+  if (response.status === 400) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? 'That password was rejected.');
+  }
+  if (!response.ok) {
+    throw new Error(`Could not change password (${response.status}).`);
+  }
+
+  const body = (await response.json()) as LoginResponse;
+  setToken(body.token);
+  return body.user;
+}
+
+/* ------------------------------------------------------------------ admin */
+
+export interface Client {
+  id: number;
+  name: string;
+  primaryEmail: string;
+  createdAt: string;
+}
+
+export interface AdminUser {
+  id: number;
+  clientId: number | null;
+  email: string;
+  displayName: string;
+  role: 'CLIENT' | 'ADMIN';
+  enabled: boolean;
+  lastLoginAt: string | null;
+}
+
+export interface CreatedUser {
+  user: AdminUser;
+  /** Shown once and never retrievable again. */
+  oneTimePassword: string;
+}
+
+export function listClients(): Promise<Client[]> {
+  return request<Client[]>('/api/admin/clients');
+}
+
+export function createClient(input: { name: string; primaryEmail: string }): Promise<Client> {
+  return request<Client>('/api/admin/clients', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function createEngagement(input: {
+  clientId: number;
+  title: string;
+}): Promise<Engagement> {
+  return request<Engagement>('/api/admin/engagements', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function listUsers(): Promise<AdminUser[]> {
+  return request<AdminUser[]>('/api/admin/users');
+}
+
+export function createUser(input: {
+  clientId: number;
+  email: string;
+  displayName: string;
+}): Promise<CreatedUser> {
+  return request<CreatedUser>('/api/admin/users', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}

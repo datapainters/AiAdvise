@@ -14,15 +14,18 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
 
     private final AuthService auth;
+    private final AppUserRepository users;
 
-    public AuthController(AuthService auth) {
+    public AuthController(AuthService auth, AppUserRepository users) {
         this.auth = auth;
+        this.users = users;
     }
 
     public record LoginRequest(
@@ -31,13 +34,18 @@ public class AuthController {
 
     public record LoginResponse(String token, Instant expiresAt, UserView user) {}
 
-    public record UserView(Long id, String email, String name, String role, Long clientId) {
+    public record UserView(Long id, String email, String name, String role, Long clientId,
+            boolean mustChangePassword) {
 
         static UserView of(AppUser u) {
             return new UserView(u.getId(), u.getEmail(), u.getDisplayName(),
-                    u.getRole(), u.getClientId());
+                    u.getRole(), u.getClientId(), u.isMustChangePassword());
         }
     }
+
+    public record ChangePasswordRequest(
+            @NotBlank String currentPassword,
+            @NotBlank String newPassword) {}
 
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
@@ -55,16 +63,46 @@ public class AuthController {
      */
     @GetMapping("/me")
     public UserView me(@AuthenticationPrincipal Jwt jwt) {
-        Long clientId = jwt.getClaim("cid") == null
-                ? null
-                : ((Number) jwt.getClaim("cid")).longValue();
+        // Read the user rather than echoing the token. A token is valid for
+        // 12 hours, so claims go stale: an account disabled or a password
+        // changed after issue would otherwise go unnoticed until expiry.
+        CurrentUser caller = CurrentUser.from(jwt);
 
-        return new UserView(
-                Long.valueOf(jwt.getSubject()),
-                jwt.getClaimAsString("email"),
-                jwt.getClaimAsString("name"),
-                jwt.getClaimAsString("role"),
-                clientId);
+        AppUser user = users.findById(caller.id())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+
+        if (!user.isEnabled()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Account disabled");
+        }
+
+        return UserView.of(user);
+    }
+
+    /**
+     * Returns a replacement token on success. The caller's old one may carry
+     * only {@code PASSWORD_RESET}, and tokens cannot be revoked, so the new
+     * one is the only way out of the forced-reset state without logging in
+     * again.
+     */
+    @PostMapping("/password")
+    public LoginResponse changePassword(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody ChangePasswordRequest request) {
+
+        AppUser user = auth.changePassword(
+                CurrentUser.from(jwt).id(), request.currentPassword(), request.newPassword());
+
+        return new LoginResponse(
+                auth.issueToken(user),
+                Instant.now().plus(AuthService.TOKEN_LIFETIME),
+                UserView.of(user));
+    }
+
+    /** Password rule violations are the caller's to fix, so say what is wrong. */
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public AuthError handleInvalidPassword(IllegalArgumentException e) {
+        return new AuthError(e.getMessage());
     }
 
     public record AuthError(String error) {}

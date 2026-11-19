@@ -9,13 +9,22 @@ import {
 } from 'react';
 import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import {
+  changePassword as apiChangePassword,
+  createClient,
+  createEngagement,
   createTopic,
+  createUser,
+  listClients,
   listEngagements,
   listTopics,
+  listUsers,
   login as apiLogin,
   me,
   updateTopicStatus,
   Unauthorized,
+  type AdminUser,
+  type Client,
+  type CreatedUser,
   type Engagement,
   type Topic,
 } from './api';
@@ -72,7 +81,20 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const { user, ready } = useAuth();
   if (!ready) return <main className="page"><p>Loading...</p></main>;
   if (!user) return <Navigate to="/login" replace />;
+  // A one-time password gets you exactly one screen. This redirect is the
+  // courtesy; the server's refusal to honour a reset-pending token anywhere
+  // else is the enforcement.
+  if (user.mustChangePassword) return <Navigate to="/change-password" replace />;
   return <>{children}</>;
+}
+
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  return (
+    <RequireAuth>
+      {user?.role === 'ADMIN' ? children : <Navigate to="/portal" replace />}
+    </RequireAuth>
+  );
 }
 
 /* ------------------------------------------------------------------ chrome */
@@ -88,6 +110,8 @@ function Nav() {
       <div className="nav-links">
         <Link to="/approach">Approach</Link>
         <Link to="/portal">Client portal</Link>
+        {user?.role === 'ADMIN' && <Link to="/admin">Admin</Link>}
+        {user && !user.mustChangePassword && <Link to="/account">Account</Link>}
         {user && (
           <button className="linklike" onClick={signOut}>
             Sign out
@@ -362,6 +386,356 @@ function Portal() {
   );
 }
 
+const MIN_PASSWORD_LENGTH = 12;
+
+/**
+ * Serves two jobs: the forced change after a one-time password, and a normal
+ * voluntary change from the Account link. The only difference is the copy and
+ * whether leaving is an option.
+ */
+function ChangePassword({ forced }: { forced: boolean }) {
+  const { user, ready, setUser } = useAuth();
+  const navigate = useNavigate();
+
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  if (!ready) return <main className="page"><p>Loading...</p></main>;
+  if (!user) return <Navigate to="/login" replace />;
+  // Nothing to force once it is done; don't trap people on this page.
+  if (forced && !user.mustChangePassword) return <Navigate to="/portal" replace />;
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (next !== confirm) {
+      setError('The two new passwords do not match.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await apiChangePassword(current, next);
+      setUser(updated);
+      setDone(true);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      if (forced) navigate('/portal', { replace: true });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="page narrow">
+      <h1>{forced ? 'Choose a password' : 'Change password'}</h1>
+      <p className="lede">
+        {forced
+          ? 'Your account was set up with a one-time password. Pick your own to continue.'
+          : 'Signed in as ' + user.email + '.'}
+      </p>
+
+      {error && <div className="error">{error}</div>}
+      {done && !forced && <div className="notice">Password changed.</div>}
+
+      <form onSubmit={onSubmit} className="stack-form">
+        <label>
+          {forced ? 'One-time password' : 'Current password'}
+          <input
+            type="password"
+            value={current}
+            autoComplete="current-password"
+            required
+            onChange={(e) => setCurrent(e.target.value)}
+          />
+        </label>
+        <label>
+          New password
+          <input
+            type="password"
+            value={next}
+            autoComplete="new-password"
+            minLength={MIN_PASSWORD_LENGTH}
+            required
+            onChange={(e) => setNext(e.target.value)}
+          />
+        </label>
+        <label>
+          Confirm new password
+          <input
+            type="password"
+            value={confirm}
+            autoComplete="new-password"
+            minLength={MIN_PASSWORD_LENGTH}
+            required
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </label>
+        <p className="hint">At least {MIN_PASSWORD_LENGTH} characters.</p>
+        <button type="submit" disabled={busy}>
+          {busy ? 'Saving...' : 'Save password'}
+        </button>
+      </form>
+    </main>
+  );
+}
+
+/* ------------------------------------------------------------------ admin */
+
+function Admin() {
+  const { signOut } = useAuth();
+
+  const [clients, setClients] = useState<Client[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Shown once, after a create. There is no way to get it back, so it stays on
+  // screen until the admin dismisses it rather than clearing on the next render.
+  const [issued, setIssued] = useState<CreatedUser | null>(null);
+
+  const [clientName, setClientName] = useState('');
+  const [clientEmail, setClientEmail] = useState('');
+  const [engClient, setEngClient] = useState('');
+  const [engTitle, setEngTitle] = useState('');
+  const [userClient, setUserClient] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [userName, setUserName] = useState('');
+
+  const onError = useCallback(
+    (e: unknown) => {
+      if (e instanceof Unauthorized) {
+        signOut();
+        return;
+      }
+      setError((e as Error).message);
+    },
+    [signOut],
+  );
+
+  const reload = useCallback(() => {
+    return Promise.all([listClients(), listUsers()])
+      .then(([c, u]) => {
+        setClients(c);
+        setUsers(u);
+      })
+      .catch(onError);
+  }, [onError]);
+
+  useEffect(() => {
+    reload().finally(() => setLoading(false));
+  }, [reload]);
+
+  async function onCreateClient(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      const created = await createClient({
+        name: clientName.trim(),
+        primaryEmail: clientEmail.trim(),
+      });
+      setClients((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setClientName('');
+      setClientEmail('');
+    } catch (err) {
+      onError(err);
+    }
+  }
+
+  async function onCreateEngagement(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      await createEngagement({ clientId: Number(engClient), title: engTitle.trim() });
+      setEngTitle('');
+    } catch (err) {
+      onError(err);
+    }
+  }
+
+  async function onCreateUser(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      const created = await createUser({
+        clientId: Number(userClient),
+        email: userEmail.trim(),
+        displayName: userName.trim(),
+      });
+      setIssued(created);
+      setUsers((prev) => [...prev, created.user]);
+      setUserEmail('');
+      setUserName('');
+    } catch (err) {
+      onError(err);
+    }
+  }
+
+  if (loading) {
+    return <main className="page"><p>Loading...</p></main>;
+  }
+
+  const clientName_ = (id: number | null) =>
+    id === null ? '--' : (clients.find((c) => c.id === id)?.name ?? `#${id}`);
+
+  return (
+    <main className="page">
+      <h1>Admin</h1>
+      <p className="lede">Clients, engagements, and portal logins.</p>
+
+      {error && <div className="error">{error}</div>}
+
+      {issued && (
+        <div className="notice issued">
+          <p>
+            <strong>{issued.user.email}</strong> can now sign in with this one-time
+            password. It is not stored anywhere readable and cannot be shown again --
+            send it now, by a channel other than the email address above where you can.
+          </p>
+          <code className="one-time">{issued.oneTimePassword}</code>
+          <p>They will be asked to choose their own password at first sign-in.</p>
+          <button onClick={() => setIssued(null)}>Done</button>
+        </div>
+      )}
+
+      <section className="admin-section">
+        <h2>New client</h2>
+        <form onSubmit={onCreateClient} className="stack-form">
+          <label>
+            Company name
+            <input value={clientName} required onChange={(e) => setClientName(e.target.value)} />
+          </label>
+          <label>
+            Primary email
+            <input
+              type="email"
+              value={clientEmail}
+              required
+              onChange={(e) => setClientEmail(e.target.value)}
+            />
+          </label>
+          <button type="submit">Create client</button>
+        </form>
+      </section>
+
+      {clients.length === 0 ? (
+        <p className="empty">No clients yet. Create one to open an engagement.</p>
+      ) : (
+        <>
+          <section className="admin-section">
+            <h2>Open an engagement</h2>
+            <form onSubmit={onCreateEngagement} className="stack-form">
+              <label>
+                Client
+                <select
+                  value={engClient}
+                  required
+                  onChange={(e) => setEngClient(e.target.value)}
+                >
+                  <option value="">Select...</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Title
+                <input
+                  value={engTitle}
+                  required
+                  placeholder="AI readiness assessment"
+                  onChange={(e) => setEngTitle(e.target.value)}
+                />
+              </label>
+              <button type="submit">Open engagement</button>
+            </form>
+          </section>
+
+          <section className="admin-section">
+            <h2>New portal login</h2>
+            <form onSubmit={onCreateUser} className="stack-form">
+              <label>
+                Client
+                <select
+                  value={userClient}
+                  required
+                  onChange={(e) => setUserClient(e.target.value)}
+                >
+                  <option value="">Select...</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Name
+                <input value={userName} required onChange={(e) => setUserName(e.target.value)} />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={userEmail}
+                  required
+                  onChange={(e) => setUserEmail(e.target.value)}
+                />
+              </label>
+              <button type="submit">Create login</button>
+            </form>
+          </section>
+        </>
+      )}
+
+      <section className="admin-section">
+        <h2>Clients</h2>
+        {clients.length === 0 ? (
+          <p className="empty">None.</p>
+        ) : (
+          <ul className="admin-list">
+            {clients.map((c) => (
+              <li key={c.id}>
+                <span className="topic-title">{c.name}</span>
+                <span className="muted">{c.primaryEmail}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="admin-section">
+        <h2>Logins</h2>
+        <ul className="admin-list">
+          {users.map((u) => (
+            <li key={u.id}>
+              <span className={`status status-${u.enabled ? 'scheduled' : 'dropped'}`}>
+                {u.role.toLowerCase()}
+              </span>
+              <span className="topic-title">{u.displayName}</span>
+              <span className="muted">{u.email}</span>
+              <span className="muted">{clientName_(u.clientId)}</span>
+              <span className="muted">
+                {u.lastLoginAt
+                  ? new Date(u.lastLoginAt).toLocaleDateString()
+                  : 'never signed in'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </main>
+  );
+}
+
 /* ------------------------------------------------------------------ shell */
 
 export default function App() {
@@ -373,12 +747,25 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/approach" element={<Approach />} />
           <Route path="/login" element={<Login />} />
+          {/* Not wrapped in RequireAuth: that would bounce straight back
+              here, since the whole point is that this user must change
+              their password before anything else. */}
+          <Route path="/change-password" element={<ChangePassword forced />} />
+          <Route path="/account" element={<ChangePassword forced={false} />} />
           <Route
             path="/portal"
             element={
               <RequireAuth>
                 <Portal />
               </RequireAuth>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <RequireAdmin>
+                <Admin />
+              </RequireAdmin>
             }
           />
           <Route path="*" element={<main className="page"><h1>Not found</h1></main>} />

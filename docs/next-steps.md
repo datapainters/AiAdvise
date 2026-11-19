@@ -17,9 +17,9 @@ Ordered by what would hurt most if left undone.
 >    `Admins` group denying actions when `aws:MultiFactorAuthPresent` is
 >    false. Do this only after confirming MFA works, since a mistake locks
 >    every admin out at once.
-> 3. **Change the portal admin password.** The bootstrap password was read
->    out of Secrets Manager and shared in a chat transcript. It needs the
->    change-password flow (below) to exist first.
+> 3. ~~**Change the portal admin password.**~~ Handled 2026-11-18: the
+>    change-password flow exists and `V3__password_change.sql` forces the
+>    change at the admin's next sign-in. Nothing left to do but sign in.
 > 4. **Remove `noindex`** from `web/index.html` when the site should start
 >    being found, and not before.
 > 5. **Revisit the deploy role.** It still carries `PowerUserAccess` plus a
@@ -47,34 +47,52 @@ Remaining: switch day-to-day work to `wes` and stop using root. The AWS
 connector used for this project authenticates as root, so it would need
 reconnecting as `wes` to follow suit.
 
-## 1. Admin flows — clients, engagements and users (now the blocker)
+## 1. Admin flows — clients, engagements and users — done 2026-11-18
 
-Authentication is done: users live in Postgres, tokens are HS256 signed
-with a key from Secrets Manager, and every read and write derives its
-engagement from the verified token rather than a request parameter.
+Built this increment:
 
-What is missing is any way to *create* the things it authorizes. There are
-no clients, no engagements, and no client users, so an admin signs in to an
-empty portal and the write path has nothing valid to reference. Next
-increment, roughly in order: admin endpoints to create a client, open an
-engagement against it, and invite a user to that client; then the
-corresponding screens behind a `ROLE_ADMIN` check.
+- `POST /api/admin/clients`, `GET /api/admin/clients`
+- `POST /api/admin/engagements`
+- `POST /api/admin/users`, `GET /api/admin/users`
+- An `/admin` screen behind a `ROLE_ADMIN` check: create a client, open an
+  engagement against it, issue a portal login, and see every client and
+  login with last-sign-in.
 
-Worth deciding at the same time: how a client user first sets their
-password. An invite token mailed to them is the usual answer, and it needs
-somewhere to send mail from — `datapainters.com` already has Zoho,
-so that is probably the path of least resistance.
+The whole `/api/admin/**` path is gated in the filter chain rather than
+per method, so a missed annotation cannot quietly open an endpoint.
 
-## 1b. Change password
+**How a client user first sets their password.** Decided against mailed
+invite tokens for now: they need a mail sender, a token table, expiry, and
+a resend path, and none of that earns its keep for the first few users. An
+admin creates the login, the system shows a 16-character one-time password
+exactly once, and the user is forced to change it at first sign-in. The
+handoff is manual and deliberately so. Mailed invites can replace the
+handoff later without touching the model — the forced-change machinery is
+the part that would have had to be built either way.
 
-There is no way to change a password once set. The bootstrap admin
-credential is therefore fixed, and it has been through a chat transcript.
-A `POST /api/auth/password` taking the current and new password, plus a
-small form, is the smallest useful piece of work in this document and
-unblocks item 3 of the production gate.
+The forced change is a real boundary, not a redirect. A user with
+`must_change_password` set is issued a token whose role claim is
+`PASSWORD_RESET` rather than `CLIENT` or `ADMIN`. It authenticates, so
+`/api/auth/me` and `/api/auth/password` work, but every other `/api/**`
+route requires a real role and rejects it. A one-time password therefore
+cannot read a single client record before it has been replaced. Changing
+the password returns a fresh token, since tokens are not revocable.
 
-Worth building alongside the admin flows above, since it is the same
-screens and the same authorization work.
+## 1b. Change password — done 2026-11-18
+
+`POST /api/auth/password` re-verifies the current password (a token can be
+lifted from a browser left open, and this is the action that would lock the
+real owner out), enforces a 12-character minimum, rejects reuse of the
+current password, and clears the forced-reset flag. Two front-end entry
+points, same component: `/change-password` for the forced case and
+`/account` for a voluntary change.
+
+`V3__password_change.sql` sets `must_change_password = true` on existing
+ADMIN rows, so **the bootstrap admin password is forced to change at the
+next sign-in** — which closes item 3 of the production gate on first use
+rather than needing a separate step. `AdminBootstrap` now sets the same
+flag on any admin it creates, so a fresh environment inherits the
+behaviour.
 
 ## 2. Collapse to a single origin
 

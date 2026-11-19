@@ -42,6 +42,16 @@ public class SecurityConfig {
                         // The load balancer polls these and cannot hold a token.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/**").hasAuthority("ROLE_ADMIN")
+                        // Reachable with any valid token, including one that
+                        // carries only ROLE_PASSWORD_RESET -- otherwise a user
+                        // forced to change their password could not do it.
+                        .requestMatchers("/api/auth/**").authenticated()
+                        .requestMatchers("/api/admin/**").hasAuthority("ROLE_ADMIN")
+                        // Everything else needs a real role. This is what
+                        // confines a pending-reset token to /api/auth: it
+                        // authenticates but holds neither authority below.
+                        .requestMatchers("/api/**")
+                        .hasAnyAuthority("ROLE_CLIENT", "ROLE_ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));

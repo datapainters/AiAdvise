@@ -2,6 +2,29 @@
 
 Ordered by what would hurt most if left undone.
 
+> ## ⚠ Production readiness gate
+>
+> Deliberately deferred while this is pre-production and Wes is the only
+> admin. **Do these before standing up the production environment**, not
+> after:
+>
+> 1. **MFA on the `wes` IAM user.** It holds `AdministratorAccess` through
+>    the `Admins` group and is currently reachable with a password alone.
+>    Acceptable for a single-operator sandbox; not acceptable once there is
+>    client data, a second admin, or anything a client would ask about.
+>    IAM → Users → `wes` → Security credentials → Assign MFA device.
+> 2. **Consider enforcing MFA structurally** once it works: a policy on the
+>    `Admins` group denying actions when `aws:MultiFactorAuthPresent` is
+>    false. Do this only after confirming MFA works, since a mistake locks
+>    every admin out at once.
+> 3. **Change the portal admin password.** The bootstrap password was read
+>    out of Secrets Manager and shared in a chat transcript. It needs the
+>    change-password flow (below) to exist first.
+> 4. **Remove `noindex`** from `web/index.html` when the site should start
+>    being found, and not before.
+> 5. **Revisit the deploy role.** It still carries `PowerUserAccess` plus a
+>    scoped IAM grant, which was right while the resource set was moving.
+
 ## 0. Account access — mostly done 2026-11-18
 
 Audited and acted on:
@@ -10,26 +33,17 @@ Audited and acted on:
 - **Root access keys**: none exist. Nothing to delete, and the connector
   does not authenticate with them.
 - **`marley`** (IAM user, created 2021-08-31, from the previous business):
-  member of the `Admins` group, which grants `AdministratorAccess`, with no
-  MFA and an access key that had **never been used in five years**. That key
-  is now `Inactive`. A dormant full-admin credential with no MFA is pure
-  attack surface, so deactivating it removes risk without removing anything
-  anyone relies on.
+  held `AdministratorAccess` via the `Admins` group, with no MFA, an access
+  key never used in five years, **and console login still enabled**. The key
+  was the visible problem; the unused admin console password was arguably
+  the worse one. **Deleted** on 2026-11-18 — key, login profile, policy,
+  group membership and user. `wes` is now the only IAM user.
 - **`wes`**: created, added to `Admins`, console access with a one-time
   password in Secrets Manager at `admin/wes-initial-console-password`,
-  forced reset at first sign-in.
+  forced reset at first sign-in. **MFA deliberately deferred** to the
+  production gate above.
 
-Still outstanding, and both need a human at a console:
-
-1. **Add MFA to `wes`** immediately after first sign-in. An admin user with
-   a password and no MFA is roughly what made `marley` a problem.
-2. **Decide `marley`'s fate.** Deactivating the key was the reversible step.
-   If the previous business is wound up, delete the key, the login profile
-   and the user. If anything still depends on it, give it MFA and rotate the
-   key instead. Leaving it dormant-but-present is the one option with no
-   upside.
-
-Then switch day-to-day work to `wes` and stop using root. Note that the AWS
+Remaining: switch day-to-day work to `wes` and stop using root. The AWS
 connector used for this project authenticates as root, so it would need
 reconnecting as `wes` to follow suit.
 

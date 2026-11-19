@@ -65,28 +65,16 @@ password. An invite token mailed to them is the usual answer, and it needs
 somewhere to send mail from — `datapainters.com` already has Zoho,
 so that is probably the path of least resistance.
 
-## 1b. Old authentication notes (kept for context)
+## 1b. Change password
 
-`TopicController` accepts an `engagementId` from the caller and trusts it.
-Any client who can reach the API can read and modify any other client's
-topics. The portal is unusable with real engagements until this is fixed.
+There is no way to change a password once set. The bootstrap admin
+credential is therefore fixed, and it has been through a chat transcript.
+A `POST /api/auth/password` taking the current and new password, plus a
+small form, is the smallest useful piece of work in this document and
+unblocks item 3 of the production gate.
 
-Three options, cheapest first:
-
-- **Cognito user pool.** Hosted sign-in and JWT issuance, free below 50k
-  monthly active users, and it integrates with Spring Security as a standard
-  OAuth2 resource server. Least code, and the right default for a handful of
-  client logins.
-- **Spring Security with a local user table.** No new AWS service, full
-  control over the invite flow, but you own password reset, session handling
-  and the inevitable MFA request.
-- **An OIDC provider** (Auth0, WorkOS). Fastest to a polished invite and SSO
-  story, and enterprise clients increasingly ask for SAML. Costs real money
-  per month.
-
-Whichever you pick, the fix in the API is the same shape: derive the
-engagement from the authenticated principal rather than the request body, and
-add a `client_user` table joining a subject identifier to an engagement.
+Worth building alongside the admin flows above, since it is the same
+screens and the same authorization work.
 
 ## 2. Collapse to a single origin
 
@@ -114,17 +102,22 @@ provider, or move to IAM database authentication and drop the stored password
 entirely. IAM auth is the better end state and removes a secret from the
 system.
 
-## 4. Drop the NAT gateway
+## 4. Drop the NAT gateway — now probably free money
 
-At roughly $33/month plus data processing it is the largest fixed line item
-after the database. It exists so Fargate tasks can reach ECR, Secrets Manager
-and CloudWatch. Interface VPC endpoints for those three services cost about
-$7/month each per AZ, so with one AZ the arithmetic is close to neutral — but
-removing the NAT also removes the only route from the private subnets to the
-open internet, which is a security improvement worth having on its own.
+This changed when the API moved to public subnets. The NAT existed so
+Fargate tasks in private subnets could reach ECR, Secrets Manager and
+CloudWatch. Those tasks are now in public subnets and egress straight
+through the internet gateway, and the only thing left in the private
+subnets is RDS, which makes no outbound calls.
 
-Check first whether the application makes any outbound calls (model APIs,
-webhooks, SMTP) that would break.
+So the NAT gateway is most likely serving nothing at roughly $33/month
+plus data processing. Confirm nothing else routes through it, then remove
+it. Note the EKS lab module does place its nodes in the private subnets,
+so either restore the NAT or give that module VPC endpoints before
+enabling it for a demo.
+
+No interface endpoints needed in the meantime, which is what made this
+roughly cost-neutral before and makes it a clear saving now.
 
 ## 5. Observability beyond CloudWatch
 

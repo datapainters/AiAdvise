@@ -409,6 +409,14 @@ resource "aws_ecs_express_gateway_service" "api" {
     # indefinitely. Pointing it here puts logs under the retention policy.
     aws_logs_configuration {
       log_group = aws_cloudwatch_log_group.api.name
+
+      # The provider documents log_stream_prefix as optional, but
+      # UpdateExpressGatewayService rejects the call without it:
+      #   missing required field,
+      #   UpdateExpressGatewayServiceInput.PrimaryContainer
+      #     .AwsLogsConfiguration.LogStreamPrefix
+      # Omitting it plans as a removal, which fails every apply. Keep it.
+      log_stream_prefix = "ecs"
     }
 
     dynamic "environment" {

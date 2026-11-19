@@ -189,6 +189,26 @@ healthy, and failing a task over a secret read would turn a recoverable
 condition into an outage. Details are `when-authorized` because the load
 balancer polls that endpoint unauthenticated.
 
+### Verified live, 2026-11-19
+
+Not assumed — forced a real rotation with
+`modify-db-instance --rotate-master-user-password --apply-immediately`,
+which is the same operation RDS runs on its own schedule:
+
+- The password in the managed secret genuinely changed.
+- `17:09:00  DbCredentialRefresher : Database credential in ...:*** has
+  changed; verifying before applying`
+- `17:09:00  DbCredentialRefresher : Applied rotated database credential for
+  user advisory_app and evicted the connections holding the previous one`
+- Zero probe failures, zero authentication failures on the healthy task,
+  zero ERROR lines in the window, service steady at 1/1 with a healthy
+  target.
+
+The authentication failures visible in CloudWatch between 16:51 and 17:08:35
+are the *previous* task, which was holding the pre-transition password while
+it drained. They stop when it does, and they are the thing this change
+exists to prevent recurring.
+
 ### What this costs
 
 - **No read replicas.** You cannot create one while credentials are managed
@@ -270,3 +290,26 @@ generated from the access advisor data for the role.
 Moot: the EKS lab module is removed and no chart was ever written. A demo
 cluster will be stood up separately if an engagement calls for one. See
 ADR 0001, update 2026-11-19, for what was kept to make that easy.
+
+## 8. Deploys kill a task on ELB health checks every time
+
+Noticed while verifying section 3, not caused by it. Every deploy today left
+a task stopped with `Task failed ELB health checks`, across task definition
+revisions 12 through 15 — including deploys that completed successfully and
+passed their smoke test. The pattern is consistent: a task runs fine for
+roughly eight minutes, logs no application errors at all, then gets a
+graceful shutdown.
+
+The service ends up healthy and steady each time, so this is not currently
+breaking anything, which is exactly why it is worth writing down before it
+is load-bearing. Express Mode runs two taskSets and two target groups during
+a rollout and drains the old one, so some of this is normal blue/green
+churn being reported in alarming language. But eight minutes is a strange
+number for that, and the health check is `/actuator/health/readiness` with
+`healthy_threshold: 5` at a 30-second interval — 150 seconds of consecutive
+passes against an application that takes ~51 seconds to boot.
+
+Worth an hour with target-group health-check history to find out whether
+tasks are actually flapping or ECS is just narrating a normal drain badly.
+If they are flapping, deploys are slower and less reliable than they look,
+and the first real symptom will be a deploy that does not converge.

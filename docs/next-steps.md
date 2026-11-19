@@ -130,17 +130,87 @@ service, point a Route 53 record at it, then add it as a second origin with
 an `/api/*` cache behaviour using the managed `CachingDisabled` and
 `AllViewerExceptHostHeader` policies.
 
-## 3. Secret rotation
+## 3. Secret rotation — done 2026-11-19
 
-`DataSourceConfig` reads the RDS credentials once at startup. If RDS-managed
-rotation is enabled, the service keeps using the old password and starts
-failing authentication one rotation period after deploy — a failure that
-looks like a database outage and is not.
+`DataSourceConfig` used to read the RDS credentials once at startup. With
+rotation enabled, the service would have kept presenting the startup password
+and begun failing authentication one rotation period later — a failure that
+looks exactly like a database outage and is not one.
 
-Fix before enabling rotation: wrap credential retrieval in a refreshing
-provider, or move to IAM database authentication and drop the stored password
-entirely. IAM auth is the better end state and removes a secret from the
-system.
+**RDS now owns the master password** (`manage_master_user_password = true`)
+and rotates it in Secrets Manager every seven days by default. This is
+*managed* rotation, which uses no Lambda. That mattered: a Secrets Manager
+rotation Lambda has to run inside the VPC to reach Postgres, and with the NAT
+gateway gone (section 4) that would have meant adding a Secrets Manager
+interface endpoint at roughly $7/month per AZ in order to rotate one
+password. Managed rotation needs neither.
+
+The hand-rolled `advisory/database` secret is gone. It held a generated
+password plus a `jdbc_url`, and the moment RDS took over the password the
+copy in it became both wrong and misleading. The managed secret holds
+username and password only; host, port and database name now arrive as plain
+environment variables. That split is deliberate — a rotation then changes
+only the credential, never the connection target.
+
+### The part that would have silently failed
+
+HikariCP can change a pool's password at runtime via
+`HikariConfigMXBean.setPassword`, but its contract is narrow: the change
+applies to new connections only, and it **only works for DataSource-based
+pools, not for Driver-class or JDBC URL-based ones**. This pool was built
+with `setJdbcUrl` — precisely the case where a runtime password change is
+accepted and then ignored. Wiring the refresher against it would have
+compiled, logged success, and failed a week later.
+
+So the pool is now built around an explicit `PGSimpleDataSource`. The
+Postgres driver also had to move from `runtime` to compile scope, since the
+code now names the driver's DataSource class.
+
+### Probe before apply
+
+`DbCredentialRefresher` polls the secret every 60 seconds. The obvious
+implementation — read, `setPassword`, evict — has a nasty failure mode: a
+secret read midway through a rotation would evict working connections and
+replace them with ones that cannot authenticate. Instead a candidate
+password is opened as a real connection first, and applied only if that
+succeeds. A failed probe changes nothing and retries on the next tick.
+
+Residual exposure is about one minute: if RDS changes the password at the
+worst moment, *new* physical connections can fail until the next poll.
+Existing ones are unaffected, because Postgres does not invalidate live
+sessions when a role's password changes. `maxLifetime` of 10 minutes is the
+backstop — the pool fully turns over far inside a seven-day period even if
+the refresher never fired.
+
+Refresh state is exposed in `/actuator/health` details, so a quietly stuck
+rotation is visible before the pool next needs a connection. Health stays UP
+on a failed refresh: while the current credential still works the service is
+healthy, and failing a task over a secret read would turn a recoverable
+condition into an outage. Details are `when-authorized` because the load
+balancer polls that endpoint unauthenticated.
+
+### What this costs
+
+- **No read replicas.** You cannot create one while credentials are managed
+  this way (every engine except SQL Server and Db2). None exist or are
+  planned on a db.t4g.small. If one is needed, turn
+  `manage_master_user_password` off first.
+- **`apply_immediately = true`** on the instance now. Deliberate: the
+  alternative is changes landing in the Sunday 09:30 maintenance window, so
+  breakage would happen when nobody is watching instead of during a deploy
+  someone is.
+- **Deleting the instance deletes the managed secret.** Nothing orphaned,
+  and nothing to recover it from either.
+
+### Still worth doing
+
+- The app connects as the **master user**. A least-privilege application role
+  would be better, and is a prerequisite for IAM database authentication,
+  which would remove the stored password entirely. The ordering is awkward —
+  creating an IAM-authenticated role requires connecting as master — so it
+  wants its own change rather than riding along with this one.
+- `sslMode` is `require`, which encrypts but does not verify the server
+  certificate. `verify-full` needs the RDS CA bundle in the image.
 
 ## 4. Drop the NAT gateway — done 2026-11-19
 

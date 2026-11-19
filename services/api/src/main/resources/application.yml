@@ -34,7 +34,14 @@ management:
     health:
       probes:
         enabled: true
-      show-details: never
+      # The load balancer polls /actuator/health unauthenticated, so details
+      # must not be public. when-authorized keeps them hidden from anonymous
+      # callers while letting a signed-in admin see the credential-refresh
+      # state -- a rotation that has quietly stopped working is otherwise
+      # invisible until the pool next needs a connection. If the role name
+      # below ever stops matching, the only consequence is hidden details.
+      show-details: when-authorized
+      roles: ADMIN
   health:
     livenessstate:
       enabled: true

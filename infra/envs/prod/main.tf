@@ -186,9 +186,17 @@ module "api" {
 
   environment = {
     SPRING_PROFILES_ACTIVE = "prod"
-    DB_SECRET_ARN          = module.database.secret_arn
-    AWS_REGION             = var.region
-    CORS_ALLOWED_ORIGINS   = join(",", [for n in concat([var.domain_name], var.subject_alternative_names) : "https://${n}"])
+
+    # The managed secret holds username and password only, so the rest of the
+    # connection details come through here. They are not secret, and keeping
+    # them out of the secret means a rotation changes only the credential.
+    DB_SECRET_ARN = module.database.secret_arn
+    DB_HOST       = module.database.host
+    DB_PORT       = tostring(module.database.port)
+    DB_NAME       = module.database.dbname
+
+    AWS_REGION           = var.region
+    CORS_ALLOWED_ORIGINS = join(",", [for n in concat([var.domain_name], var.subject_alternative_names) : "https://${n}"])
   }
 }
 

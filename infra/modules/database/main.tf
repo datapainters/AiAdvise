@@ -1,10 +1,26 @@
 ###############################################################################
-# Database — single-AZ RDS PostgreSQL, password generated and stored in
-# Secrets Manager with automatic rotation left off until you need it.
+# Database — single-AZ RDS PostgreSQL with an RDS-managed master password.
 #
 # Deliberately NOT Aurora Serverless v2: its 0.5 ACU floor bills ~$44/month
 # before serving a single query, which is more than a db.t4g.small costs
 # outright. Revisit when traffic is spiky enough to justify it.
+#
+# Password management (changed 2026-11-19). RDS owns the master password and
+# rotates it in Secrets Manager on a schedule, every seven days by default.
+# This is "managed rotation": no Lambda is involved, which is what makes it
+# viable here -- a Secrets Manager rotation Lambda would have to run inside
+# the VPC to reach Postgres, and since the NAT gateway was removed that would
+# mean adding a Secrets Manager interface endpoint at roughly $7/month per AZ
+# to rotate one password.
+#
+# What this costs us: you cannot create a read replica of an instance whose
+# credentials are managed this way (true for every engine except SQL Server
+# and Db2). There are no read replicas and none planned on a db.t4g.small
+# serving a marketing site and a small portal. If one is ever needed, turn
+# manage_master_user_password off first, which hands the password back.
+#
+# Deleting the instance also deletes the managed secret, so there is no
+# orphaned credential to clean up -- and nothing to recover it from either.
 ###############################################################################
 
 terraform {
@@ -12,10 +28,6 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = ">= 6.23"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = ">= 3.6"
     }
   }
 }
@@ -84,13 +96,6 @@ resource "aws_security_group" "db" {
   tags = { Name = "${var.project}-db" }
 }
 
-resource "random_password" "db" {
-  length = 32
-  # RDS rejects several punctuation characters in master passwords; keep to
-  # a set that is known-safe rather than discovering it during apply.
-  override_special = "!#$%*()-_=+[]{}<>:?"
-}
-
 resource "aws_db_parameter_group" "this" {
   name   = "${var.project}-pg17"
   family = "postgres17"
@@ -126,8 +131,12 @@ resource "aws_db_instance" "this" {
 
   db_name  = var.db_name
   username = var.db_username
-  password = random_password.db.result
   port     = 5432
+
+  # RDS generates the master password, stores it in its own Secrets Manager
+  # secret and rotates it. `password` must be absent: the two are mutually
+  # exclusive.
+  manage_master_user_password = true
 
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [aws_security_group.db.id]
@@ -141,7 +150,13 @@ resource "aws_db_instance" "this" {
   copy_tags_to_snapshot   = true
 
   auto_minor_version_upgrade = true
-  apply_immediately          = false
+
+  # Deliberate. The alternative is that a change sits pending and lands in
+  # the Sunday 09:30 maintenance window, which means any breakage happens
+  # when nobody is watching rather than during a deploy someone is. On a
+  # single-AZ instance serving this little, seeing it now beats finding out
+  # later. Revisit if this ever carries traffic that minds a restart.
+  apply_immediately = true
 
   performance_insights_enabled          = true
   performance_insights_retention_period = 7
@@ -155,38 +170,44 @@ resource "aws_db_instance" "this" {
 }
 
 ###############################################################################
-# Connection details in Secrets Manager. The app reads this at boot; nothing
-# ever bakes a password into a task definition or an image.
+# Outputs.
+#
+# There is no hand-rolled secret here any more. The module used to generate a
+# password and write a JSON blob containing the connection string alongside
+# it; that secret is gone, because the moment RDS took over the password the
+# copy in it became both wrong and misleading.
+#
+# The consequence for consumers: the managed secret holds credentials ONLY.
+# Host, port and database name are not in it, so they are passed separately.
+# They are not secret -- the endpoint is in the console, the Terraform state
+# and this output -- and keeping them out of the secret is what lets the app
+# treat a credential change as a credential change rather than a reconnect.
 ###############################################################################
-
-resource "aws_secretsmanager_secret" "db" {
-  name        = "${var.project}/database"
-  description = "Postgres connection details for ${var.project}"
-}
-
-resource "aws_secretsmanager_secret_version" "db" {
-  secret_id = aws_secretsmanager_secret.db.id
-
-  secret_string = jsonencode({
-    username = aws_db_instance.this.username
-    password = random_password.db.result
-    host     = aws_db_instance.this.address
-    port     = aws_db_instance.this.port
-    dbname   = aws_db_instance.this.db_name
-    # Spring reads this directly as spring.datasource.url
-    jdbc_url = "jdbc:postgresql://${aws_db_instance.this.endpoint}/${aws_db_instance.this.db_name}"
-  })
-}
 
 output "security_group_id" {
   value = aws_security_group.db.id
 }
 
 output "secret_arn" {
-  description = "Secrets Manager ARN holding the connection details."
-  value       = aws_secretsmanager_secret.db.arn
+  description = <<-EOT
+    ARN of the RDS-managed master user secret. Contains username and
+    password, rotated by RDS. Nothing else.
+  EOT
+  value       = aws_db_instance.this.master_user_secret[0].secret_arn
 }
 
 output "endpoint" {
   value = aws_db_instance.this.endpoint
+}
+
+output "host" {
+  value = aws_db_instance.this.address
+}
+
+output "port" {
+  value = aws_db_instance.this.port
+}
+
+output "dbname" {
+  value = aws_db_instance.this.db_name
 }

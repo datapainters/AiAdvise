@@ -79,10 +79,15 @@
       <artifactId>flyway-database-postgresql</artifactId>
     </dependency>
 
+    <!-- Compile scope, not runtime. DataSourceConfig builds the pool around
+         a PGSimpleDataSource rather than a JDBC URL, because HikariCP only
+         honours a runtime password change for DataSource-based pools, and the
+         password rotates every seven days. Referencing the driver's
+         DataSource class directly means it has to be on the compile
+         classpath. -->
     <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
-      <scope>runtime</scope>
     </dependency>
 
     <!-- Reads the RDS credentials at boot. No password ever lands in the

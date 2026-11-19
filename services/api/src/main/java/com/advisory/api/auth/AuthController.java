@@ -1,5 +1,6 @@
 package com.advisory.api.auth;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -22,10 +23,12 @@ public class AuthController {
 
     private final AuthService auth;
     private final AppUserRepository users;
+    private final LoginAudit audit;
 
-    public AuthController(AuthService auth, AppUserRepository users) {
+    public AuthController(AuthService auth, AppUserRepository users, LoginAudit audit) {
         this.auth = auth;
         this.users = users;
+        this.audit = audit;
     }
 
     public record LoginRequest(
@@ -48,8 +51,22 @@ public class AuthController {
             @NotBlank String newPassword) {}
 
     @PostMapping("/login")
-    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
-        AppUser user = auth.authenticate(request.email(), request.password());
+    public LoginResponse login(
+            @Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+
+        AppUser user;
+        try {
+            user = auth.authenticate(request.email(), request.password());
+        } catch (AuthService.AuthenticationFailed e) {
+            // Recorded before rethrowing. A failed attempt is the half of the
+            // audit log that matters, and it is also the half that would be
+            // lost if this were left to the exception handler.
+            audit.record(LoginEvent.FAILURE, request.email(), null, http);
+            throw e;
+        }
+
+        audit.record(LoginEvent.SUCCESS, request.email(), user.getId(), http);
+
         return new LoginResponse(
                 auth.issueToken(user),
                 Instant.now().plus(AuthService.TOKEN_LIFETIME),
@@ -87,10 +104,13 @@ public class AuthController {
     @PostMapping("/password")
     public LoginResponse changePassword(
             @AuthenticationPrincipal Jwt jwt,
-            @Valid @RequestBody ChangePasswordRequest request) {
+            @Valid @RequestBody ChangePasswordRequest request,
+            HttpServletRequest http) {
 
         AppUser user = auth.changePassword(
                 CurrentUser.from(jwt).id(), request.currentPassword(), request.newPassword());
+
+        audit.record(LoginEvent.PASSWORD_CHANGE, user.getEmail(), user.getId(), http);
 
         return new LoginResponse(
                 auth.issueToken(user),

@@ -2,6 +2,8 @@ package com.advisory.api.admin;
 
 import com.advisory.api.auth.AppUser;
 import com.advisory.api.auth.AppUserRepository;
+import com.advisory.api.auth.LoginEvent;
+import com.advisory.api.auth.LoginEventRepository;
 import com.advisory.api.portal.Client;
 import com.advisory.api.portal.ClientRepository;
 import com.advisory.api.portal.Engagement;
@@ -19,6 +21,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +30,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -60,6 +64,7 @@ public class AdminController {
     private final ClientRepository clients;
     private final EngagementRepository engagements;
     private final AppUserRepository users;
+    private final LoginEventRepository loginEvents;
     private final PasswordEncoder passwordEncoder;
 
     /**
@@ -73,10 +78,12 @@ public class AdminController {
     private EntityManager em;
 
     public AdminController(ClientRepository clients, EngagementRepository engagements,
-            AppUserRepository users, PasswordEncoder passwordEncoder) {
+            AppUserRepository users, LoginEventRepository loginEvents,
+            PasswordEncoder passwordEncoder) {
         this.clients = clients;
         this.engagements = engagements;
         this.users = users;
+        this.loginEvents = loginEvents;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -132,6 +139,11 @@ public class AdminController {
             return new EngagementView(e.getId(), e.getClientId(), e.getTitle(),
                     e.getStatus(), e.getStartedOn());
         }
+    }
+
+    @GetMapping("/engagements")
+    public List<EngagementView> listEngagements() {
+        return engagements.findAll().stream().map(EngagementView::of).toList();
     }
 
     @PostMapping("/engagements")
@@ -210,6 +222,36 @@ public class AdminController {
     }
 
     /* -------------------------------------------------------------- helpers */
+
+    /* ------------------------------------------------- sign-in activity */
+
+    /**
+     * One recorded sign-in attempt. {@code emailTried} rather than a resolved
+     * name because a failed attempt may match no account at all, which is
+     * precisely the case worth seeing.
+     */
+    public record LoginEventView(Long id, Long userId, String emailTried, String outcome,
+            String ipAddress, String userAgent, Instant at) {
+
+        static LoginEventView of(LoginEvent e) {
+            return new LoginEventView(e.getId(), e.getUserId(), e.getEmailTried(),
+                    e.getOutcome(), e.getIpAddress(), e.getUserAgent(), e.getCreatedAt());
+        }
+    }
+
+    /** Hard ceiling on a page of audit rows, whatever the caller asks for. */
+    private static final int MAX_EVENTS = 500;
+
+    @GetMapping("/login-events")
+    public List<LoginEventView> listLoginEvents(
+            @RequestParam(defaultValue = "100") int limit) {
+
+        int capped = Math.min(Math.max(limit, 1), MAX_EVENTS);
+        return loginEvents.findAllByOrderByCreatedAtDesc(PageRequest.of(0, capped))
+                .stream().map(LoginEventView::of).toList();
+    }
+
+    /* -------------------------------------------------------------- errors */
 
     public record AdminError(String error) {}
 

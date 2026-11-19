@@ -54,9 +54,31 @@ Built this increment:
 - `POST /api/admin/clients`, `GET /api/admin/clients`
 - `POST /api/admin/engagements`
 - `POST /api/admin/users`, `GET /api/admin/users`
-- An `/admin` screen behind a `ROLE_ADMIN` check: create a client, open an
-  engagement against it, issue a portal login, and see every client and
-  login with last-sign-in.
+- `GET /api/admin/login-events` (capped at 500 a page)
+- An `/admin` screen behind a `ROLE_ADMIN` check, in three tabs: **Clients**
+  and **Engagements** are record grids with an Add New button each, and
+  **System** is a card grid of tools. Two tools so far: *Sign-in activity*
+  and *Portal logins*.
+
+The nav's last item is the signed-in user's name, opening Account and Sign
+out beneath it.
+
+**Sign-in activity** reads `login_event` (`V4`), an append-only log of
+attempts: who, when, outcome, source address and user agent. It records
+failures as well as successes, which is the half worth having, and
+`LoginAudit.record` runs in `REQUIRES_NEW` so a failure's row survives the
+rollback of the authentication transaction that produced it. The address
+comes from `X-Forwarded-For`, which the caller controls — it is displayed as
+a claim, and nothing authorizes off it.
+
+Two things to come back to:
+
+- `login_event` only grows, and `POST /api/auth/login` is unauthenticated,
+  so anyone can make the table grow. Fine at this size; it wants a retention
+  job (or rate limiting on login) before it is left alone for a year.
+- There is no rate limiting on login at all yet. The audit log now makes a
+  brute-force attempt *visible*, which is a precondition for caring about
+  it, but it does not slow one down.
 
 The whole `/api/admin/**` path is gated in the filter chain rather than
 per method, so a missed annotation cannot quietly open an endpoint.

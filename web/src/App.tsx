@@ -3,29 +3,34 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import {
   changePassword as apiChangePassword,
   createClient,
   createEngagement,
   createTopic,
   createUser,
+  listAllEngagements,
   listClients,
   listEngagements,
+  listLoginEvents,
   listTopics,
   listUsers,
   login as apiLogin,
   me,
   updateTopicStatus,
   Unauthorized,
+  type AdminEngagement,
   type AdminUser,
   type Client,
   type CreatedUser,
   type Engagement,
+  type LoginEvent,
   type Topic,
 } from './api';
 import { clearToken, getToken, type User } from './auth';
@@ -99,8 +104,72 @@ function RequireAdmin({ children }: { children: ReactNode }) {
 
 /* ------------------------------------------------------------------ chrome */
 
+/**
+ * The user's name as the last nav item, opening Account and Sign out beneath
+ * it. Closes on outside click, on Escape, and on route change -- a menu left
+ * hanging open over the next page is the usual bug here.
+ */
+function UserMenu({ user }: { user: User }) {
+  const { signOut } = useAuth();
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const location = useLocation();
+
+  useEffect(() => setOpen(false), [location.pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onPointerDown(e: MouseEvent | TouchEvent) {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="user-menu" ref={wrap}>
+      <button
+        className="user-menu-trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {user.name}
+        <span className="caret" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <div className="user-menu-panel" role="menu">
+          <span className="user-menu-email">{user.email}</span>
+          {!user.mustChangePassword && (
+            <Link to="/account" role="menuitem" onClick={() => setOpen(false)}>
+              Account
+            </Link>
+          )}
+          <button role="menuitem" onClick={signOut}>
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Nav() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
 
   return (
     <nav className="nav">
@@ -111,12 +180,7 @@ function Nav() {
         <Link to="/approach">Approach</Link>
         <Link to="/portal">Client portal</Link>
         {user?.role === 'ADMIN' && <Link to="/admin">Admin</Link>}
-        {user && !user.mustChangePassword && <Link to="/account">Account</Link>}
-        {user && (
-          <button className="linklike" onClick={signOut}>
-            Sign out
-          </button>
-        )}
+        {user && <UserMenu user={user} />}
       </div>
     </nav>
   );
@@ -488,25 +552,277 @@ function ChangePassword({ forced }: { forced: boolean }) {
 
 /* ------------------------------------------------------------------ admin */
 
+type AdminTab = 'clients' | 'engagements' | 'system';
+type SystemTool = 'signins' | 'logins';
+
+/**
+ * Reduces a user-agent string to something a person can scan. Deliberately
+ * crude: this answers "was that my laptop or someone else's phone", not
+ * "which exact build". Order matters -- Edge and Chrome both claim Chrome,
+ * and Chrome claims Safari.
+ */
+function describeAgent(ua: string | null): string {
+  if (!ua) return 'unknown client';
+
+  const browser =
+    /\bEdg\//.test(ua) ? 'Edge'
+    : /\bOPR\//.test(ua) ? 'Opera'
+    : /\bChrome\//.test(ua) ? 'Chrome'
+    : /\bFirefox\//.test(ua) ? 'Firefox'
+    : /\bSafari\//.test(ua) ? 'Safari'
+    : /\bcurl\//i.test(ua) ? 'curl'
+    : /python-requests|okhttp|axios|Go-http/i.test(ua) ? 'script'
+    : 'other browser';
+
+  const os =
+    /\biPhone\b/.test(ua) ? 'iPhone'
+    : /\biPad\b/.test(ua) ? 'iPad'
+    : /\bAndroid\b/.test(ua) ? 'Android'
+    : /\bMac OS X\b/.test(ua) ? 'macOS'
+    : /\bWindows\b/.test(ua) ? 'Windows'
+    : /\bLinux\b/.test(ua) ? 'Linux'
+    : null;
+
+  return os ? `${browser} on ${os}` : browser;
+}
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+/** Who signed in, when, and from what. The first System tool. */
+function SignInActivity({ onError }: { onError: (e: unknown) => void }) {
+  const [events, setEvents] = useState<LoginEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [failuresOnly, setFailuresOnly] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    return listLoginEvents(200)
+      .then(setEvents)
+      .catch(onError)
+      .finally(() => setLoading(false));
+  }, [onError]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const shown = failuresOnly ? events.filter((e) => e.outcome === 'failure') : events;
+
+  return (
+    <>
+      <div className="tool-toolbar">
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={failuresOnly}
+            onChange={(e) => setFailuresOnly(e.target.checked)}
+          />
+          Failed attempts only
+        </label>
+        <button onClick={load} disabled={loading}>
+          {loading ? 'Loading...' : 'Refresh'}
+        </button>
+      </div>
+
+      {shown.length === 0 ? (
+        <p className="empty">
+          {loading ? 'Loading...' : 'Nothing recorded yet.'}
+        </p>
+      ) : (
+        <div className="grid-wrap">
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Who</th>
+                <th>Result</th>
+                <th>From</th>
+                <th>How</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((e) => (
+                <tr key={e.id} className={e.outcome === 'failure' ? 'row-bad' : undefined}>
+                  <td className="nowrap">{formatWhen(e.at)}</td>
+                  <td>
+                    {e.emailTried}
+                    {e.userId === null && (
+                      <span className="muted"> &middot; no such account</span>
+                    )}
+                  </td>
+                  <td>
+                    <span className={`status status-ev-${e.outcome}`}>
+                      {e.outcome === 'password_change' ? 'password set' : e.outcome}
+                    </span>
+                  </td>
+                  <td className="nowrap">{e.ipAddress ?? 'unknown'}</td>
+                  <td title={e.userAgent ?? ''}>{describeAgent(e.userAgent)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="hint">
+        Most recent 200 attempts. The address is taken from the forwarded-for
+        header, which the caller controls, so treat it as a claim rather than
+        proof.
+      </p>
+    </>
+  );
+}
+
+/** Create and review portal logins. The second System tool. */
+function PortalLogins({
+  clients,
+  users,
+  onCreated,
+  onError,
+}: {
+  clients: Client[];
+  users: AdminUser[];
+  onCreated: (created: CreatedUser) => void;
+  onError: (e: unknown) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [clientId, setClientId] = useState('');
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+
+  const nameOf = (id: number | null) =>
+    id === null ? '--' : (clients.find((c) => c.id === id)?.name ?? `#${id}`);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    try {
+      onCreated(
+        await createUser({
+          clientId: Number(clientId),
+          email: email.trim(),
+          displayName: name.trim(),
+        }),
+      );
+      setEmail('');
+      setName('');
+      setAdding(false);
+    } catch (err) {
+      onError(err);
+    }
+  }
+
+  return (
+    <>
+      <div className="tool-toolbar">
+        <button onClick={() => setAdding((v) => !v)} disabled={clients.length === 0}>
+          {adding ? 'Cancel' : 'Add New'}
+        </button>
+      </div>
+
+      {clients.length === 0 && (
+        <p className="empty">Create a client first -- every login belongs to one.</p>
+      )}
+
+      {adding && (
+        <form onSubmit={onSubmit} className="stack-form inset">
+          <label>
+            Client
+            <select value={clientId} required onChange={(e) => setClientId(e.target.value)}>
+              <option value="">Select...</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Name
+            <input value={name} required onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label>
+            Email
+            <input
+              type="email"
+              value={email}
+              required
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+          <button type="submit">Create login</button>
+        </form>
+      )}
+
+      {users.length === 0 ? (
+        <p className="empty">No logins yet.</p>
+      ) : (
+        <div className="grid-wrap">
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Client</th>
+                <th>Role</th>
+                <th>Last sign-in</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className={u.enabled ? undefined : 'row-bad'}>
+                  <td>{u.displayName}</td>
+                  <td>{u.email}</td>
+                  <td>{nameOf(u.clientId)}</td>
+                  <td>{u.role.toLowerCase()}</td>
+                  <td className="nowrap">
+                    {u.lastLoginAt ? formatWhen(u.lastLoginAt) : 'never'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+const SYSTEM_TOOLS: { id: SystemTool; title: string; blurb: string }[] = [
+  {
+    id: 'signins',
+    title: 'Sign-in activity',
+    blurb: 'Who signed in, when, from what address and what client -- including attempts that failed.',
+  },
+  {
+    id: 'logins',
+    title: 'Portal logins',
+    blurb: 'Issue a login for a client contact, and see every account with its last sign-in.',
+  },
+];
+
 function Admin() {
   const { signOut } = useAuth();
 
+  const [tab, setTab] = useState<AdminTab>('clients');
+  const [tool, setTool] = useState<SystemTool | null>(null);
+
   const [clients, setClients] = useState<Client[]>([]);
+  const [engagements, setEngagements] = useState<AdminEngagement[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Shown once, after a create. There is no way to get it back, so it stays on
-  // screen until the admin dismisses it rather than clearing on the next render.
   const [issued, setIssued] = useState<CreatedUser | null>(null);
 
+  const [addingClient, setAddingClient] = useState(false);
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
+
+  const [addingEngagement, setAddingEngagement] = useState(false);
   const [engClient, setEngClient] = useState('');
   const [engTitle, setEngTitle] = useState('');
-  const [userClient, setUserClient] = useState('');
-  const [userEmail, setUserEmail] = useState('');
-  const [userName, setUserName] = useState('');
 
   const onError = useCallback(
     (e: unknown) => {
@@ -519,18 +835,19 @@ function Admin() {
     [signOut],
   );
 
-  const reload = useCallback(() => {
-    return Promise.all([listClients(), listUsers()])
-      .then(([c, u]) => {
+  useEffect(() => {
+    Promise.all([listClients(), listAllEngagements(), listUsers()])
+      .then(([c, e, u]) => {
         setClients(c);
+        setEngagements(e);
         setUsers(u);
       })
-      .catch(onError);
+      .catch(onError)
+      .finally(() => setLoading(false));
   }, [onError]);
 
-  useEffect(() => {
-    reload().finally(() => setLoading(false));
-  }, [reload]);
+  const clientNameOf = (id: number) =>
+    clients.find((c) => c.id === id)?.name ?? `#${id}`;
 
   async function onCreateClient(e: FormEvent) {
     e.preventDefault();
@@ -543,6 +860,7 @@ function Admin() {
       setClients((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
       setClientName('');
       setClientEmail('');
+      setAddingClient(false);
     } catch (err) {
       onError(err);
     }
@@ -552,26 +870,13 @@ function Admin() {
     e.preventDefault();
     setError(null);
     try {
-      await createEngagement({ clientId: Number(engClient), title: engTitle.trim() });
-      setEngTitle('');
-    } catch (err) {
-      onError(err);
-    }
-  }
-
-  async function onCreateUser(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    try {
-      const created = await createUser({
-        clientId: Number(userClient),
-        email: userEmail.trim(),
-        displayName: userName.trim(),
+      const created = await createEngagement({
+        clientId: Number(engClient),
+        title: engTitle.trim(),
       });
-      setIssued(created);
-      setUsers((prev) => [...prev, created.user]);
-      setUserEmail('');
-      setUserName('');
+      setEngagements((prev) => [...prev, created]);
+      setEngTitle('');
+      setAddingEngagement(false);
     } catch (err) {
       onError(err);
     }
@@ -581,13 +886,28 @@ function Admin() {
     return <main className="page"><p>Loading...</p></main>;
   }
 
-  const clientName_ = (id: number | null) =>
-    id === null ? '--' : (clients.find((c) => c.id === id)?.name ?? `#${id}`);
+  const activeTool = SYSTEM_TOOLS.find((t) => t.id === tool);
 
   return (
     <main className="page">
       <h1>Admin</h1>
-      <p className="lede">Clients, engagements, and portal logins.</p>
+
+      <div className="tabs" role="tablist">
+        {(['clients', 'engagements', 'system'] as AdminTab[]).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            className={tab === t ? 'tab tab-on' : 'tab'}
+            onClick={() => {
+              setTab(t);
+              setTool(null);
+            }}
+          >
+            {t === 'clients' ? 'Clients' : t === 'engagements' ? 'Engagements' : 'System'}
+          </button>
+        ))}
+      </div>
 
       {error && <div className="error">{error}</div>}
 
@@ -604,40 +924,92 @@ function Admin() {
         </div>
       )}
 
-      <section className="admin-section">
-        <h2>New client</h2>
-        <form onSubmit={onCreateClient} className="stack-form">
-          <label>
-            Company name
-            <input value={clientName} required onChange={(e) => setClientName(e.target.value)} />
-          </label>
-          <label>
-            Primary email
-            <input
-              type="email"
-              value={clientEmail}
-              required
-              onChange={(e) => setClientEmail(e.target.value)}
-            />
-          </label>
-          <button type="submit">Create client</button>
-        </form>
-      </section>
+      {tab === 'clients' && (
+        <section>
+          <div className="tool-toolbar">
+            <button onClick={() => setAddingClient((v) => !v)}>
+              {addingClient ? 'Cancel' : 'Add New'}
+            </button>
+          </div>
 
-      {clients.length === 0 ? (
-        <p className="empty">No clients yet. Create one to open an engagement.</p>
-      ) : (
-        <>
-          <section className="admin-section">
-            <h2>Open an engagement</h2>
-            <form onSubmit={onCreateEngagement} className="stack-form">
+          {addingClient && (
+            <form onSubmit={onCreateClient} className="stack-form inset">
+              <label>
+                Company name
+                <input
+                  value={clientName}
+                  required
+                  onChange={(e) => setClientName(e.target.value)}
+                />
+              </label>
+              <label>
+                Primary email
+                <input
+                  type="email"
+                  value={clientEmail}
+                  required
+                  onChange={(e) => setClientEmail(e.target.value)}
+                />
+              </label>
+              <button type="submit">Create client</button>
+            </form>
+          )}
+
+          {clients.length === 0 ? (
+            <p className="empty">No clients yet.</p>
+          ) : (
+            <div className="grid-wrap">
+              <table className="grid">
+                <thead>
+                  <tr>
+                    <th>Client</th>
+                    <th>Primary email</th>
+                    <th>Engagements</th>
+                    <th>Logins</th>
+                    <th>Added</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clients.map((c) => (
+                    <tr key={c.id}>
+                      <td>{c.name}</td>
+                      <td>{c.primaryEmail}</td>
+                      <td>{engagements.filter((e) => e.clientId === c.id).length}</td>
+                      <td>{users.filter((u) => u.clientId === c.id).length}</td>
+                      <td className="nowrap">
+                        {c.createdAt ? formatWhen(c.createdAt) : '--'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === 'engagements' && (
+        <section>
+          <div className="tool-toolbar">
+            <button
+              onClick={() => setAddingEngagement((v) => !v)}
+              disabled={clients.length === 0}
+            >
+              {addingEngagement ? 'Cancel' : 'Add New'}
+            </button>
+          </div>
+
+          {clients.length === 0 && (
+            <p className="empty">
+              Create a client first -- an engagement is always against one.
+            </p>
+          )}
+
+          {addingEngagement && (
+            <form onSubmit={onCreateEngagement} className="stack-form inset">
               <label>
                 Client
-                <select
-                  value={engClient}
-                  required
-                  onChange={(e) => setEngClient(e.target.value)}
-                >
+                <select value={engClient} required onChange={(e) => setEngClient(e.target.value)}>
                   <option value="">Select...</option>
                   {clients.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -657,81 +1029,73 @@ function Admin() {
               </label>
               <button type="submit">Open engagement</button>
             </form>
-          </section>
+          )}
 
-          <section className="admin-section">
-            <h2>New portal login</h2>
-            <form onSubmit={onCreateUser} className="stack-form">
-              <label>
-                Client
-                <select
-                  value={userClient}
-                  required
-                  onChange={(e) => setUserClient(e.target.value)}
-                >
-                  <option value="">Select...</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
+          {engagements.length === 0 ? (
+            <p className="empty">No engagements yet.</p>
+          ) : (
+            <div className="grid-wrap">
+              <table className="grid">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Client</th>
+                    <th>Status</th>
+                    <th>Started</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {engagements.map((e) => (
+                    <tr key={e.id}>
+                      <td>{e.title}</td>
+                      <td>{clientNameOf(e.clientId)}</td>
+                      <td>
+                        <span className={`status status-${e.status}`}>{e.status}</span>
+                      </td>
+                      <td className="nowrap">{e.startedOn ?? '--'}</td>
+                    </tr>
                   ))}
-                </select>
-              </label>
-              <label>
-                Name
-                <input value={userName} required onChange={(e) => setUserName(e.target.value)} />
-              </label>
-              <label>
-                Email
-                <input
-                  type="email"
-                  value={userEmail}
-                  required
-                  onChange={(e) => setUserEmail(e.target.value)}
-                />
-              </label>
-              <button type="submit">Create login</button>
-            </form>
-          </section>
-        </>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       )}
 
-      <section className="admin-section">
-        <h2>Clients</h2>
-        {clients.length === 0 ? (
-          <p className="empty">None.</p>
-        ) : (
-          <ul className="admin-list">
-            {clients.map((c) => (
-              <li key={c.id}>
-                <span className="topic-title">{c.name}</span>
-                <span className="muted">{c.primaryEmail}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {tab === 'system' && (
+        <section>
+          {tool === null ? (
+            <div className="cards">
+              {SYSTEM_TOOLS.map((t) => (
+                <button key={t.id} className="card" onClick={() => setTool(t.id)}>
+                  <span className="card-title">{t.title}</span>
+                  <span className="card-blurb">{t.blurb}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <>
+              <button className="linklike back" onClick={() => setTool(null)}>
+                &larr; System
+              </button>
+              <h2>{activeTool?.title}</h2>
 
-      <section className="admin-section">
-        <h2>Logins</h2>
-        <ul className="admin-list">
-          {users.map((u) => (
-            <li key={u.id}>
-              <span className={`status status-${u.enabled ? 'scheduled' : 'dropped'}`}>
-                {u.role.toLowerCase()}
-              </span>
-              <span className="topic-title">{u.displayName}</span>
-              <span className="muted">{u.email}</span>
-              <span className="muted">{clientName_(u.clientId)}</span>
-              <span className="muted">
-                {u.lastLoginAt
-                  ? new Date(u.lastLoginAt).toLocaleDateString()
-                  : 'never signed in'}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
+              {tool === 'signins' && <SignInActivity onError={onError} />}
+              {tool === 'logins' && (
+                <PortalLogins
+                  clients={clients}
+                  users={users}
+                  onError={onError}
+                  onCreated={(created) => {
+                    setIssued(created);
+                    setUsers((prev) => [...prev, created.user]);
+                  }}
+                />
+              )}
+            </>
+          )}
+        </section>
+      )}
     </main>
   );
 }

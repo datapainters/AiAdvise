@@ -187,6 +187,30 @@ export interface CreatedUser {
   oneTimePassword: string;
 }
 
+/** An engagement as the admin screens see it: carries its owning client. */
+export interface AdminEngagement {
+  id: number;
+  clientId: number;
+  title: string;
+  status: string;
+  startedOn: string;
+}
+
+export interface LoginEvent {
+  id: number;
+  /** Null when the attempt matched no account. */
+  userId: number | null;
+  emailTried: string;
+  outcome: 'success' | 'failure' | 'password_change';
+  ipAddress: string | null;
+  userAgent: string | null;
+  at: string;
+}
+
+export function listLoginEvents(limit = 100): Promise<LoginEvent[]> {
+  return request<LoginEvent[]>(`/api/admin/login-events?limit=${limit}`);
+}
+
 export function listClients(): Promise<Client[]> {
   return request<Client[]>('/api/admin/clients');
 }
@@ -201,11 +225,15 @@ export function createClient(input: { name: string; primaryEmail: string }): Pro
 export function createEngagement(input: {
   clientId: number;
   title: string;
-}): Promise<Engagement> {
-  return request<Engagement>('/api/admin/engagements', {
+}): Promise<AdminEngagement> {
+  return request<AdminEngagement>('/api/admin/engagements', {
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export function listAllEngagements(): Promise<AdminEngagement[]> {
+  return request<AdminEngagement[]>('/api/admin/engagements');
 }
 
 export function listUsers(): Promise<AdminUser[]> {

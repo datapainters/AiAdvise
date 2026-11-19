@@ -20,6 +20,15 @@ import java.time.Instant;
 @Table(name = "topic")
 public class Topic {
 
+    /** In the backlog, not yet attached to a meeting. */
+    public static final String PROPOSED = "proposed";
+
+    /** Attached to an appointment as an agenda item. */
+    public static final String SCHEDULED = "scheduled";
+
+    public static final String DISCUSSED = "discussed";
+    public static final String DROPPED = "dropped";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -33,11 +42,24 @@ public class Topic {
     @Column(columnDefinition = "text")
     private String detail;
 
+    /** What the client wants to be true once this has been discussed. */
+    @Column(name = "desired_outcome")
+    private String desiredOutcome;
+
+    /**
+     * The meeting this topic is an agenda item for. Null while it sits in
+     * the backlog, and null again if that meeting is cancelled -- cancelling
+     * returns topics to the backlog rather than destroying what the client
+     * typed.
+     */
+    @Column(name = "appointment_id")
+    private Long appointmentId;
+
     @Column(nullable = false)
     private int priority = 3;
 
     @Column(nullable = false)
-    private String status = "proposed";
+    private String status = PROPOSED;
 
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private Instant createdAt;
@@ -78,6 +100,22 @@ public class Topic {
         this.detail = detail;
     }
 
+    public String getDesiredOutcome() {
+        return desiredOutcome;
+    }
+
+    public void setDesiredOutcome(String desiredOutcome) {
+        this.desiredOutcome = desiredOutcome;
+    }
+
+    public Long getAppointmentId() {
+        return appointmentId;
+    }
+
+    public void setAppointmentId(Long appointmentId) {
+        this.appointmentId = appointmentId;
+    }
+
     public int getPriority() {
         return priority;
     }
@@ -100,5 +138,9 @@ public class Topic {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

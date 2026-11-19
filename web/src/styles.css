@@ -787,6 +787,320 @@ button:hover {
   color: var(--ink-soft);
 }
 
+/* Overlays */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgb(10 12 16 / 45%);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3rem 1rem;
+  overflow-y: auto;
+}
+
+.modal {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  width: 100%;
+  max-width: 34rem;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 22%);
+}
+
+.modal-wide {
+  max-width: 54rem;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.5rem;
+  border-bottom: 1px solid var(--rule);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  border-radius: 3px 3px 0 0;
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: -0.015em;
+  text-transform: none;
+}
+
+.modal-close {
+  border: none;
+  background: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 0 0.25rem;
+}
+
+.modal-close:hover {
+  color: var(--ink);
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+/* Meeting manager */
+.meeting-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.meeting-head h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+  letter-spacing: -0.015em;
+}
+
+.meeting-head p {
+  margin: 0;
+}
+
+.agenda {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.agenda-item {
+  padding: 1.25rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  border-left: 3px solid var(--accent);
+}
+
+/* A closed item stays visible -- it is part of the record of the call --
+   but stops competing for attention with the ones still to cover. */
+.agenda-discussed,
+.agenda-dropped {
+  border-left-color: var(--rule);
+  opacity: 0.72;
+}
+
+.agenda-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.agenda-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  flex: 1;
+  letter-spacing: -0.01em;
+}
+
+.note-label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  margin-top: 1rem;
+}
+
+.note-label textarea {
+  margin-top: 0.35rem;
+}
+
+textarea {
+  width: 100%;
+  font-family: var(--font);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--bg);
+  color: var(--ink);
+  resize: vertical;
+}
+
+textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.button-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.9rem;
+}
+
+.button-row button:not(.linklike) {
+  font-family: var(--font);
+  font-size: 0.85rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.button-row button:not(.linklike):hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.button-row button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Topics and agendas */
+.topics.detailed li {
+  display: block;
+  padding: 1rem 0;
+}
+
+.topic-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.topic-detail,
+.topic-outcome {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0.5rem 0 0;
+  max-width: 70ch;
+}
+
+.topic-outcome strong {
+  color: var(--ink);
+}
+
+.topic-picker {
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 0.9rem 1rem;
+  margin: 0;
+}
+
+.topic-picker legend {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  padding: 0 0.4rem;
+}
+
+.pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.35rem 0;
+  color: var(--ink);
+}
+
+.pick-title {
+  color: var(--ink);
+}
+
+.field-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.field-row label {
+  flex: 1;
+  min-width: 9rem;
+}
+
+/* Client detail */
+.detail-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.6rem 1.5rem;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.detail-list dt {
+  color: var(--ink-soft);
+}
+
+.detail-list dd {
+  margin: 0;
+}
+
+.notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.note-entry {
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.note-entry:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.note-entry header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.4rem;
+}
+
+.note-entry p {
+  margin: 0;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+}
+
+/* Appointment status chips */
+.status-ap-requested {
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+
+.status-ap-confirmed {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.status-ap-completed {
+  background: #e8f0e8;
+  color: #3f6b3f;
+}
+
+.status-ap-cancelled {
+  background: var(--rule);
+  color: var(--ink-soft);
+}
+
 /* Narrow screens: the two-column rows stack, and the figure goes under the
    copy it illustrates rather than being squeezed beside it. */
 @media (max-width: 54rem) {
@@ -806,6 +1120,32 @@ button:hover {
 
   .client-list {
     grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  }
+
+  .modal-backdrop {
+    padding: 0;
+  }
+
+  .modal,
+  .modal-wide {
+    max-width: none;
+    min-height: 100%;
+    border: none;
+    border-radius: 0;
+  }
+
+  .field-row {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .detail-list {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .detail-list dd {
+    margin-bottom: 0.7rem;
   }
 }
 
@@ -850,6 +1190,19 @@ button:hover {
   .inset,
   .aside {
     background: #1b1e23;
+  }
+
+  .modal {
+    background: #15171b;
+  }
+
+  .modal-head {
+    background: #15171b;
+  }
+
+  .status-ap-completed {
+    background: #1e2a1e;
+    color: #9cc49c;
   }
 
   .figure-wrap figcaption {

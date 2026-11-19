@@ -79,7 +79,12 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         // Explicit origins, never a wildcard: credentials are allowed.
         config.setAllowedOrigins(allowedOrigins);
-        config.setAllowedMethods(List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
+        // PUT is here for the Meeting Manager, which upserts a note per
+        // agenda item. Omitting a method fails only in a browser, at
+        // preflight, so it looks like a CORS problem rather than a missing
+        // verb and tests that call the API directly never catch it.
+        config.setAllowedMethods(
+                List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);

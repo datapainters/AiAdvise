@@ -15,8 +15,12 @@ export interface Topic {
   engagementId: number;
   title: string;
   detail: string | null;
+  /** What the client wants to be true once this has been discussed. */
+  desiredOutcome: string | null;
   priority: number;
   status: 'proposed' | 'scheduled' | 'discussed' | 'dropped';
+  /** The meeting this is an agenda item for, or null while in the backlog. */
+  appointmentId: number | null;
   createdAt: string;
 }
 
@@ -107,6 +111,7 @@ export function createTopic(input: {
   engagementId: number;
   title: string;
   detail?: string;
+  desiredOutcome?: string;
   priority?: number;
 }): Promise<Topic> {
   return request<Topic>('/api/topics', {
@@ -249,4 +254,146 @@ export function createUser(input: {
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+/* ------------------------------------------------------- scheduling (portal) */
+
+export interface Appointment {
+  id: number;
+  clientId: number;
+  engagementId: number;
+  engagementTitle: string;
+  /** ISO instant. */
+  startsAt: string;
+  endsAt: string;
+  durationMinutes: number;
+  status: 'requested' | 'confirmed' | 'completed' | 'cancelled';
+  topicCount: number;
+}
+
+export function listAppointments(): Promise<Appointment[]> {
+  return request<Appointment[]>('/api/appointments');
+}
+
+export function bookAppointment(input: {
+  engagementId: number;
+  startsAt: string;
+  durationMinutes: number;
+  topicIds: number[];
+}): Promise<Appointment> {
+  return request<Appointment>('/api/appointments', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function cancelAppointment(id: number): Promise<Appointment> {
+  return request<Appointment>(`/api/appointments/${id}/cancel`, { method: 'POST' });
+}
+
+/* ------------------------------------------------- appointments (admin side) */
+
+export interface AdminAppointment extends Appointment {
+  clientName: string;
+  /** How many agenda items already have a note written against them. */
+  notedCount: number;
+}
+
+export interface AgendaItem {
+  topicId: number;
+  title: string;
+  detail: string | null;
+  desiredOutcome: string | null;
+  priority: number;
+  status: string;
+  note: string | null;
+  noteUpdatedAt: string | null;
+}
+
+export interface MeetingDetail {
+  appointment: AdminAppointment;
+  agenda: AgendaItem[];
+}
+
+export function listAdminAppointments(): Promise<AdminAppointment[]> {
+  return request<AdminAppointment[]>('/api/admin/appointments');
+}
+
+export function getMeeting(id: number): Promise<MeetingDetail> {
+  return request<MeetingDetail>(`/api/admin/appointments/${id}`);
+}
+
+export function saveMeetingNote(
+  appointmentId: number,
+  topicId: number,
+  body: string,
+): Promise<AgendaItem> {
+  return request<AgendaItem>(
+    `/api/admin/appointments/${appointmentId}/topics/${topicId}/note`,
+    { method: 'PUT', body: JSON.stringify({ body }) },
+  );
+}
+
+export function setAgendaItemStatus(
+  appointmentId: number,
+  topicId: number,
+  status: string,
+): Promise<AgendaItem> {
+  return request<AgendaItem>(
+    `/api/admin/appointments/${appointmentId}/topics/${topicId}/status`,
+    { method: 'PUT', body: JSON.stringify({ status }) },
+  );
+}
+
+export function setAppointmentStatus(
+  id: number,
+  status: string,
+): Promise<AdminAppointment> {
+  return request<AdminAppointment>(`/api/admin/appointments/${id}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status }),
+  });
+}
+
+/* ------------------------------------------------------------ client detail */
+
+export interface ClientUser {
+  id: number;
+  email: string;
+  displayName: string;
+  role: string;
+  enabled: boolean;
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
+}
+
+export interface ClientEngagement {
+  id: number;
+  title: string;
+  status: string;
+  startedOn: string;
+  openTopics: number;
+}
+
+export interface ClientNote {
+  appointmentId: number;
+  meetingAt: string;
+  topicTitle: string;
+  body: string;
+  updatedAt: string;
+}
+
+export interface ClientDetail {
+  id: number;
+  name: string;
+  primaryEmail: string;
+  createdAt: string;
+  engagements: ClientEngagement[];
+  appointments: AdminAppointment[];
+  users: ClientUser[];
+  notes: ClientNote[];
+}
+
+export function getClientDetail(id: number): Promise<ClientDetail> {
+  return request<ClientDetail>(`/api/admin/clients/${id}`);
 }

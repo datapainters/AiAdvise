@@ -52,18 +52,22 @@ public class TopicController {
             Long engagementId,
             String title,
             String detail,
+            String desiredOutcome,
             int priority,
             String status,
+            Long appointmentId,
             Instant createdAt) {
 
-        static TopicView of(Topic t) {
+        public static TopicView of(Topic t) {
             return new TopicView(
                     t.getId(),
                     t.getEngagementId(),
                     t.getTitle(),
                     t.getDetail(),
+                    t.getDesiredOutcome(),
                     t.getPriority(),
                     t.getStatus(),
+                    t.getAppointmentId(),
                     t.getCreatedAt());
         }
     }
@@ -72,12 +76,13 @@ public class TopicController {
             @NotNull Long engagementId,
             @NotBlank String title,
             String detail,
+            String desiredOutcome,
             @Min(1) @Max(5) Integer priority) {}
 
     public record UpdateStatus(@NotBlank String status) {}
 
     private static final List<String> VALID_STATUSES =
-            List.of("proposed", "scheduled", "discussed", "dropped");
+            List.of(Topic.PROPOSED, Topic.SCHEDULED, Topic.DISCUSSED, Topic.DROPPED);
 
     /** Throws 404 unless the caller may act on this engagement. */
     private void requireAccess(CurrentUser user, Long engagementId) {
@@ -121,6 +126,7 @@ public class TopicController {
         topic.setEngagementId(request.engagementId());
         topic.setTitle(request.title());
         topic.setDetail(request.detail());
+        topic.setDesiredOutcome(request.desiredOutcome());
         if (request.priority() != null) {
             topic.setPriority(request.priority());
         }

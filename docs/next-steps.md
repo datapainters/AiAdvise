@@ -313,3 +313,73 @@ Worth an hour with target-group health-check history to find out whether
 tasks are actually flapping or ECS is just narrating a normal drain badly.
 If they are flapping, deploys are slower and less reliable than they look,
 and the first real symptom will be a deploy that does not converge.
+
+## 9. Email — SES, done 2026-11-19 (two manual steps outstanding)
+
+Chosen over Resend, Postmark and SendGrid on cost and credential surface.
+A la carte SES is $0.10 per 1,000 emails, so this platform's volume is
+roughly two cents a month; the others reach $15–20/month past their free
+tiers and each adds an API key to store. The task role already has an IAM
+identity, so there is no secret involved at all.
+
+**Do not opt into the bundled SES plans.** AWS introduced
+Essentials/Pro/Enterprise in July 2026 starting at $0.16 per 1,000 plus a
+fixed monthly fee per account per region. The legacy à la carte rate is
+cheaper and applies unless the account opts in.
+
+### What it touched, and what it did not
+
+datapainters.com runs Zoho Mail. Its MX records, `zoho._domainkey` key and
+`zmverify` CNAME are all untouched and verified so after the deploy — SES
+needs no MX change and its DKIM uses its own selectors.
+
+One existing record was corrected. The zone published its SPF as a
+**type-SPF record** (RR type 99), which RFC 7208 deprecated in 2014;
+receivers read only TXT, and there was no TXT SPF at the apex. So the
+domain effectively had no SPF at all, and the Zoho mail had been paying for
+it. The apex now carries
+`v=spf1 include:zoho.com include:amazonses.com ~all`.
+
+Softfail rather than `-all`: a hard fail on a domain whose sending sources
+were never enforced is how legitimate mail starts disappearing. Tighten
+once DMARC reports confirm nothing else sends as this domain. The old
+type-SPF record was left in place — receivers ignore it, and editing a
+working mail configuration beyond what the task needs is risk without
+reward.
+
+DMARC is published at `p=none`, which is monitoring only and cannot cause a
+rejection.
+
+### Design
+
+Sending never fails the thing that triggered it. Every send is a side
+effect of an action the user already completed, so a throttle, an
+unreachable endpoint or a suppressed recipient is logged and swallowed, not
+rolled back. All three notifications fire *after* their transaction
+commits — announcing something that then rolls back is worse than
+announcing it late, and an email cannot be unsent. The trade is that a lost
+email is quiet, which is why every send logs on the way out.
+
+The account-ready email carries **no password**. The credential and the
+door do not belong in the same envelope. See the follow-up below.
+
+IAM is scoped to the one verified identity rather than `*`, so a bug cannot
+send as another domain this account verifies later.
+
+### Outstanding — both need you
+
+1. **Verify wes@schiesz.com.** AWS has emailed a confirmation link. Until
+   it is clicked, the sandbox will not deliver anything to that address, so
+   no test send is possible.
+2. **Request SES production access.** A support request, and the only step
+   that cannot be done from here. Until it is granted the account is capped
+   at 200 messages a day, one per second, and *only to verified addresses* —
+   so no real client will receive anything. `mail_enabled` is `false` until
+   then; the service logs what it would have sent.
+
+### Follow-up worth doing
+
+A **single-use invite link** would remove the out-of-band password handoff
+entirely: the email carries a token, not a credential, the link expires,
+and the user sets their own password on first use. It is a small table and
+one page, and it is strictly better than emailing a one-time password.

@@ -71,20 +71,26 @@ public class AuthService {
     public String issueToken(AppUser user) {
         Instant now = Instant.now();
 
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
                 .issuer("advisory-api")
                 .issuedAt(now)
                 .expiresAt(now.plus(TOKEN_LIFETIME))
                 .subject(String.valueOf(user.getId()))
                 .claim("email", user.getEmail())
                 .claim("name", user.getDisplayName())
-                .claim("role", user.getRole())
-                // Null for admins, who are not scoped to a client.
-                .claim("cid", user.getClientId())
-                .build();
+                .claim("role", user.getRole());
+
+        // Admins are not scoped to a client, so they have no cid. The claim
+        // has to be OMITTED rather than set to null: JwtClaimsSet.Builder
+        // asserts non-null and throws IllegalArgumentException, which
+        // surfaces as a 500 on an otherwise successful login. CurrentUser
+        // already treats an absent cid as "no client".
+        if (user.getClientId() != null) {
+            claims.claim("cid", user.getClientId());
+        }
 
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
-        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+        return jwtEncoder.encode(JwtEncoderParameters.from(header, claims.build())).getTokenValue();
     }
 
     /** Keeps the local part out of logs while staying useful for support. */

@@ -2,6 +2,7 @@ package com.advisory.api.admin;
 
 import com.advisory.api.auth.AppUserRepository;
 import com.advisory.api.auth.CurrentUser;
+import com.advisory.api.mail.Notifications;
 import com.advisory.api.portal.Appointment;
 import com.advisory.api.portal.AppointmentRepository;
 import com.advisory.api.portal.Client;
@@ -26,7 +27,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -52,11 +52,12 @@ public class MeetingController {
     private final MeetingNoteRepository notes;
     private final AppUserRepository users;
     private final SchedulingService scheduling;
+    private final Notifications notifications;
 
     public MeetingController(AppointmentRepository appointments, ClientRepository clients,
             EngagementRepository engagements, TopicRepository topics,
             MeetingNoteRepository notes, AppUserRepository users,
-            SchedulingService scheduling) {
+            SchedulingService scheduling, Notifications notifications) {
         this.appointments = appointments;
         this.clients = clients;
         this.engagements = engagements;
@@ -64,6 +65,7 @@ public class MeetingController {
         this.notes = notes;
         this.users = users;
         this.scheduling = scheduling;
+        this.notifications = notifications;
     }
 
     /* -------------------------------------------------------- appointments */
@@ -211,9 +213,24 @@ public class MeetingController {
 
         Appointment appointment = appointments.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        String previous = appointment.getStatus();
         appointment.setStatus(request.status());
         log.info("Appointment {} marked {}", id, request.status());
-        return rows(List.of(appointments.save(appointment))).get(0);
+        AppointmentRow row = rows(List.of(appointments.save(appointment))).get(0);
+
+        // Only on the transition into confirmed. Re-saving an already
+        // confirmed meeting must not mail the client again.
+        if (Appointment.CONFIRMED.equals(request.status())
+                && !Appointment.CONFIRMED.equals(previous)) {
+            notifications.meetingConfirmed(
+                    appointment.getClientId(),
+                    row.engagementTitle(),
+                    appointment.getStartsAt(),
+                    appointment.getDurationMinutes(),
+                    row.topicCount());
+        }
+
+        return row;
     }
 
     /* ---------------------------------------------------------- client view */

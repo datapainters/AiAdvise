@@ -92,6 +92,13 @@
 
     <!-- Reads the RDS credentials at boot. No password ever lands in the
          image or the task definition. -->
+    <!-- Outbound mail. SES v2 rather than the v1 API: v2 is where the
+         configuration-set and suppression-list features live. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>sesv2</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>secretsmanager</artifactId>

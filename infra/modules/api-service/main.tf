@@ -98,6 +98,15 @@ variable "log_retention_days" {
   default = 30
 }
 
+variable "ses_identity_arn" {
+  type        = string
+  description = <<-EOT
+    SES identity the service may send as. Null disables the grant entirely,
+    which is the right default for an environment with no verified domain.
+  EOT
+  default     = null
+}
+
 variable "bootstrap_admin_email" {
   type        = string
   description = <<-EOT
@@ -270,6 +279,23 @@ data "aws_iam_policy_document" "task" {
     effect    = "Allow"
     actions   = ["secretsmanager:GetSecretValue"]
     resources = local.readable_secret_arns
+  }
+
+  # Outbound mail. Scoped to the one verified identity rather than "*", so a
+  # bug cannot send as some other domain this account verifies later. The
+  # condition pins the From address too: SendEmail is authorised only when
+  # the message claims to come from an address on that identity.
+  dynamic "statement" {
+    for_each = var.ses_identity_arn == null ? [] : [var.ses_identity_arn]
+    content {
+      sid    = "SendMail"
+      effect = "Allow"
+      actions = [
+        "ses:SendEmail",
+        "ses:SendRawEmail",
+      ]
+      resources = [statement.value]
+    }
   }
 
   # ECS Exec, so you can get a shell in a running task without a bastion.

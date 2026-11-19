@@ -81,6 +81,31 @@ variable "domain_name" {
   description = "Hostname the site is served at. May be a subdomain."
 }
 
+variable "mail_enabled" {
+  type        = bool
+  description = <<-EOT
+    Whether the service actually sends. Off while SES is in the sandbox,
+    where anything to an unverified recipient is rejected anyway; the code
+    logs what it would have sent instead.
+  EOT
+  default     = false
+}
+
+variable "mail_from" {
+  type        = string
+  description = "Envelope and header From address. Must be on the verified domain."
+}
+
+variable "mail_from_name" {
+  type    = string
+  default = "Data Painters"
+}
+
+variable "mail_admin_recipient" {
+  type        = string
+  description = "Where firm-side notifications go, such as a new meeting request."
+}
+
 variable "hosted_zone_name" {
   type        = string
   description = <<-EOT
@@ -157,6 +182,27 @@ module "database" {
   instance_class     = var.db_instance_class
 }
 
+###############################################################################
+# Email
+#
+# Verified on the apex so mail comes from a human-looking address. The
+# domain already runs Zoho Mail; see the module header for exactly what is
+# and is not touched.
+###############################################################################
+
+module "email" {
+  source = "../../modules/email"
+
+  domain         = var.hosted_zone_name
+  hosted_zone_id = data.aws_route53_zone.primary.zone_id
+
+  # Zoho sends this domain's human mail. Dropping this include would start
+  # failing SPF on every message Wes sends from his own mailbox.
+  extra_spf_includes = ["zoho.com"]
+
+  dmarc_report_to = "dmarc@${var.hosted_zone_name}"
+}
+
 module "api" {
   source = "../../modules/api-service"
 
@@ -197,7 +243,19 @@ module "api" {
 
     AWS_REGION           = var.region
     CORS_ALLOWED_ORIGINS = join(",", [for n in concat([var.domain_name], var.subject_alternative_names) : "https://${n}"])
+
+    # Mail. MAIL_ENABLED exists so the service can be deployed with sending
+    # off -- useful while SES is still in the sandbox and most recipients
+    # would be rejected anyway.
+    MAIL_ENABLED           = tostring(var.mail_enabled)
+    MAIL_FROM              = var.mail_from
+    MAIL_FROM_NAME         = var.mail_from_name
+    MAIL_CONFIGURATION_SET = module.email.configuration_set_name
+    MAIL_ADMIN_RECIPIENT   = var.mail_admin_recipient
+    APP_BASE_URL           = "https://${var.domain_name}"
   }
+
+  ses_identity_arn = module.email.identity_arn
 }
 
 module "web" {

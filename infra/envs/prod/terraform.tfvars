@@ -43,3 +43,11 @@ db_instance_class = "db.t4g.small"
 bootstrap_admin_email = "wes@schiesz.com"
 
 # Flip to true only while you are actually demoing. ~$73/month idle.
+
+# Mail. Sending stays off until SES production access is granted; in the
+# sandbox anything to an unverified recipient is rejected, so enabling it
+# would only produce noise in the logs.
+mail_enabled         = false
+mail_from            = "notifications@datapainters.com"
+mail_from_name       = "Data Painters"
+mail_admin_recipient = "wes@schiesz.com"

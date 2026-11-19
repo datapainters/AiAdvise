@@ -1,6 +1,7 @@
 package com.advisory.api.portal;
 
 import com.advisory.api.auth.CurrentUser;
+import com.advisory.api.mail.Notifications;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
@@ -35,14 +36,19 @@ public class AppointmentController {
     private final EngagementRepository engagements;
     private final TopicRepository topics;
     private final SchedulingService scheduling;
+    private final Notifications notifications;
+    private final ClientRepository clients;
 
     public AppointmentController(AppointmentRepository appointments,
             EngagementRepository engagements, TopicRepository topics,
-            SchedulingService scheduling) {
+            SchedulingService scheduling, Notifications notifications,
+            ClientRepository clients) {
         this.appointments = appointments;
         this.engagements = engagements;
         this.topics = topics;
         this.scheduling = scheduling;
+        this.notifications = notifications;
+        this.clients = clients;
     }
 
     public record AppointmentView(
@@ -94,7 +100,21 @@ public class AppointmentController {
                 request.durationMinutes(),
                 request.topicIds() == null ? List.of() : request.topicIds());
 
-        return decorate(List.of(saved)).get(0);
+        AppointmentView view = decorate(List.of(saved)).get(0);
+
+        // Announced only after book() has committed. Telling the firm about
+        // a meeting that then rolled back would be worse than telling them
+        // late, and an email cannot be unsent.
+        notifications.meetingRequested(
+                clients.findById(saved.getClientId()).map(Client::getName)
+                        .orElse("A client"),
+                view.engagementTitle(),
+                saved.getStartsAt(),
+                saved.getDurationMinutes(),
+                view.topicCount(),
+                user.email());
+
+        return view;
     }
 
     @PostMapping("/{id}/cancel")

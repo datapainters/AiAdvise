@@ -4,6 +4,7 @@ import com.advisory.api.auth.AppUser;
 import com.advisory.api.auth.AppUserRepository;
 import com.advisory.api.auth.LoginEvent;
 import com.advisory.api.auth.LoginEventRepository;
+import com.advisory.api.mail.Notifications;
 import com.advisory.api.portal.Client;
 import com.advisory.api.portal.ClientRepository;
 import com.advisory.api.portal.Engagement;
@@ -66,6 +67,7 @@ public class AdminController {
     private final AppUserRepository users;
     private final LoginEventRepository loginEvents;
     private final PasswordEncoder passwordEncoder;
+    private final Notifications notifications;
 
     /**
      * Used only to pull DB-generated columns back after an insert. created_at
@@ -79,12 +81,13 @@ public class AdminController {
 
     public AdminController(ClientRepository clients, EngagementRepository engagements,
             AppUserRepository users, LoginEventRepository loginEvents,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder, Notifications notifications) {
         this.clients = clients;
         this.engagements = engagements;
         this.users = users;
         this.loginEvents = loginEvents;
         this.passwordEncoder = passwordEncoder;
+        this.notifications = notifications;
     }
 
     /* ------------------------------------------------------------ clients */
@@ -217,6 +220,14 @@ public class AdminController {
         AppUser saved = users.save(user);
         // Deliberately not logging the password or the full address.
         log.info("Created client user {} for client {}", saved.getId(), request.clientId());
+
+        // After the save, and without the password in it. If the mail fails
+        // the account still exists and the admin still has the credential on
+        // screen, which is the state that matters.
+        notifications.accountCreated(
+                saved.getEmail(),
+                saved.getDisplayName(),
+                clients.findById(request.clientId()).map(Client::getName).orElse("your team"));
 
         return new CreatedUser(UserView.of(saved), oneTime);
     }

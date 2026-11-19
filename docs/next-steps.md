@@ -163,6 +163,24 @@ free S3 gateway endpoint stays for the same reason.
 
 Saving: roughly $33/month plus data processing.
 
+Verified before applying: the private subnets held exactly one network
+interface, an RDS one, and the NAT had logged 18 consecutive hours of zero
+bytes out — its only traffic in three days was 20:09–21:09 UTC on 11-18,
+the window when the API tasks were still in private subnets.
+
+Verified after: NAT `deleted`, its Elastic IP released, private route tables
+down to the VPC-local route plus the S3 endpoint prefix list, and the API
+back up at 16:13:50 with Hikari connected to Postgres — so the image pull,
+the Secrets Manager read and the database all still work without it.
+
+One wrinkle worth knowing if `enable_nat` is ever set back to true: removing
+the old inline `route` block did **not** delete the route. With no `route`
+argument present the provider stops managing inline routes rather than
+emptying them, so the route survived as a blackhole pointing at the deleted
+gateway and had to be deleted by hand. Traffic-wise a blackhole and no route
+behave the same, but it would have collided with `aws_route.private_nat` on
+the way back. That is why the default route now lives in its own resource.
+
 ## 5. Observability beyond CloudWatch
 
 Container Insights is on and the Spring actuator exposes a Prometheus

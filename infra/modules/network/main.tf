@@ -157,6 +157,17 @@ resource "aws_route_table" "private" {
   tags = { Name = "${var.project}-private-${local.azs[count.index]}" }
 }
 
+# A separate resource rather than an inline route block, for two reasons.
+#
+# The S3 gateway endpoint below writes its own prefix-list route into these
+# same tables via route_table_ids, so a table that manages its routes inline
+# would fight the endpoint on every apply.
+#
+# And inline routes are not removed by deleting the block: with no `route`
+# argument present the provider stops managing inline routes rather than
+# emptying them. When the NAT was turned off on 2026-11-19 the old inline
+# route survived as a blackhole to the deleted gateway and had to be removed
+# by hand. As its own resource it disappears with the NAT instead.
 resource "aws_route" "private_nat" {
   count = var.enable_nat ? 2 : 0
 

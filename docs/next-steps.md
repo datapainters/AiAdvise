@@ -142,22 +142,26 @@ provider, or move to IAM database authentication and drop the stored password
 entirely. IAM auth is the better end state and removes a secret from the
 system.
 
-## 4. Drop the NAT gateway — now probably free money
+## 4. Drop the NAT gateway — done 2026-11-19
 
-This changed when the API moved to public subnets. The NAT existed so
-Fargate tasks in private subnets could reach ECR, Secrets Manager and
-CloudWatch. Those tasks are now in public subnets and egress straight
-through the internet gateway, and the only thing left in the private
-subnets is RDS, which makes no outbound calls.
+The NAT existed so Fargate tasks in private subnets could reach ECR, Secrets
+Manager and CloudWatch. Those tasks moved to public subnets when the API had
+to be internet-facing (ECS Express Mode derives the load balancer scheme from
+the subnet type), so they egress through the internet gateway directly. The
+only thing left in the private subnets is RDS, which makes no outbound calls.
 
-So the NAT gateway is most likely serving nothing at roughly $33/month
-plus data processing. Confirm nothing else routes through it, then remove
-it. Note the EKS lab module does place its nodes in the private subnets,
-so either restore the NAT or give that module VPC endpoints before
-enabling it for a demo.
+The caveat here used to be the EKS lab, whose nodes did sit in private
+subnets. That module is now removed (ADR 0001, update 2026-11-19), so the
+caveat is gone with it.
 
-No interface endpoints needed in the meantime, which is what made this
-roughly cost-neutral before and makes it a clear saving now.
+Implemented as `enable_nat = false` in the network module rather than by
+deleting the resources, because anything placed back in a private subnet
+needs egress again — a worker, a batch task, Kubernetes nodes. The default
+route moved out of the private route tables into its own `aws_route` so it
+disappears with the NAT instead of being a permanent part of the table. The
+free S3 gateway endpoint stays for the same reason.
+
+Saving: roughly $33/month plus data processing.
 
 ## 5. Observability beyond CloudWatch
 
@@ -173,9 +177,8 @@ set is still changing shape — narrowing it now means re-narrowing it after
 every structural change. Once the stack settles, replace it with a policy
 generated from the access advisor data for the role.
 
-## 7. Exercise the Helm path
+## 7. ~~Exercise the Helm path~~ — dropped 2026-11-19
 
-The EKS lab is only useful if it works when you need it. Add a scheduled
-monthly workflow that brings the cluster up, deploys the current image,
-smoke-tests it and tears it down. Otherwise the first time it gets exercised
-will be the morning of a client demo.
+Moot: the EKS lab module is removed and no chart was ever written. A demo
+cluster will be stood up separately if an engagement calls for one. See
+ADR 0001, update 2026-11-19, for what was kept to make that easy.

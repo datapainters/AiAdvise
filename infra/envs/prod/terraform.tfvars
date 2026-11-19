@@ -43,5 +43,3 @@ db_instance_class = "db.t4g.small"
 bootstrap_admin_email = "wes@schiesz.com"
 
 # Flip to true only while you are actually demoing. ~$73/month idle.
-enable_eks_lab           = false
-lab_admin_principal_arns = []

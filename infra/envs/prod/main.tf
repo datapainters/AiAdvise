@@ -127,17 +127,6 @@ variable "bootstrap_admin_email" {
   default     = null
 }
 
-variable "enable_eks_lab" {
-  type        = bool
-  description = "Stand up the demo Kubernetes cluster. Costs ~$73/month idle."
-  default     = false
-}
-
-variable "lab_admin_principal_arns" {
-  type    = list(string)
-  default = []
-}
-
 ###############################################################################
 # Composition
 ###############################################################################
@@ -152,7 +141,11 @@ module "network" {
 
   project    = var.project
   cidr_block = "10.40.0.0/16"
-  single_nat = true
+
+  # Off since 2026-11-19: the API runs in the public subnets and RDS makes no
+  # outbound calls, so nothing in a private subnet needs egress. Set this true
+  # again before putting a worker, batch task or Kubernetes node back there.
+  enable_nat = false
 }
 
 module "database" {
@@ -213,16 +206,6 @@ module "web" {
   hosted_zone_id            = data.aws_route53_zone.primary.zone_id
 }
 
-module "eks_lab" {
-  source = "../../modules/eks-lab"
-  count  = var.enable_eks_lab ? 1 : 0
-
-  project              = var.project
-  vpc_id               = module.network.vpc_id
-  subnet_ids           = module.network.private_subnet_ids
-  admin_principal_arns = var.lab_admin_principal_arns
-}
-
 ###############################################################################
 # Outputs
 ###############################################################################
@@ -258,8 +241,4 @@ output "ecs_service_name" {
 
 output "database_endpoint" {
   value = module.database.endpoint
-}
-
-output "eks_lab_kubeconfig_command" {
-  value = var.enable_eks_lab ? module.eks_lab[0].kubeconfig_command : "EKS lab not enabled"
 }

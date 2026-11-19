@@ -44,10 +44,16 @@ bootstrap_admin_email = "wes@schiesz.com"
 
 # Flip to true only while you are actually demoing. ~$73/month idle.
 
-# Mail. Sending stays off until SES production access is granted; in the
-# sandbox anything to an unverified recipient is rejected, so enabling it
-# would only produce noise in the logs.
-mail_enabled         = false
+# Mail. On as of 2026-11-19, while SES is still in the sandbox.
+#
+# In the sandbox only verified recipients receive anything, so right now
+# this means the firm-side notifications reach wes@schiesz.com and any
+# client-facing message is rejected and logged. That is a strictly better
+# state than disabled: the half that can work, works, and MailSender
+# swallows the rejections rather than failing the action that triggered
+# them. Nothing changes here when production access is granted -- the
+# client-facing half simply starts arriving.
+mail_enabled         = true
 mail_from            = "notifications@datapainters.com"
 mail_from_name       = "Data Painters"
 mail_admin_recipient = "wes@schiesz.com"

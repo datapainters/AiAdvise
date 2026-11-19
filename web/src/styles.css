@@ -124,8 +124,7 @@ h2 {
 }
 
 .hero {
-  padding-bottom: 3rem;
-  border-bottom: 1px solid var(--rule);
+  padding-bottom: 3.5rem;
 }
 
 .cta {
@@ -144,32 +143,80 @@ h2 {
 
 /* Services */
 /* Narrative sections between the hero and the service grid. */
-.proof {
-  max-width: 62ch;
-  padding-top: 3rem;
+/* Two columns on wide screens, stacked on narrow. Copy was capped at 62ch
+   inside a 68rem container, which left the right third of every section
+   empty; the figure now occupies it. */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 3.5rem;
+  align-items: center;
+}
+
+/* Exactly one rule per section boundary. Previously .hero carried a
+   border-bottom and the next section a border-top, 3rem apart. */
+.page > section + section {
+  padding-top: 3.5rem;
+  margin-top: 3.5rem;
   border-top: 1px solid var(--rule);
-  margin-top: 3rem;
 }
 
-.proof h2 {
-  font-size: 1.25rem;
-  letter-spacing: -0.015em;
+.section-head {
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: -0.018em;
   text-transform: none;
-  margin-bottom: 0.9rem;
+  margin: 0 0 0.9rem;
 }
 
-.proof p {
+.body {
   color: var(--ink-soft);
+  max-width: 62ch;
   margin: 0 0 1rem;
+}
+
+.figure-wrap {
+  margin: 0;
+}
+
+.figure {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.figure-wrap figcaption {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin-top: 1rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--accent-soft);
+  max-width: 42ch;
+}
+
+.aside {
+  align-self: start;
+  padding: 1.75rem;
+  background: var(--accent-soft);
+  border-radius: 3px;
+}
+
+.aside .body {
+  margin-bottom: 0;
 }
 
 .services {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
   gap: 2.5rem;
-  padding-top: 3rem;
-  margin-top: 3rem;
-  border-top: 1px solid var(--rule);
+}
+
+.service-icon {
+  width: 30px;
+  height: 30px;
+  display: block;
+  margin-bottom: 0.9rem;
 }
 
 .services p {
@@ -179,7 +226,7 @@ h2 {
 }
 
 .principles {
-  max-width: 62ch;
+  margin: 0;
   padding-left: 1.25rem;
 }
 
@@ -195,23 +242,8 @@ h2 {
 /* Client names. Set as plain type rather than a logo wall -- using a
    client's trademark needs their permission, and a tidy list of names makes
    the same point without borrowing anyone's brand. */
-.clients {
-  padding-top: 3rem;
-  margin-top: 3rem;
-  border-top: 1px solid var(--rule);
-}
-
-.clients h2 {
-  font-size: 1.25rem;
-  letter-spacing: -0.015em;
-  text-transform: none;
-  margin-bottom: 0.9rem;
-}
-
 .clients > p {
-  color: var(--ink-soft);
-  max-width: 62ch;
-  margin: 0 0 1.75rem;
+  margin-bottom: 1.75rem;
 }
 
 .client-list {
@@ -755,6 +787,28 @@ button:hover {
   color: var(--ink-soft);
 }
 
+/* Narrow screens: the two-column rows stack, and the figure goes under the
+   copy it illustrates rather than being squeezed beside it. */
+@media (max-width: 54rem) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2.25rem;
+  }
+
+  .figure-wrap figcaption {
+    max-width: none;
+  }
+
+  .page > section + section {
+    padding-top: 2.75rem;
+    margin-top: 2.75rem;
+  }
+
+  .client-list {
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --ink: #e8e9ec;
@@ -793,7 +847,12 @@ button:hover {
     background: #1d2025;
   }
 
-  .inset {
+  .inset,
+  .aside {
     background: #1b1e23;
+  }
+
+  .figure-wrap figcaption {
+    border-left-color: #2b2f36;
   }
 }

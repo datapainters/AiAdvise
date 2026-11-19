@@ -33,6 +33,12 @@ import {
   type LoginEvent,
   type Topic,
 } from './api';
+import {
+  PilotToProduction,
+  ServiceIcon,
+  SourcesToOutput,
+  Timeline,
+} from './graphics';
 import { clearToken, getToken, type User } from './auth';
 
 /* ------------------------------------------------------------------ auth */
@@ -191,38 +197,60 @@ function Nav() {
 function Home() {
   return (
     <main className="page">
-      <section className="hero">
-        <h1>Enterprise AI, built by people who built enterprise BI.</h1>
-        <p className="lede">
-          We spent twenty-five years making data trustworthy inside large
-          organisations &mdash; the warehouses, the semantic layers, the governance, the
-          migrations nobody wanted to own. The hard part was never the model. It was the
-          data it has to read, the systems it has to write to, and the people who have
-          to defend the output in a meeting. That has not changed. The tools have.
-        </p>
-        <Link to="/portal" className="cta">
-          Client portal
-        </Link>
+      {/* Copy and figure share the width; the hero used to leave the right
+          third of a 68rem container empty. */}
+      <section className="hero split">
+        <div>
+          <h1>Enterprise AI, built by people who built enterprise BI.</h1>
+          <p className="lede">
+            We spent twenty-five years making data trustworthy inside large
+            organisations &mdash; the warehouses, the semantic layers, the governance,
+            the migrations nobody wanted to own. The hard part was never the model. It
+            was the data it has to read, the systems it has to write to, and the people
+            who have to defend the output in a meeting. That has not changed. The tools
+            have.
+          </p>
+          <Link to="/portal" className="cta">
+            Client portal
+          </Link>
+        </div>
+        <figure className="figure-wrap">
+          <SourcesToOutput />
+          <figcaption>
+            Sources rarely agree. Everything expensive happens before the model.
+          </figcaption>
+        </figure>
       </section>
 
-      <section className="proof">
-        <h2>Why the scaling problem is the familiar one</h2>
-        <p>
-          Most AI pilots work. Most AI programmes stall anyway, and they stall on things
-          an enterprise data team has seen before: lineage nobody can trace, access
-          controls that do not survive an audit, a pipeline that was never going to run
-          twice, an output no owner will sign off on. We recognise those failures because
-          we spent a career fixing the business intelligence versions of them.
-        </p>
-        <p>
-          We moved into AI the way we moved into everything else &mdash; by shipping it
-          inside organisations where it had to integrate with what already existed,
-          clear review, and keep working after we left.
-        </p>
+      <section className="split">
+        <div>
+          <h2 className="section-head">Why the scaling problem is the familiar one</h2>
+          <p className="body">
+            Most AI pilots work. Most AI programmes stall anyway, and they stall on
+            things an enterprise data team has seen before: lineage nobody can trace,
+            access controls that do not survive an audit, a pipeline that was never
+            going to run twice, an output no owner will sign off on. We recognise those
+            failures because we spent a career fixing the business intelligence versions
+            of them.
+          </p>
+          <p className="body">
+            We moved into AI the way we moved into everything else &mdash; by shipping
+            it inside organisations where it had to integrate with what already existed,
+            clear review, and keep working after we left.
+          </p>
+        </div>
+        <figure className="figure-wrap">
+          <PilotToProduction />
+          <figcaption>
+            A pilot is one workload that worked once. Production is the same workload,
+            replicated, observed and on somebody&rsquo;s rota.
+          </figcaption>
+        </figure>
       </section>
 
       <section className="services">
         <article>
+          <ServiceIcon name="assess" />
           <h2>Assessment</h2>
           <p>
             Where AI would actually move a number in your business, and where it would
@@ -231,6 +259,7 @@ function Home() {
           </p>
         </article>
         <article>
+          <ServiceIcon name="data" />
           <h2>Data readiness</h2>
           <p>
             The unglamorous prerequisite. What your data looks like now, what it needs
@@ -239,6 +268,7 @@ function Home() {
           </p>
         </article>
         <article>
+          <ServiceIcon name="scale" />
           <h2>Build and scale</h2>
           <p>
             From a working prototype to something that holds a production load, an
@@ -247,6 +277,7 @@ function Home() {
           </p>
         </article>
         <article>
+          <ServiceIcon name="oversee" />
           <h2>Implementation oversight</h2>
           <p>
             Working alongside your team or your vendor, making sure what ships can be
@@ -256,8 +287,8 @@ function Home() {
       </section>
 
       <section className="clients">
-        <h2>Where our team has worked</h2>
-        <p>
+        <h2 className="section-head">Where our team has worked</h2>
+        <p className="body">
           Data Painters is a small group of engineers. Between us, our work has been
           delivered for:
         </p>
@@ -285,40 +316,55 @@ function Home() {
 function Approach() {
   return (
     <main className="page">
-      <h1>Approach</h1>
-      <p className="lede">
-        We were doing most of this before it was called AI. The principles came from
-        enterprise data work &mdash; migrations that went well, and a few that did not.
-      </p>
-      <ol className="principles">
-        <li>
-          <strong>Start where the data already is.</strong> An integration that needs a
-          data migration first is two projects wearing one budget.
-        </li>
-        <li>
-          <strong>Measure before and after, on the same metric.</strong> If nobody wrote
-          down the baseline, the project cannot succeed or fail &mdash; it can only end.
-        </li>
-        <li>
-          <strong>Design for the second year.</strong> Anything can be made to work once
-          by the people who built it. Enterprise scale is mostly a question of what
-          happens on the day none of them are available.
-        </li>
-        <li>
-          <strong>Leave it operable.</strong> The test of an engagement is what still
-          works six months after the consultant stops answering the phone.
-        </li>
-      </ol>
+      <section className="hero split">
+        <div>
+          <h1>Approach</h1>
+          <p className="lede">
+            We were doing most of this before it was called AI. The principles came from
+            enterprise data work &mdash; migrations that went well, and a few that did
+            not.
+          </p>
+        </div>
+        <figure className="figure-wrap">
+          <Timeline />
+          <figcaption>
+            The same line, not a new one. Each era inherited the previous era&rsquo;s
+            unsolved problems.
+          </figcaption>
+        </figure>
+      </section>
 
-      <section className="proof">
-        <h2>What twenty-five years actually buys you</h2>
-        <p>
-          Pattern recognition, mostly. An enterprise AI programme fails in a small
-          number of recognisable ways, and nearly all of them are data and
-          organisational problems wearing new vocabulary. Having watched the business
-          intelligence generation of the same mistakes, we tend to know which corner a
-          project is about to turn before it turns it.
-        </p>
+      <section className="split">
+        <ol className="principles">
+          <li>
+            <strong>Start where the data already is.</strong> An integration that needs
+            a data migration first is two projects wearing one budget.
+          </li>
+          <li>
+            <strong>Measure before and after, on the same metric.</strong> If nobody
+            wrote down the baseline, the project cannot succeed or fail &mdash; it can
+            only end.
+          </li>
+          <li>
+            <strong>Design for the second year.</strong> Anything can be made to work
+            once by the people who built it. Enterprise scale is mostly a question of
+            what happens on the day none of them are available.
+          </li>
+          <li>
+            <strong>Leave it operable.</strong> The test of an engagement is what still
+            works six months after the consultant stops answering the phone.
+          </li>
+        </ol>
+        <div className="aside">
+          <h2 className="section-head">What twenty-five years actually buys you</h2>
+          <p className="body">
+            Pattern recognition, mostly. An enterprise AI programme fails in a small
+            number of recognisable ways, and nearly all of them are data and
+            organisational problems wearing new vocabulary. Having watched the business
+            intelligence generation of the same mistakes, we tend to know which corner a
+            project is about to turn before it turns it.
+          </p>
+        </div>
       </section>
     </main>
   );

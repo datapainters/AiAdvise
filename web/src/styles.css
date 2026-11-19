@@ -760,12 +760,14 @@ button:hover {
   margin: 0 0 0.75rem;
 }
 
-/* Monospace and generously spaced: this gets read aloud or retyped. */
+/* Holds an invite URL. Monospace so the token is unambiguous if anyone has
+   to read it back, but sized for a link rather than a short password, and
+   select-all so one click grabs the whole thing. */
 .one-time {
   display: block;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 1.25rem;
-  letter-spacing: 0.12em;
+  font-size: 0.82rem;
+  line-height: 1.5;
   padding: 0.75rem 1rem;
   margin: 0 0 0.75rem;
   background: var(--bg);

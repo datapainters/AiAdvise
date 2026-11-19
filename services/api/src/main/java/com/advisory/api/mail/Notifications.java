@@ -47,47 +47,59 @@ public class Notifications {
     /* ----------------------------------------------------------- accounts */
 
     /**
-     * Tells someone an account exists for them.
+     * Invites someone to set up their account.
      *
-     * <p>Deliberately contains no password. The one-time credential is still
-     * handed over by the admin out of band, because putting the credential
-     * and the door in the same envelope removes the point of having two
-     * channels. Replacing this with a single-use invite link is the obvious
-     * next step and would remove the handoff entirely.
+     * <p>Carries a single-use link, never a password. The link expires, works
+     * once, and cannot be replayed out of a mailbox months later -- none of
+     * which is true of a credential sent by email. The recipient chooses
+     * their own password at the end of it, so no password the firm knows
+     * ever exists for the account.
+     *
+     * @return whether the message reached the mail provider, so the caller
+     *     can tell an admin to hand the link over by another route
      */
-    public void accountCreated(String email, String displayName, String clientName) {
-        String url = mail.baseUrl() + "/login";
+    public boolean invitation(String email, String displayName, String clientName,
+            String inviteUrl, Instant expiresAt) {
+
+        String expires = when(expiresAt);
 
         String plain = """
                 Hello %s,
 
-                An account has been created for you on the Data Painters client
-                portal for %s.
+                You have been invited to the Data Painters client portal for %s.
 
-                Sign in here: %s
+                Set your password and sign in:
+                %s
 
-                You will be sent a one-time password separately. You will be asked
-                to choose your own password the first time you sign in.
+                The link works once and expires on %s (%s). If it has already
+                expired, ask us to send another.
 
                 If you were not expecting this, you can ignore it -- the account
-                cannot be used until that password is set.
+                cannot be used until someone follows that link.
 
                 Data Painters
-                """.formatted(displayName, clientName, url);
+                """.formatted(displayName, clientName, inviteUrl, expires,
+                displayZone.getId());
 
         String html = wrap("""
                 <p>Hello %s,</p>
-                <p>An account has been created for you on the Data Painters client
-                portal for <strong>%s</strong>.</p>
-                <p><a href="%s" style="color:#8a5a2b">Sign in to the portal</a></p>
-                <p>You will be sent a one-time password separately. You will be
-                asked to choose your own password the first time you sign in.</p>
+                <p>You have been invited to the Data Painters client portal for
+                <strong>%s</strong>.</p>
+                <p style="margin:24px 0">
+                  <a href="%s" style="background:#16181d;color:#fcfcfd;\
+text-decoration:none;padding:11px 20px;border-radius:2px;display:inline-block">\
+Set your password</a>
+                </p>
+                <p style="color:#595f6b;font-size:13px">The link works once and
+                expires on %s (%s). If it has already expired, ask us to send
+                another.</p>
                 <p style="color:#595f6b;font-size:13px">If you were not expecting
                 this, you can ignore it &mdash; the account cannot be used until
-                that password is set.</p>
-                """.formatted(esc(displayName), esc(clientName), esc(url)));
+                someone follows that link.</p>
+                """.formatted(esc(displayName), esc(clientName), esc(inviteUrl),
+                esc(expires), esc(displayZone.getId())));
 
-        mail.send(email, "Your Data Painters portal account", plain, html);
+        return mail.send(email, "Your Data Painters portal invitation", plain, html);
     }
 
     /* ----------------------------------------------------------- meetings */

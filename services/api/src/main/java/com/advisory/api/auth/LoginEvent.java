@@ -17,6 +17,9 @@ public class LoginEvent {
     public static final String FAILURE = "failure";
     public static final String PASSWORD_CHANGE = "password_change";
 
+    /** A first password set by redeeming an invite link. */
+    public static final String INVITE_ACCEPTED = "invite_accepted";
+
     /** Longest value either column will hold; anything longer is truncated. */
     private static final int MAX_TEXT = 512;
 

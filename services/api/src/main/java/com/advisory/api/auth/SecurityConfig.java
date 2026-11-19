@@ -39,6 +39,12 @@ public class SecurityConfig {
                         // Preflight must not require a token.
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/login").permitAll()
+                        // Unauthenticated by necessity: someone redeeming an
+                        // invite has no password yet. The token in the path
+                        // is the credential -- 256 bits, single use, with an
+                        // expiry -- and the controller answers 404 for
+                        // expired, spent and never-existed alike.
+                        .requestMatchers("/api/invites/**").permitAll()
                         // The load balancer polls these and cannot hold a token.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/**").hasAuthority("ROLE_ADMIN")

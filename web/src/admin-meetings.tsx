@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   createUser,
   getClientDetail,
+  resendInvite,
   getMeeting,
   saveMeetingNote,
   setAgendaItemStatus,
@@ -485,6 +486,7 @@ export function ClientDetailModal({
                         <th>Email</th>
                         <th>Role</th>
                         <th>Last sign-in</th>
+                        <th />
                       </tr>
                     </thead>
                     <tbody>
@@ -499,6 +501,22 @@ export function ClientDetailModal({
                               : u.mustChangePassword
                                 ? 'invited, not yet in'
                                 : 'never'}
+                          </td>
+                          <td>
+                            {/* Any link they already hold is cancelled by
+                                this, so it doubles as a revoke. */}
+                            <button
+                              className="linklike"
+                              onClick={async () => {
+                                try {
+                                  onIssued(await resendInvite(u.id));
+                                } catch (err) {
+                                  onError(err);
+                                }
+                              }}
+                            >
+                              {u.lastLoginAt ? 'Send reset link' : 'Resend invite'}
+                            </button>
                           </td>
                         </tr>
                       ))}

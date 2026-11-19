@@ -1,8 +1,10 @@
 package com.advisory.api.admin;
 
 import com.advisory.api.auth.AppUser;
+import com.advisory.api.auth.CurrentUser;
 import com.advisory.api.auth.AppUserRepository;
 import com.advisory.api.auth.LoginEvent;
+import com.advisory.api.auth.InviteService;
 import com.advisory.api.auth.LoginEventRepository;
 import com.advisory.api.mail.Notifications;
 import com.advisory.api.portal.Client;
@@ -15,19 +17,21 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -54,20 +58,15 @@ public class AdminController {
 
     private static final Logger log = LoggerFactory.getLogger(AdminController.class);
 
-    private static final SecureRandom RANDOM = new SecureRandom();
-
-    // Unambiguous alphabet: no O/0, l/1/I. These passwords get read aloud
-    // or copied by hand, and a character nobody can transcribe is a
-    // support call.
-    private static final String ALPHABET =
-            "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-
     private final ClientRepository clients;
     private final EngagementRepository engagements;
     private final AppUserRepository users;
     private final LoginEventRepository loginEvents;
-    private final PasswordEncoder passwordEncoder;
     private final Notifications notifications;
+    private final InviteService invites;
+
+    /** Where the invite link points. Same origin the SPA is served from. */
+    private final String appBaseUrl;
 
     /**
      * Used only to pull DB-generated columns back after an insert. created_at
@@ -81,13 +80,15 @@ public class AdminController {
 
     public AdminController(ClientRepository clients, EngagementRepository engagements,
             AppUserRepository users, LoginEventRepository loginEvents,
-            PasswordEncoder passwordEncoder, Notifications notifications) {
+            Notifications notifications, InviteService invites,
+            @Value("${APP_BASE_URL:https://ai.datapainters.com}") String appBaseUrl) {
         this.clients = clients;
         this.engagements = engagements;
         this.users = users;
         this.loginEvents = loginEvents;
-        this.passwordEncoder = passwordEncoder;
         this.notifications = notifications;
+        this.invites = invites;
+        this.appBaseUrl = appBaseUrl;
     }
 
     /* ------------------------------------------------------------ clients */
@@ -184,11 +185,17 @@ public class AdminController {
     }
 
     /**
-     * The one-time password is returned exactly once, at creation. It is
-     * stored only as a BCrypt hash, so it cannot be retrieved afterwards --
-     * if it is lost, issue a new one rather than trying to recover it.
+     * The invite link, returned once at creation.
+     *
+     * <p>The link is still shown to the admin rather than only emailed. Two
+     * reasons: SES is in the sandbox, so a real client address is rejected
+     * and the admin needs something to hand over; and even in production,
+     * mail goes missing and a working fallback beats re-issuing.
+     *
+     * @param emailed whether the invite actually reached the mail provider
      */
-    public record CreatedUser(UserView user, String oneTimePassword) {}
+    public record CreatedUser(UserView user, String inviteUrl, Instant inviteExpiresAt,
+            boolean emailed) {}
 
     @GetMapping("/users")
     public List<UserView> listUsers() {
@@ -197,7 +204,8 @@ public class AdminController {
 
     @PostMapping("/users")
     @ResponseStatus(HttpStatus.CREATED)
-    public CreatedUser createUser(@Valid @RequestBody CreateUser request) {
+    public CreatedUser createUser(
+            @AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CreateUser request) {
         requireClient(request.clientId());
 
         String email = request.email().trim().toLowerCase();
@@ -206,30 +214,58 @@ public class AdminController {
                     HttpStatus.CONFLICT, "An account already exists for that email");
         }
 
-        String oneTime = generatePassword();
-
         AppUser user = new AppUser();
         user.setEmail(email);
         user.setDisplayName(request.displayName().trim());
         user.setRole(AppUser.ROLE_CLIENT);
         user.setClientId(request.clientId());
-        user.setPasswordHash(passwordEncoder.encode(oneTime));
+        // No password the firm knows ever exists for this account. The hash
+        // is well-formed but matches nothing until the invite is redeemed.
+        user.setPasswordHash(invites.unusablePassword());
         user.setMustChangePassword(true);
         user.setEnabled(true);
 
         AppUser saved = users.save(user);
-        // Deliberately not logging the password or the full address.
+        // Deliberately not logging the address or anything about the invite.
         log.info("Created client user {} for client {}", saved.getId(), request.clientId());
 
-        // After the save, and without the password in it. If the mail fails
-        // the account still exists and the admin still has the credential on
-        // screen, which is the state that matters.
-        notifications.accountCreated(
-                saved.getEmail(),
-                saved.getDisplayName(),
-                clients.findById(request.clientId()).map(Client::getName).orElse("your team"));
+        return invite(jwt, saved, clients.findById(request.clientId())
+                .map(Client::getName).orElse("your team"));
+    }
 
-        return new CreatedUser(UserView.of(saved), oneTime);
+    /** Issues an invite, emails it, and returns the link either way. */
+    private CreatedUser invite(Jwt jwt, AppUser user, String clientName) {
+        InviteService.Issued issued = invites.issue(user.getId(), CurrentUser.from(jwt).id());
+        String url = appBaseUrl + "/invite/" + issued.token();
+
+        boolean emailed = notifications.invitation(
+                user.getEmail(), user.getDisplayName(), clientName, url,
+                issued.expiresAt());
+
+        return new CreatedUser(UserView.of(user), url, issued.expiresAt(), emailed);
+    }
+
+    /**
+     * Re-invites someone, superseding any link they already hold.
+     *
+     * <p>Needed whenever a link expires, goes missing, or was sent while SES
+     * could not reach the recipient.
+     */
+    @PostMapping("/users/{id}/invite")
+    public CreatedUser reinvite(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        AppUser user = users.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+
+        if (!user.isEnabled()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "That account is disabled");
+        }
+
+        String clientName = user.getClientId() == null
+                ? "your team"
+                : clients.findById(user.getClientId()).map(Client::getName).orElse("your team");
+
+        return invite(jwt, user, clientName);
     }
 
     /* -------------------------------------------------------------- helpers */
@@ -283,13 +319,5 @@ public class AdminController {
         if (!clients.existsById(clientId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No such client");
         }
-    }
-
-    private static String generatePassword() {
-        StringBuilder sb = new StringBuilder(16);
-        for (int i = 0; i < 16; i++) {
-            sb.append(ALPHABET.charAt(RANDOM.nextInt(ALPHABET.length())));
-        }
-        return sb.toString();
     }
 }

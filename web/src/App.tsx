@@ -8,7 +8,15 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
 import {
   changePassword as apiChangePassword,
   createClient,
@@ -16,6 +24,7 @@ import {
   createTopic,
   createUser,
   cancelAppointment,
+  acceptInvite,
   listAdminAppointments,
   listAllEngagements,
   listAppointments,
@@ -26,6 +35,7 @@ import {
   listUsers,
   login as apiLogin,
   me,
+  peekInvite,
   updateTopicStatus,
   Unauthorized,
   type AdminEngagement,
@@ -35,6 +45,7 @@ import {
   type AdminAppointment,
   type Appointment,
   type Engagement,
+  type InviteView,
   type LoginEvent,
   type Topic,
 } from './api';
@@ -864,6 +875,64 @@ function ChangePassword({ forced }: { forced: boolean }) {
 
 /* ------------------------------------------------------------------ admin */
 
+/**
+ * Shown once after an invite is issued.
+ *
+ * <p>The link is displayed even when the email went out, because mail goes
+ * missing and a working fallback beats re-issuing. When the email did not go
+ * out -- which is every client address while SES is sandboxed -- the copy
+ * says so plainly rather than letting an admin assume it was sent.
+ */
+function InviteIssued({
+  issued,
+  onDismiss,
+}: {
+  issued: CreatedUser;
+  onDismiss: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(issued.inviteUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be refused; the link is on screen regardless.
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="notice issued">
+      <p>
+        {issued.emailed ? (
+          <>
+            Invitation emailed to <strong>{issued.user.email}</strong>.
+          </>
+        ) : (
+          <>
+            Account created for <strong>{issued.user.email}</strong>, but the
+            invitation could not be emailed. Send them this link yourself.
+          </>
+        )}
+      </p>
+      <code className="one-time">{issued.inviteUrl}</code>
+      <p className="fine">
+        Works once, expires{' '}
+        {new Date(issued.inviteExpiresAt).toLocaleDateString()}. Issuing another
+        invitation cancels this link.
+      </p>
+      <div className="button-row">
+        <button onClick={copy}>{copied ? 'Copied' : 'Copy link'}</button>
+        <button className="linklike" onClick={onDismiss}>
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
 type AdminTab = 'clients' | 'engagements' | 'appointments' | 'system';
 type SystemTool = 'signins' | 'logins';
 
@@ -1236,18 +1305,7 @@ function Admin() {
 
       {error && <div className="error">{error}</div>}
 
-      {issued && (
-        <div className="notice issued">
-          <p>
-            <strong>{issued.user.email}</strong> can now sign in with this one-time
-            password. It is not stored anywhere readable and cannot be shown again --
-            send it now, by a channel other than the email address above where you can.
-          </p>
-          <code className="one-time">{issued.oneTimePassword}</code>
-          <p>They will be asked to choose their own password at first sign-in.</p>
-          <button onClick={() => setIssued(null)}>Done</button>
-        </div>
-      )}
+      {issued && <InviteIssued issued={issued} onDismiss={() => setIssued(null)} />}
 
       {tab === 'clients' && (
         <section>
@@ -1510,6 +1568,125 @@ function Admin() {
   );
 }
 
+/* ----------------------------------------------------------------- invite */
+
+/**
+ * Public invitation page. The token in the URL is the credential, so this
+ * route deliberately sits outside RequireAuth -- someone arriving here has
+ * no password yet.
+ */
+function AcceptInvite() {
+  const { token } = useParams<{ token: string }>();
+  const { setUser } = useAuth();
+  const navigate = useNavigate();
+
+  const [invite, setInvite] = useState<InviteView | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!token) {
+      setError('That invitation link is not valid.');
+      setLoading(false);
+      return;
+    }
+    peekInvite(token)
+      .then(setInvite)
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    if (password !== confirm) {
+      setError('The two passwords do not match.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      // Accepting signs them straight in; asking them to retype the
+      // password they just chose adds a step and a chance to mistype.
+      setUser(await acceptInvite(token, password));
+      navigate('/portal', { replace: true });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) {
+    return <main className="page"><p>Loading...</p></main>;
+  }
+
+  if (!invite) {
+    return (
+      <main className="page narrow">
+        <h1>Invitation</h1>
+        <div className="error">{error ?? 'That invitation link is not valid.'}</div>
+        <p className="body">
+          Links expire after seven days and work only once. Ask us to send a new
+          one, or <Link to="/login">sign in</Link> if you have already set a
+          password.
+        </p>
+      </main>
+    );
+  }
+
+  return (
+    <main className="page narrow">
+      <h1>Set your password</h1>
+      <p className="lede">
+        Welcome, {invite.displayName}.
+        {invite.clientName ? ` You have been invited to the ${invite.clientName} portal.` : ''}
+      </p>
+
+      {error && <div className="error">{error}</div>}
+
+      <form onSubmit={onSubmit} className="stack-form">
+        <label>
+          Email
+          {/* Shown, not editable: the invite is bound to this address. */}
+          <input type="email" value={invite.email} readOnly disabled />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            value={password}
+            autoComplete="new-password"
+            minLength={MIN_PASSWORD_LENGTH}
+            required
+            autoFocus
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <label>
+          Confirm password
+          <input
+            type="password"
+            value={confirm}
+            autoComplete="new-password"
+            minLength={MIN_PASSWORD_LENGTH}
+            required
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </label>
+        <p className="hint">At least {MIN_PASSWORD_LENGTH} characters.</p>
+        <button type="submit" disabled={busy}>
+          {busy ? 'Setting...' : 'Set password and sign in'}
+        </button>
+      </form>
+    </main>
+  );
+}
+
 /* ------------------------------------------------------------------ shell */
 
 export default function App() {
@@ -1524,6 +1701,8 @@ export default function App() {
           {/* Not wrapped in RequireAuth: that would bounce straight back
               here, since the whole point is that this user must change
               their password before anything else. */}
+          {/* Public: the token is the credential. */}
+          <Route path="/invite/:token" element={<AcceptInvite />} />
           <Route path="/change-password" element={<ChangePassword forced />} />
           <Route path="/account" element={<ChangePassword forced={false} />} />
           <Route

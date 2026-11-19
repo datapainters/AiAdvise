@@ -188,8 +188,14 @@ export interface AdminUser {
 
 export interface CreatedUser {
   user: AdminUser;
-  /** Shown once and never retrievable again. */
-  oneTimePassword: string;
+  /**
+   * Single-use link, shown once. Still surfaced to the admin rather than
+   * only emailed, because SES is sandboxed and mail goes missing.
+   */
+  inviteUrl: string;
+  inviteExpiresAt: string;
+  /** Whether the invitation actually reached the mail provider. */
+  emailed: boolean;
 }
 
 /** An engagement as the admin screens see it: carries its owning client. */
@@ -396,4 +402,59 @@ export interface ClientDetail {
 
 export function getClientDetail(id: number): Promise<ClientDetail> {
   return request<ClientDetail>(`/api/admin/clients/${id}`);
+}
+
+/** Issues a fresh invite, superseding any link the user already holds. */
+export function resendInvite(userId: number): Promise<CreatedUser> {
+  return request<CreatedUser>(`/api/admin/users/${userId}/invite`, { method: 'POST' });
+}
+
+/* ---------------------------------------------------------------- invites */
+
+export interface InviteView {
+  email: string;
+  displayName: string;
+  clientName: string | null;
+}
+
+/**
+ * Both invite calls bypass request(): they are the one pair of endpoints
+ * used by someone with no session at all, so attaching a stale token or
+ * clearing one on 401 would both be wrong.
+ */
+export async function peekInvite(token: string): Promise<InviteView> {
+  const response = await fetch(`${BASE_URL}/api/invites/${encodeURIComponent(token)}`);
+  if (response.status === 404) {
+    throw new Error('That invitation link is not valid. It may have expired or already been used.');
+  }
+  if (!response.ok) {
+    throw new Error(`Could not load the invitation (${response.status}).`);
+  }
+  return (await response.json()) as InviteView;
+}
+
+export async function acceptInvite(token: string, password: string): Promise<User> {
+  const response = await fetch(
+    `${BASE_URL}/api/invites/${encodeURIComponent(token)}/accept`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    },
+  );
+
+  if (response.status === 404) {
+    throw new Error('That invitation link is not valid. It may have expired or already been used.');
+  }
+  if (response.status === 400) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? 'That password was rejected.');
+  }
+  if (!response.ok) {
+    throw new Error(`Could not set your password (${response.status}).`);
+  }
+
+  const body = (await response.json()) as LoginResponse;
+  setToken(body.token);
+  return body.user;
 }

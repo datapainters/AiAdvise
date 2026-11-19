@@ -366,20 +366,63 @@ door do not belong in the same envelope. See the follow-up below.
 IAM is scoped to the one verified identity rather than `*`, so a bug cannot
 send as another domain this account verifies later.
 
-### Outstanding — both need you
+### Verified live, 2026-11-19
 
-1. **Verify wes@schiesz.com.** AWS has emailed a confirmation link. Until
-   it is clicked, the sandbox will not deliver anything to that address, so
-   no test send is possible.
-2. **Request SES production access.** A support request, and the only step
-   that cannot be done from here. Until it is granted the account is capped
-   at 200 messages a day, one per second, and *only to verified addresses* —
-   so no real client will receive anything. `mail_enabled` is `false` until
-   then; the service logs what it would have sent.
+A real send arrived in the inbox, not spam, with the headers Google wrote
+on it reading `dkim=pass header.i=@datapainters.com` on the new selector,
+`spf=pass`, and `dmarc=pass header.from=datapainters.com`. DMARC passes on
+DKIM alignment; SPF aligns to `amazonses.com` because the envelope sender
+is theirs, which is expected without a custom MAIL FROM.
 
-### Follow-up worth doing
+**Production access granted the same day.** The account moved from the
+sandbox (200/day, 1/sec, verified recipients only) to 50,000/day at 14/sec,
+enforcement HEALTHY. No code or configuration changed for that — the
+client-facing half simply started arriving, which is what `mail_enabled`
+being independent of sandbox state was for.
 
-A **single-use invite link** would remove the out-of-band password handoff
-entirely: the email carries a token, not a credential, the link expires,
-and the user sets their own password on first use. It is a small table and
-one page, and it is strictly better than emailing a one-time password.
+### Still worth doing
+
+- **Tighten SPF and DMARC.** Once aggregate reports confirm nothing
+  unexpected sends as the domain, move SPF from `~all` to `-all` and DMARC
+  from `p=none` to quarantine. Do not do it before the reports.
+- **Custom MAIL FROM subdomain** would align SPF as well as DKIM. Optional:
+  it adds an MX record and a failure mode, and DKIM alignment alone already
+  passes DMARC.
+- **The DMARC `rua` address** is `dmarc@datapainters.com`. Create that
+  alias in Zoho or the reports bounce.
+
+## 10. Invite links — done 2026-11-19
+
+The one-time password handoff is gone. The invitation email carries a
+single-use link that expires in seven days; the recipient sets their own
+password, so no password the firm knows ever exists for a client account.
+
+- Accounts are created with a BCrypt of two random UUIDs. `password_hash`
+  is NOT NULL and an account awaiting its invite must not be reachable by
+  any password; a well-formed hash matching nothing beats a sentinel some
+  later comparison might treat as empty.
+- `invite_token` stores a **SHA-256 of the token, never the token**. Fast
+  digest rather than BCrypt on purpose: 256 bits of CSPRNG output has no
+  dictionary to resist, and a per-row salt would make lookup by token
+  impossible without scanning the table.
+- Issuing an invite deletes the user's outstanding ones, so re-inviting
+  cannot leave an earlier link live in a forwarded mailbox. That makes
+  "Resend invite" double as a revoke.
+- Expired, already redeemed and never existed all answer **404**.
+  Distinguishing them would tell someone holding a stale link whether it
+  was ever real.
+- Redemption sets the password and marks the token used in one
+  transaction. A failure between the two would consume the token without
+  setting a password and lock the account out permanently.
+- The two invite routes are unauthenticated by necessity — the person
+  using them has no password yet — and permitted explicitly in the filter
+  chain. Acceptance is recorded in the sign-in audit.
+
+The admin still sees the link even when the email sent, because mail goes
+missing and a working fallback beats re-issuing. When it did not send, the
+copy says so rather than letting an admin assume it did.
+
+**Not yet exercised by a human.** The flow is deployed and verified
+structurally — V6 applied, service healthy, every client path resolves to a
+server route — but nobody has clicked an actual invite link. That is the
+next thing worth doing.

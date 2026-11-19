@@ -188,10 +188,27 @@ output "security_group_id" {
   value = aws_security_group.db.id
 }
 
+# NOTE for anyone turning manage_master_user_password on for an instance that
+# already exists: this output cannot be planned through that transition. The
+# provider does not mark master_user_secret as unknown when the instance
+# changes, so the plan evaluates it against current state, where the list is
+# still empty, and fails with "Invalid index" before it can apply the change
+# that would populate it. Consumers of this output make the whole plan fail
+# with it.
+#
+# The way through (done 2026-11-19) is to enable managed password on the
+# instance directly -- `aws rds modify-db-instance --manage-master-user-password
+# --apply-immediately`, exactly what this file declares -- wait for the
+# secret to report active, then apply. Terraform refreshes, sees the
+# attribute populated and converges with no drift.
+#
+# A fresh instance is unaffected: on create the attribute is unknown until
+# after apply, which plans correctly.
 output "secret_arn" {
   description = <<-EOT
     ARN of the RDS-managed master user secret. Contains username and
-    password, rotated by RDS. Nothing else.
+    password, rotated by RDS. Nothing else -- host, port and dbname are
+    separate outputs.
   EOT
   value       = aws_db_instance.this.master_user_secret[0].secret_arn
 }

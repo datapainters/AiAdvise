@@ -40,6 +40,25 @@ public class AppUser {
     @Column(name = "display_name", nullable = false)
     private String displayName;
 
+    /**
+     * Captured separately from displayName because forms need them apart.
+     * displayName stays the authoritative label -- splitting a name on the
+     * first space is wrong for plenty of people, so it is derived once and
+     * then left alone.
+     */
+    @Column(name = "first_name")
+    private String firstName;
+
+    @Column(name = "last_name")
+    private String lastName;
+
+    @Column
+    private String phone;
+
+    /** The contact's employer, which is not necessarily the client. */
+    @Column(name = "company_id")
+    private Long companyId;
+
     @Column(nullable = false)
     private String role = ROLE_CLIENT;
 
@@ -61,6 +80,46 @@ public class AppUser {
 
     public Long getId() {
         return id;
+    }
+
+    public String getFirstName() {
+        return firstName;
+    }
+
+    public void setFirstName(String firstName) {
+        this.firstName = trimToNull(firstName);
+    }
+
+    public String getLastName() {
+        return lastName;
+    }
+
+    public void setLastName(String lastName) {
+        this.lastName = trimToNull(lastName);
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = trimToNull(phone);
+    }
+
+    public Long getCompanyId() {
+        return companyId;
+    }
+
+    public void setCompanyId(Long companyId) {
+        this.companyId = companyId;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     public Long getClientId() {

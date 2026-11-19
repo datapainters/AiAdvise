@@ -56,12 +56,7 @@ public class SchedulingService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
 
-        // Normalise before validating. A caller sending 10:00:00.500Z would
-        // otherwise pass the check here (which truncates) and then violate the
-        // database constraint (which requires a whole second), turning a bad
-        // request into a 500.
-        Instant start = startsAt.truncatedTo(ChronoUnit.MINUTES);
-        validateSlot(start, durationMinutes);
+        Instant start = normaliseAndValidate(startsAt, durationMinutes);
 
         Appointment appointment = new Appointment();
         appointment.setClientId(clientId);
@@ -154,13 +149,45 @@ public class SchedulingService {
     }
 
     /**
+     * Normalises a requested slot and rejects anything invalid.
+     *
+     * <p>Public because rescheduling from the admin tools has to apply
+     * exactly these rules -- the database constraints enforcing 30-minute
+     * blocks and aligned starts do not care which endpoint wrote the row,
+     * and a second copy of the logic would drift.
+     *
+     * <p>Normalising before validating matters: a caller sending
+     * 10:00:00.500Z would otherwise pass a check that truncates and then
+     * violate the constraint that requires a whole second, turning a bad
+     * request into a 500.
+     */
+    public Instant normaliseAndValidate(Instant startsAt, int durationMinutes) {
+        return normaliseAndValidate(startsAt, durationMinutes, false);
+    }
+
+    /**
+     * @param allowPast true when editing an existing meeting. A client
+     *     booking cannot land in the past -- that is always a mistake -- but
+     *     an admin correcting the record of a call that already happened, or
+     *     marking one complete, legitimately needs a past start. The block
+     *     and length rules still apply either way.
+     */
+    public Instant normaliseAndValidate(
+            Instant startsAt, int durationMinutes, boolean allowPast) {
+
+        Instant start = startsAt.truncatedTo(ChronoUnit.MINUTES);
+        validateSlot(start, durationMinutes, allowPast);
+        return start;
+    }
+
+    /**
      * Rejects anything the portal should not have offered.
      *
      * <p>The database enforces the block alignment and length too. Checking
      * here as well turns a 500 from a constraint violation into a 400 that
      * says which rule was broken.
      */
-    private void validateSlot(Instant startsAt, int durationMinutes) {
+    private void validateSlot(Instant startsAt, int durationMinutes, boolean allowPast) {
         if (durationMinutes <= 0
                 || durationMinutes % Appointment.BLOCK_MINUTES != 0
                 || durationMinutes > Appointment.MAX_MINUTES) {
@@ -177,7 +204,7 @@ public class SchedulingService {
                     "Meetings start on the hour or the half hour");
         }
 
-        if (startsAt.isBefore(Instant.now())) {
+        if (!allowPast && startsAt.isBefore(Instant.now())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "That start time is in the past");
         }

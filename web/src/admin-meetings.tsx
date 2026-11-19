@@ -8,12 +8,12 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   createUser,
   getClientDetail,
+  listCompanies,
   resendInvite,
   getMeeting,
   saveMeetingNote,
   setAgendaItemStatus,
   setAppointmentStatus,
-  type AdminAppointment,
   type AgendaItem,
   type ClientDetail,
   type CreatedUser,
@@ -28,13 +28,21 @@ import { formatLength, formatRange, statusLabel } from './scheduling';
  * nothing else -- it is a panel, not a dialog element, because the Meeting
  * Manager has to stay usable for an hour while someone talks.
  */
-function Modal({
+export function Modal({
   title,
+  badge,
+  badgeTone,
+  toolbar,
   onClose,
   wide,
   children,
 }: {
   title: string;
+  /** Status word beside the title, as in the reference layout. */
+  badge?: string;
+  badgeTone?: 'good' | 'warn' | 'bad' | 'neutral';
+  /** Action row directly under the title bar. */
+  toolbar?: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
   children: React.ReactNode;
@@ -63,11 +71,15 @@ function Modal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="modal-head">
-          <h2>{title}</h2>
+          <div className="modal-title">
+            <h2>{title}</h2>
+            {badge && <span className={`pill pill-${badgeTone ?? 'neutral'}`}>{badge}</span>}
+          </div>
           <button className="modal-close" onClick={onClose} aria-label="Close">
             &times;
           </button>
         </header>
+        {toolbar && <div className="modal-toolbar">{toolbar}</div>}
         <div className="modal-body">{children}</div>
       </div>
     </div>
@@ -195,7 +207,8 @@ export function MeetingManager({
 }: {
   appointmentId: number;
   onClose: () => void;
-  onChanged: (a: AdminAppointment) => void;
+  /** Signals the parent to reload; the row itself comes from the server. */
+  onChanged: () => void;
   onError: (e: unknown) => void;
 }) {
   const [meeting, setMeeting] = useState<MeetingDetail | null>(null);
@@ -211,8 +224,8 @@ export function MeetingManager({
   async function changeStatus(status: string) {
     try {
       const updated = await setAppointmentStatus(appointmentId, status);
-      onChanged(updated);
       setMeeting((m) => (m ? { ...m, appointment: updated } : m));
+      onChanged();
       if (status === 'cancelled') onClose();
     } catch (err) {
       onError(err);
@@ -300,12 +313,16 @@ export function ClientDetailModal({
   onOpenMeeting: (appointmentId: number) => void;
 }) {
   const [detail, setDetail] = useState<ClientDetail | null>(null);
+  const [companies, setCompanies] = useState<string[]>([]);
   const [tab, setTab] = useState<DetailTab>('overview');
   const [loading, setLoading] = useState(true);
 
   const [inviting, setInviting] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [phone, setPhone] = useState('');
 
   const reload = useCallback(
     () => getClientDetail(clientId).then(setDetail).catch(onError),
@@ -314,6 +331,8 @@ export function ClientDetailModal({
 
   useEffect(() => {
     reload().finally(() => setLoading(false));
+    // Suggestions only; a company that does not exist yet is created on save.
+    listCompanies().then(setCompanies).catch(() => setCompanies([]));
   }, [reload]);
 
   async function onInvite(e: FormEvent) {
@@ -321,12 +340,18 @@ export function ClientDetailModal({
     try {
       const created = await createUser({
         clientId,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         email: email.trim(),
-        displayName: name.trim(),
+        companyName: companyName.trim() || undefined,
+        phone: phone.trim() || undefined,
       });
       onIssued(created);
+      setFirstName('');
+      setLastName('');
       setEmail('');
-      setName('');
+      setCompanyName('');
+      setPhone('');
       setInviting(false);
       await reload();
     } catch (err) {
@@ -336,12 +361,100 @@ export function ClientDetailModal({
 
   const tabs: DetailTab[] = ['overview', 'engagements', 'appointments', 'users', 'notes'];
 
+  const counts: Record<DetailTab, number | null> = {
+    overview: null,
+    engagements: detail?.engagements.length ?? 0,
+    appointments: detail?.appointments.length ?? 0,
+    users: detail?.users.length ?? 0,
+    notes: detail?.notes.length ?? 0,
+  };
+
+  const active = detail?.engagements.filter((e) => e.status === 'active').length ?? 0;
+  const upcoming =
+    detail?.appointments.filter(
+      (a) => new Date(a.startsAt) > new Date() && a.status !== 'cancelled',
+    ).length ?? 0;
+  const openTopics =
+    detail?.engagements.reduce((sum, e) => sum + e.openTopics, 0) ?? 0;
+
   return (
-    <Modal title={detail?.name ?? 'Client'} onClose={onClose} wide>
+    <Modal
+      title={detail?.name ?? 'Client'}
+      badge={active > 0 ? 'Active' : 'No active engagements'}
+      badgeTone={active > 0 ? 'good' : 'neutral'}
+      onClose={onClose}
+      wide
+      toolbar={
+        detail && (
+          <>
+            <button className="btn btn-primary" onClick={() => setTab('users')}>
+              + User
+            </button>
+            <button className="btn" onClick={() => setTab('engagements')}>
+              Engagements
+            </button>
+            <button className="btn" onClick={() => setTab('appointments')}>
+              Meetings
+            </button>
+            <button className="btn" onClick={() => setTab('notes')}>
+              Notes
+            </button>
+          </>
+        )
+      }
+    >
       {loading || !detail ? (
         <p>Loading...</p>
       ) : (
         <>
+          {/* Summary band: the numbers worth seeing before picking a tab. */}
+          <div className="statband">
+            <div className="stat">
+              <span className="stat-label">Primary contact</span>
+              <span className="stat-value">{detail.primaryEmail}</span>
+            </div>
+            <div className="stat">
+              <span className="stat-label">Client since</span>
+              <span className="stat-value">
+                {new Date(detail.createdAt).toLocaleDateString()}
+              </span>
+            </div>
+            <div className="statgroup">
+              <span className="statgroup-title">Engagements</span>
+              <div className="statgroup-items">
+                <span>
+                  <b>{active}</b>
+                  <small>Active</small>
+                </span>
+                <span>
+                  <b>{detail.engagements.length}</b>
+                  <small>Total</small>
+                </span>
+                <span>
+                  <b>{openTopics}</b>
+                  <small>Open topics</small>
+                </span>
+              </div>
+            </div>
+            <div className="statgroup">
+              <span className="statgroup-title">Meetings</span>
+              <div className="statgroup-items">
+                <span>
+                  <b>{upcoming}</b>
+                  <small>Upcoming</small>
+                </span>
+                <span>
+                  <b>{detail.appointments.length}</b>
+                  <small>All time</small>
+                </span>
+                <span>
+                  <b>{detail.users.length}</b>
+                  <small>Logins</small>
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div className="tabs" role="tablist">
             {tabs.map((t) => (
               <button
@@ -352,6 +465,7 @@ export function ClientDetailModal({
                 onClick={() => setTab(t)}
               >
                 {t[0].toUpperCase() + t.slice(1)}
+                {counts[t] !== null && <span className="tab-count">{counts[t]}</span>}
               </button>
             ))}
           </div>
@@ -453,12 +567,27 @@ export function ClientDetailModal({
 
               {inviting && (
                 <form onSubmit={onInvite} className="stack-form inset">
+                  <div className="field-row">
+                    <label>
+                      First name
+                      <input
+                        value={firstName}
+                        required
+                        autoFocus
+                        onChange={(e) => setFirstName(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Last name
+                      <input
+                        value={lastName}
+                        required
+                        onChange={(e) => setLastName(e.target.value)}
+                      />
+                    </label>
+                  </div>
                   <label>
-                    Name
-                    <input value={name} required onChange={(e) => setName(e.target.value)} />
-                  </label>
-                  <label>
-                    Email
+                    Email address
                     <input
                       type="email"
                       value={email}
@@ -466,12 +595,49 @@ export function ClientDetailModal({
                       onChange={(e) => setEmail(e.target.value)}
                     />
                   </label>
+                  <div className="field-row">
+                    <label>
+                      Company
+                      {/* Stored as its own record, not a field on the
+                          contact: a consultant at a partner firm belongs to
+                          this client's portal and to their own employer. */}
+                      <input
+                        value={companyName}
+                        list="known-companies"
+                        placeholder={detail.name}
+                        onChange={(e) => setCompanyName(e.target.value)}
+                      />
+                      <datalist id="known-companies">
+                        {companies.map((c) => (
+                          <option key={c} value={c} />
+                        ))}
+                      </datalist>
+                    </label>
+                    <label>
+                      Phone
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                      />
+                    </label>
+                  </div>
                   <p className="hint">
-                    There is no mail sender wired up yet, so this does not email
-                    anyone. You get a one-time password to pass on; they are forced to
-                    change it at first sign-in.
+                    They are emailed a single-use link to set their own password.
+                    The link is also shown here so you can pass it on yourself.
                   </p>
-                  <button type="submit">Create login</button>
+                  <div className="button-row">
+                    <button className="btn btn-primary" type="submit">
+                      Send invitation
+                    </button>
+                    <button
+                      type="button"
+                      className="linklike"
+                      onClick={() => setInviting(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </form>
               )}
 
@@ -484,7 +650,8 @@ export function ClientDetailModal({
                       <tr>
                         <th>Name</th>
                         <th>Email</th>
-                        <th>Role</th>
+                        <th>Company</th>
+                        <th>Phone</th>
                         <th>Last sign-in</th>
                         <th />
                       </tr>
@@ -492,9 +659,14 @@ export function ClientDetailModal({
                     <tbody>
                       {detail.users.map((u) => (
                         <tr key={u.id} className={u.enabled ? undefined : 'row-bad'}>
-                          <td>{u.displayName}</td>
+                          <td>
+                            <strong>{u.displayName}</strong>
+                          </td>
                           <td>{u.email}</td>
-                          <td>{u.role.toLowerCase()}</td>
+                          <td>{u.companyName ?? <span className="muted">&mdash;</span>}</td>
+                          <td className="nowrap">
+                            {u.phone ?? <span className="muted">&mdash;</span>}
+                          </td>
                           <td className="nowrap">
                             {u.lastLoginAt
                               ? new Date(u.lastLoginAt).toLocaleString()

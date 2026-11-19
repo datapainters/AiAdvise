@@ -1,3 +1,5 @@
+import type { GridColumn, GridPage } from './datagrid';
+
 /**
  * API client.
  *
@@ -181,6 +183,11 @@ export interface AdminUser {
   clientId: number | null;
   email: string;
   displayName: string;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  /** The contact's employer, which is not necessarily the client. */
+  companyName: string | null;
   role: 'CLIENT' | 'ADMIN';
   enabled: boolean;
   lastLoginAt: string | null;
@@ -222,8 +229,22 @@ export function listLoginEvents(limit = 100): Promise<LoginEvent[]> {
   return request<LoginEvent[]>(`/api/admin/login-events?limit=${limit}`);
 }
 
-export function listClients(): Promise<Client[]> {
-  return request<Client[]>('/api/admin/clients');
+export function listClients(query = ''): Promise<GridPage<Client>> {
+  return request<GridPage<Client>>(`/api/admin/clients${query ? `?${query}` : ''}`);
+}
+
+export function clientColumns(): Promise<GridColumn[]> {
+  return request<GridColumn[]>('/api/admin/clients/columns');
+}
+
+export function updateClient(
+  id: number,
+  input: { name: string; primaryEmail: string },
+): Promise<Client> {
+  return request<Client>(`/api/admin/clients/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
 }
 
 export function createClient(input: { name: string; primaryEmail: string }): Promise<Client> {
@@ -243,8 +264,24 @@ export function createEngagement(input: {
   });
 }
 
-export function listAllEngagements(): Promise<AdminEngagement[]> {
-  return request<AdminEngagement[]>('/api/admin/engagements');
+export function listAllEngagements(query = ''): Promise<GridPage<AdminEngagement>> {
+  return request<GridPage<AdminEngagement>>(
+    `/api/admin/engagements${query ? `?${query}` : ''}`,
+  );
+}
+
+export function engagementColumns(): Promise<GridColumn[]> {
+  return request<GridColumn[]>('/api/admin/engagements/columns');
+}
+
+export function updateEngagement(
+  id: number,
+  input: { title: string; status: string },
+): Promise<AdminEngagement> {
+  return request<AdminEngagement>(`/api/admin/engagements/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
 }
 
 export function listUsers(): Promise<AdminUser[]> {
@@ -253,8 +290,11 @@ export function listUsers(): Promise<AdminUser[]> {
 
 export function createUser(input: {
   clientId: number;
+  firstName: string;
+  lastName: string;
   email: string;
-  displayName: string;
+  companyName?: string;
+  phone?: string;
 }): Promise<CreatedUser> {
   return request<CreatedUser>('/api/admin/users', {
     method: 'POST',
@@ -321,8 +361,28 @@ export interface MeetingDetail {
   agenda: AgendaItem[];
 }
 
-export function listAdminAppointments(): Promise<AdminAppointment[]> {
-  return request<AdminAppointment[]>('/api/admin/appointments');
+export function listAdminAppointments(query = ''): Promise<GridPage<AdminAppointment>> {
+  return request<GridPage<AdminAppointment>>(
+    `/api/admin/appointments${query ? `?${query}` : ''}`,
+  );
+}
+
+export function appointmentColumns(): Promise<GridColumn[]> {
+  return request<GridColumn[]>('/api/admin/appointments/columns');
+}
+
+export function updateAppointment(
+  id: number,
+  input: { startsAt: string; durationMinutes: number; status: string },
+): Promise<AdminAppointment> {
+  return request<AdminAppointment>(`/api/admin/appointments/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export function listCompanies(): Promise<string[]> {
+  return request<string[]>('/api/admin/companies');
 }
 
 export function getMeeting(id: number): Promise<MeetingDetail> {
@@ -367,6 +427,10 @@ export interface ClientUser {
   id: number;
   email: string;
   displayName: string;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  companyName: string | null;
   role: string;
   enabled: boolean;
   mustChangePassword: boolean;

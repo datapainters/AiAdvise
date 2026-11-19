@@ -18,12 +18,15 @@ import {
   useParams,
 } from 'react-router-dom';
 import {
+  appointmentColumns,
   changePassword as apiChangePassword,
+  clientColumns,
   createClient,
   createEngagement,
   createTopic,
   createUser,
   cancelAppointment,
+  engagementColumns,
   acceptInvite,
   listAdminAppointments,
   listAllEngagements,
@@ -36,6 +39,9 @@ import {
   login as apiLogin,
   me,
   peekInvite,
+  updateAppointment,
+  updateClient,
+  updateEngagement,
   updateTopicStatus,
   Unauthorized,
   type AdminEngagement,
@@ -55,8 +61,24 @@ import {
   SourcesToOutput,
   Timeline,
 } from './graphics';
-import { BookingForm, formatLength, formatRange, statusLabel } from './scheduling';
-import { ClientDetailModal, MeetingManager } from './admin-meetings';
+import {
+  BookingForm,
+  formatLength,
+  formatRange,
+  LENGTH_OPTIONS,
+  statusLabel,
+} from './scheduling';
+import { ClientDetailModal, MeetingManager, Modal } from './admin-meetings';
+import {
+  buildQuery,
+  DataGrid,
+  FilterBar,
+  Pager,
+  type GridColumn,
+  type GridColumnDef,
+  type GridFilter,
+  type GridPage,
+} from './datagrid';
 import { clearToken, getToken, type User } from './auth';
 
 /* ------------------------------------------------------------------ auth */
@@ -1071,8 +1093,11 @@ function PortalLogins({
 }) {
   const [adding, setAdding] = useState(false);
   const [clientId, setClientId] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [phone, setPhone] = useState('');
 
   const nameOf = (id: number | null) =>
     id === null ? '--' : (clients.find((c) => c.id === id)?.name ?? `#${id}`);
@@ -1083,12 +1108,18 @@ function PortalLogins({
       onCreated(
         await createUser({
           clientId: Number(clientId),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           email: email.trim(),
-          displayName: name.trim(),
+          companyName: companyName.trim() || undefined,
+          phone: phone.trim() || undefined,
         }),
       );
+      setFirstName('');
+      setLastName('');
       setEmail('');
-      setName('');
+      setCompanyName('');
+      setPhone('');
       setAdding(false);
     } catch (err) {
       onError(err);
@@ -1120,12 +1151,26 @@ function PortalLogins({
               ))}
             </select>
           </label>
+          <div className="field-row">
+            <label>
+              First name
+              <input
+                value={firstName}
+                required
+                onChange={(e) => setFirstName(e.target.value)}
+              />
+            </label>
+            <label>
+              Last name
+              <input
+                value={lastName}
+                required
+                onChange={(e) => setLastName(e.target.value)}
+              />
+            </label>
+          </div>
           <label>
-            Name
-            <input value={name} required onChange={(e) => setName(e.target.value)} />
-          </label>
-          <label>
-            Email
+            Email address
             <input
               type="email"
               value={email}
@@ -1133,7 +1178,22 @@ function PortalLogins({
               onChange={(e) => setEmail(e.target.value)}
             />
           </label>
-          <button type="submit">Create login</button>
+          <div className="field-row">
+            <label>
+              Company
+              <input
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+              />
+            </label>
+            <label>
+              Phone
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </label>
+          </div>
+          <button className="btn btn-primary" type="submit">
+            Send invitation
+          </button>
         </form>
       )}
 
@@ -1184,32 +1244,385 @@ const SYSTEM_TOOLS: { id: SystemTool; title: string; blurb: string }[] = [
   },
 ];
 
+/**
+ * One list tab: filter bar, sortable grid, pager.
+ *
+ * Generic over the row type so clients, engagements and appointments share
+ * one implementation. Query state lives here rather than in Admin, so
+ * switching tabs does not carry one list's filters onto another.
+ */
+function ListTab<T>({
+  columns,
+  load,
+  gridColumns,
+  addLabel,
+  onAdd,
+  onRowClick,
+  rowClassName,
+  empty,
+  defaultSort,
+  refreshKey,
+}: {
+  columns: GridColumn[];
+  load: (query: string) => Promise<GridPage<T>>;
+  gridColumns: GridColumnDef<T>[];
+  addLabel: string;
+  onAdd: () => void;
+  onRowClick?: (row: T) => void;
+  rowClassName?: (row: T) => string | undefined;
+  empty: string;
+  defaultSort: string;
+  /** Bumped by the parent after a create or edit, to force a reload. */
+  refreshKey: number;
+}) {
+  const [filters, setFilters] = useState<GridFilter[]>([]);
+  const [sort, setSort] = useState(defaultSort);
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState(25);
+  const [data, setData] = useState<GridPage<T> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    load(buildQuery(filters, sort, page, size))
+      .then((p) => {
+        setData(p);
+        setError(null);
+      })
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, [filters, sort, page, size, refreshKey, load]);
+
+  // Any change to what is being asked for returns to the first page --
+  // staying on page 4 of a result set that now has one page is disorienting.
+  function changeFilters(next: GridFilter[]) {
+    setFilters(next);
+    setPage(0);
+  }
+
+  return (
+    <section>
+      <FilterBar
+        columns={columns}
+        filters={filters}
+        onChange={changeFilters}
+        addLabel={addLabel}
+        onAdd={onAdd}
+      />
+
+      {error && <div className="error">{error}</div>}
+
+      {loading && !data ? (
+        <p className="empty">Loading...</p>
+      ) : (
+        <>
+          <DataGrid
+            columns={gridColumns}
+            rows={data?.rows ?? []}
+            sort={sort}
+            onSort={(next) => {
+              setSort(next);
+              setPage(0);
+            }}
+            onRowClick={onRowClick}
+            rowClassName={rowClassName}
+            empty={filters.length > 0 ? 'No rows match those filters.' : empty}
+          />
+          {data && data.total > 0 && (
+            <Pager
+              page={data.page}
+              totalPages={data.totalPages}
+              total={data.total}
+              size={data.size}
+              onPage={setPage}
+              onSize={(n) => {
+                setSize(n);
+                setPage(0);
+              }}
+            />
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------- editors */
+
+/** Create or edit a client. One form for both; the id decides which. */
+function ClientForm({
+  existing,
+  onDone,
+  onCancel,
+  onError,
+}: {
+  existing?: Client;
+  onDone: (c: Client) => void;
+  onCancel: () => void;
+  onError: (e: unknown) => void;
+}) {
+  const [name, setName] = useState(existing?.name ?? '');
+  const [email, setEmail] = useState(existing?.primaryEmail ?? '');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      onDone(
+        existing
+          ? await updateClient(existing.id, { name: name.trim(), primaryEmail: email.trim() })
+          : await createClient({ name: name.trim(), primaryEmail: email.trim() }),
+      );
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={existing ? 'Edit client' : 'New client'} onClose={onCancel}>
+      <form onSubmit={submit} className="stack-form">
+        <label>
+          Company name
+          <input value={name} required autoFocus onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label>
+          Primary email
+          <input
+            type="email"
+            value={email}
+            required
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </label>
+        <div className="button-row">
+          <button className="btn btn-primary" type="submit" disabled={busy}>
+            {busy ? 'Saving...' : existing ? 'Save changes' : 'Create client'}
+          </button>
+          <button type="button" className="linklike" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function EngagementForm({
+  existing,
+  clients,
+  onDone,
+  onCancel,
+  onError,
+}: {
+  existing?: AdminEngagement;
+  clients: Client[];
+  onDone: (e: AdminEngagement) => void;
+  onCancel: () => void;
+  onError: (e: unknown) => void;
+}) {
+  const [clientId, setClientId] = useState(String(existing?.clientId ?? ''));
+  const [title, setTitle] = useState(existing?.title ?? '');
+  const [status, setStatus] = useState(existing?.status ?? 'active');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      onDone(
+        existing
+          ? await updateEngagement(existing.id, { title: title.trim(), status })
+          : await createEngagement({ clientId: Number(clientId), title: title.trim() }),
+      );
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={existing ? 'Edit engagement' : 'New engagement'} onClose={onCancel}>
+      <form onSubmit={submit} className="stack-form">
+        <label>
+          Client
+          {/* Moving an engagement between clients would orphan its topics
+              and meetings, so it is fixed once created. */}
+          <select
+            value={clientId}
+            required
+            disabled={Boolean(existing)}
+            onChange={(e) => setClientId(e.target.value)}
+          >
+            <option value="">Select...</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Title
+          <input
+            value={title}
+            required
+            autoFocus
+            placeholder="AI readiness assessment"
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </label>
+        {existing && (
+          <label>
+            Status
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+              <option value="closed">Closed</option>
+            </select>
+          </label>
+        )}
+        <div className="button-row">
+          <button className="btn btn-primary" type="submit" disabled={busy}>
+            {busy ? 'Saving...' : existing ? 'Save changes' : 'Open engagement'}
+          </button>
+          <button type="button" className="linklike" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function AppointmentForm({
+  existing,
+  onDone,
+  onCancel,
+  onError,
+}: {
+  existing: AdminAppointment;
+  onDone: (a: AdminAppointment) => void;
+  onCancel: () => void;
+  onError: (e: unknown) => void;
+}) {
+  // Datetime-local wants the browser's wall clock, not an ISO instant.
+  const start = new Date(existing.startsAt);
+  const localValue = new Date(start.getTime() - start.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+
+  const [when, setWhen] = useState(localValue);
+  const [length, setLength] = useState(existing.durationMinutes);
+  const [status, setStatus] = useState(existing.status);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      onDone(
+        await updateAppointment(existing.id, {
+          startsAt: new Date(when).toISOString(),
+          durationMinutes: length,
+          status,
+        }),
+      );
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Edit meeting" onClose={onCancel}>
+      <form onSubmit={submit} className="stack-form">
+        <dl className="detail-list">
+          <dt>Client</dt>
+          <dd>{existing.clientName}</dd>
+          <dt>Engagement</dt>
+          <dd>{existing.engagementTitle}</dd>
+        </dl>
+        <label>
+          Starts
+          <input
+            type="datetime-local"
+            value={when}
+            required
+            step={1800}
+            onChange={(e) => setWhen(e.target.value)}
+          />
+        </label>
+        <p className="hint">Must fall on the hour or the half hour.</p>
+        <label>
+          Length
+          <select value={length} onChange={(e) => setLength(Number(e.target.value))}>
+            {LENGTH_OPTIONS.map((o) => (
+              <option key={o} value={o}>
+                {formatLength(o)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Status
+          <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
+            <option value="requested">Requested</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </label>
+        <div className="button-row">
+          <button className="btn btn-primary" type="submit" disabled={busy}>
+            {busy ? 'Saving...' : 'Save changes'}
+          </button>
+          <button type="button" className="linklike" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/* ----------------------------------------------------------------- admin */
+
 function Admin() {
   const { signOut } = useAuth();
 
   const [tab, setTab] = useState<AdminTab>('clients');
   const [tool, setTool] = useState<SystemTool | null>(null);
-
-  const [clients, setClients] = useState<Client[]>([]);
-  const [engagements, setEngagements] = useState<AdminEngagement[]>([]);
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [meetings, setMeetings] = useState<AdminAppointment[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [issued, setIssued] = useState<CreatedUser | null>(null);
 
-  // The two overlays. Opening a meeting from inside the client popup leaves
-  // the popup mounted underneath, so closing the meeting returns to it.
+  // Column metadata comes from the server so the dropdowns can never offer
+  // a filter the API would reject.
+  const [cols, setCols] = useState<{
+    clients: GridColumn[];
+    engagements: GridColumn[];
+    appointments: GridColumn[];
+  }>({ clients: [], engagements: [], appointments: [] });
+
+  // Every client, for the pickers in the forms. Separate from the paged
+  // grid: a dropdown must show all of them, not page 1 of them.
+  const [allClients, setAllClients] = useState<Client[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+
+  const [refresh, setRefresh] = useState(0);
+  const bump = useCallback(() => setRefresh((n) => n + 1), []);
+
+  const [editClient, setEditClient] = useState<Client | 'new' | null>(null);
+  const [editEngagement, setEditEngagement] = useState<AdminEngagement | 'new' | null>(null);
+  const [editAppointment, setEditAppointment] = useState<AdminAppointment | null>(null);
+
   const [openClient, setOpenClient] = useState<number | null>(null);
   const [openMeeting, setOpenMeeting] = useState<number | null>(null);
-
-  const [addingClient, setAddingClient] = useState(false);
-  const [clientName, setClientName] = useState('');
-  const [clientEmail, setClientEmail] = useState('');
-
-  const [addingEngagement, setAddingEngagement] = useState(false);
-  const [engClient, setEngClient] = useState('');
-  const [engTitle, setEngTitle] = useState('');
 
   const onError = useCallback(
     (e: unknown) => {
@@ -1223,65 +1636,38 @@ function Admin() {
   );
 
   useEffect(() => {
-    Promise.all([listClients(), listAllEngagements(), listUsers(), listAdminAppointments()])
-      .then(([c, e, u, m]) => {
-        setClients(c);
-        setEngagements(e);
+    Promise.all([
+      clientColumns(),
+      engagementColumns(),
+      appointmentColumns(),
+      listClients('size=200&sort=name:asc'),
+      listUsers(),
+    ])
+      .then(([c, e, a, clientPage, u]) => {
+        setCols({ clients: c, engagements: e, appointments: a });
+        setAllClients(clientPage.rows);
         setUsers(u);
-        setMeetings(m);
       })
-      .catch(onError)
-      .finally(() => setLoading(false));
-  }, [onError]);
+      .catch(onError);
+  }, [onError, refresh]);
 
-  const clientNameOf = (id: number) =>
-    clients.find((c) => c.id === id)?.name ?? `#${id}`;
-
-  async function onCreateClient(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    try {
-      const created = await createClient({
-        name: clientName.trim(),
-        primaryEmail: clientEmail.trim(),
-      });
-      setClients((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
-      setClientName('');
-      setClientEmail('');
-      setAddingClient(false);
-    } catch (err) {
-      onError(err);
-    }
-  }
-
-  async function onCreateEngagement(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    try {
-      const created = await createEngagement({
-        clientId: Number(engClient),
-        title: engTitle.trim(),
-      });
-      setEngagements((prev) => [...prev, created]);
-      setEngTitle('');
-      setAddingEngagement(false);
-    } catch (err) {
-      onError(err);
-    }
-  }
-
-  if (loading) {
-    return <main className="page"><p>Loading...</p></main>;
-  }
+  const loadClients = useCallback((q: string) => listClients(q), []);
+  const loadEngagements = useCallback((q: string) => listAllEngagements(q), []);
+  const loadAppointments = useCallback((q: string) => listAdminAppointments(q), []);
 
   const activeTool = SYSTEM_TOOLS.find((t) => t.id === tool);
+  const tabs: AdminTab[] = ['clients', 'engagements', 'appointments', 'system'];
+  const label = (t: AdminTab) => t[0].toUpperCase() + t.slice(1);
 
   return (
     <main className="page">
-      <h1>Admin</h1>
+      <header className="screen-head">
+        <h1>Admin</h1>
+        <p className="muted">Clients, engagements, meetings and system tools.</p>
+      </header>
 
       <div className="tabs" role="tablist">
-        {(['clients', 'engagements', 'appointments', 'system'] as AdminTab[]).map((t) => (
+        {tabs.map((t) => (
           <button
             key={t}
             role="tab"
@@ -1292,218 +1678,169 @@ function Admin() {
               setTool(null);
             }}
           >
-            {t === 'clients'
-              ? 'Clients'
-              : t === 'engagements'
-                ? 'Engagements'
-                : t === 'appointments'
-                  ? 'Appointments'
-                  : 'System'}
+            {label(t)}
           </button>
         ))}
       </div>
 
       {error && <div className="error">{error}</div>}
-
       {issued && <InviteIssued issued={issued} onDismiss={() => setIssued(null)} />}
 
       {tab === 'clients' && (
-        <section>
-          <div className="tool-toolbar">
-            <button onClick={() => setAddingClient((v) => !v)}>
-              {addingClient ? 'Cancel' : 'Add New'}
-            </button>
-          </div>
-
-          {addingClient && (
-            <form onSubmit={onCreateClient} className="stack-form inset">
-              <label>
-                Company name
-                <input
-                  value={clientName}
-                  required
-                  onChange={(e) => setClientName(e.target.value)}
-                />
-              </label>
-              <label>
-                Primary email
-                <input
-                  type="email"
-                  value={clientEmail}
-                  required
-                  onChange={(e) => setClientEmail(e.target.value)}
-                />
-              </label>
-              <button type="submit">Create client</button>
-            </form>
-          )}
-
-          {clients.length === 0 ? (
-            <p className="empty">No clients yet.</p>
-          ) : (
-            <div className="grid-wrap">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th>Client</th>
-                    <th>Primary email</th>
-                    <th>Engagements</th>
-                    <th>Logins</th>
-                    <th>Added</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {clients.map((c) => (
-                    <tr
-                      key={c.id}
-                      className="clickable"
-                      onClick={() => setOpenClient(c.id)}
-                      title="Open client detail"
-                    >
-                      <td>{c.name}</td>
-                      <td>{c.primaryEmail}</td>
-                      <td>{engagements.filter((e) => e.clientId === c.id).length}</td>
-                      <td>{users.filter((u) => u.clientId === c.id).length}</td>
-                      <td className="nowrap">
-                        {c.createdAt ? formatWhen(c.createdAt) : '--'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        <ListTab<Client>
+          columns={cols.clients}
+          load={loadClients}
+          refreshKey={refresh}
+          defaultSort="name:asc"
+          addLabel="Add New"
+          onAdd={() => setEditClient('new')}
+          onRowClick={(c) => setOpenClient(c.id)}
+          empty="No clients yet."
+          gridColumns={[
+            { field: 'name', label: 'Client', render: (c) => <strong>{c.name}</strong> },
+            { field: 'primaryEmail', label: 'Primary email' },
+            {
+              field: 'createdAt',
+              label: 'Added',
+              render: (c) => (
+                <span className="nowrap">
+                  {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '--'}
+                </span>
+              ),
+            },
+            {
+              field: 'actions',
+              label: '',
+              sortable: false,
+              render: (c) => (
+                <button
+                  className="linklike"
+                  onClick={(e) => {
+                    // Without this the row's own click handler also fires
+                    // and the detail popup opens behind the editor.
+                    e.stopPropagation();
+                    setEditClient(c);
+                  }}
+                >
+                  Edit
+                </button>
+              ),
+            },
+          ]}
+        />
       )}
 
       {tab === 'engagements' && (
-        <section>
-          <div className="tool-toolbar">
-            <button
-              onClick={() => setAddingEngagement((v) => !v)}
-              disabled={clients.length === 0}
-            >
-              {addingEngagement ? 'Cancel' : 'Add New'}
-            </button>
-          </div>
-
-          {clients.length === 0 && (
-            <p className="empty">
-              Create a client first -- an engagement is always against one.
-            </p>
-          )}
-
-          {addingEngagement && (
-            <form onSubmit={onCreateEngagement} className="stack-form inset">
-              <label>
-                Client
-                <select value={engClient} required onChange={(e) => setEngClient(e.target.value)}>
-                  <option value="">Select...</option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Title
-                <input
-                  value={engTitle}
-                  required
-                  placeholder="AI readiness assessment"
-                  onChange={(e) => setEngTitle(e.target.value)}
-                />
-              </label>
-              <button type="submit">Open engagement</button>
-            </form>
-          )}
-
-          {engagements.length === 0 ? (
-            <p className="empty">No engagements yet.</p>
-          ) : (
-            <div className="grid-wrap">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th>Title</th>
-                    <th>Client</th>
-                    <th>Status</th>
-                    <th>Started</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {engagements.map((e) => (
-                    <tr key={e.id}>
-                      <td>{e.title}</td>
-                      <td>{clientNameOf(e.clientId)}</td>
-                      <td>
-                        <span className={`status status-${e.status}`}>{e.status}</span>
-                      </td>
-                      <td className="nowrap">{e.startedOn ?? '--'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        <ListTab<AdminEngagement>
+          columns={cols.engagements}
+          load={loadEngagements}
+          refreshKey={refresh}
+          defaultSort="startedOn:desc"
+          addLabel="Add New"
+          onAdd={() => setEditEngagement('new')}
+          empty="No engagements yet."
+          gridColumns={[
+            { field: 'title', label: 'Engagement', render: (e) => <strong>{e.title}</strong> },
+            {
+              field: 'clientName',
+              label: 'Client',
+              render: (e) =>
+                allClients.find((c) => c.id === e.clientId)?.name ?? `#${e.clientId}`,
+            },
+            {
+              field: 'status',
+              label: 'Status',
+              render: (e) => <span className={`status status-${e.status}`}>{e.status}</span>,
+            },
+            {
+              field: 'startedOn',
+              label: 'Started',
+              render: (e) => <span className="nowrap">{e.startedOn ?? '--'}</span>,
+            },
+            {
+              field: 'actions',
+              label: '',
+              sortable: false,
+              render: (e) => (
+                <button
+                  className="linklike"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    setEditEngagement(e);
+                  }}
+                >
+                  Edit
+                </button>
+              ),
+            },
+          ]}
+        />
       )}
 
       {tab === 'appointments' && (
-        <section>
-          {meetings.length === 0 ? (
-            <p className="empty">
-              No meetings booked. Clients schedule these from the portal.
-            </p>
-          ) : (
-            <>
-              <p className="hint">
-                Click a meeting to open the Meeting Manager and work through its
-                agenda.
-              </p>
-              <div className="grid-wrap">
-                <table className="grid">
-                  <thead>
-                    <tr>
-                      <th>When</th>
-                      <th>Length</th>
-                      <th>Client</th>
-                      <th>Engagement</th>
-                      <th>Agenda</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {meetings.map((a) => (
-                      <tr
-                        key={a.id}
-                        className={
-                          a.status === 'cancelled' ? 'row-bad clickable' : 'clickable'
-                        }
-                        onClick={() => setOpenMeeting(a.id)}
-                        title="Open meeting manager"
-                      >
-                        <td className="nowrap">{formatRange(a.startsAt, a.endsAt)}</td>
-                        <td className="nowrap">{formatLength(a.durationMinutes)}</td>
-                        <td>{a.clientName}</td>
-                        <td>{a.engagementTitle}</td>
-                        <td className="nowrap">
-                          {a.notedCount}/{a.topicCount} noted
-                        </td>
-                        <td>
-                          <span className={`status status-ap-${a.status}`}>
-                            {statusLabel(a.status)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </section>
+        <ListTab<AdminAppointment>
+          columns={cols.appointments}
+          load={loadAppointments}
+          refreshKey={refresh}
+          defaultSort="startsAt:desc"
+          addLabel="Add New"
+          onAdd={() =>
+            setError('Meetings are booked by clients from the portal, or from a client’s detail screen.')
+          }
+          onRowClick={(a) => setOpenMeeting(a.id)}
+          rowClassName={(a) => (a.status === 'cancelled' ? 'row-bad' : undefined)}
+          empty="No meetings booked."
+          gridColumns={[
+            {
+              field: 'startsAt',
+              label: 'When',
+              render: (a) => (
+                <span className="nowrap">{formatRange(a.startsAt, a.endsAt)}</span>
+              ),
+            },
+            { field: 'clientName', label: 'Client', render: (a) => <strong>{a.clientName}</strong> },
+            { field: 'engagementTitle', label: 'Engagement' },
+            {
+              field: 'durationMinutes',
+              label: 'Length',
+              type: 'number',
+              render: (a) => <span className="nowrap">{formatLength(a.durationMinutes)}</span>,
+            },
+            {
+              field: 'topicCount',
+              label: 'Agenda',
+              type: 'number',
+              render: (a) => (
+                <span className="nowrap">
+                  {a.notedCount}/{a.topicCount} noted
+                </span>
+              ),
+            },
+            {
+              field: 'status',
+              label: 'Status',
+              render: (a) => (
+                <span className={`status status-ap-${a.status}`}>{statusLabel(a.status)}</span>
+              ),
+            },
+            {
+              field: 'actions',
+              label: '',
+              sortable: false,
+              render: (a) => (
+                <button
+                  className="linklike"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    setEditAppointment(a);
+                  }}
+                >
+                  Edit
+                </button>
+              ),
+            },
+          ]}
+        />
       )}
 
       {tab === 'system' && (
@@ -1522,17 +1859,17 @@ function Admin() {
               <button className="linklike back" onClick={() => setTool(null)}>
                 &larr; System
               </button>
-              <h2>{activeTool?.title}</h2>
+              <h2 className="section-head">{activeTool?.title}</h2>
 
               {tool === 'signins' && <SignInActivity onError={onError} />}
               {tool === 'logins' && (
                 <PortalLogins
-                  clients={clients}
+                  clients={allClients}
                   users={users}
                   onError={onError}
                   onCreated={(created) => {
                     setIssued(created);
-                    setUsers((prev) => [...prev, created.user]);
+                    bump();
                   }}
                 />
               )}
@@ -1541,15 +1878,52 @@ function Admin() {
         </section>
       )}
 
+      {editClient && (
+        <ClientForm
+          existing={editClient === 'new' ? undefined : editClient}
+          onCancel={() => setEditClient(null)}
+          onError={onError}
+          onDone={() => {
+            setEditClient(null);
+            bump();
+          }}
+        />
+      )}
+
+      {editEngagement && (
+        <EngagementForm
+          existing={editEngagement === 'new' ? undefined : editEngagement}
+          clients={allClients}
+          onCancel={() => setEditEngagement(null)}
+          onError={onError}
+          onDone={() => {
+            setEditEngagement(null);
+            bump();
+          }}
+        />
+      )}
+
+      {editAppointment && (
+        <AppointmentForm
+          existing={editAppointment}
+          onCancel={() => setEditAppointment(null)}
+          onError={onError}
+          onDone={() => {
+            setEditAppointment(null);
+            bump();
+          }}
+        />
+      )}
+
       {openClient !== null && (
         <ClientDetailModal
           clientId={openClient}
-          onClose={() => setOpenClient(null)}
-          onError={onError}
-          onIssued={(created) => {
-            setIssued(created);
-            setUsers((prev) => [...prev, created.user]);
+          onClose={() => {
+            setOpenClient(null);
+            bump();
           }}
+          onError={onError}
+          onIssued={(created) => setIssued(created)}
           onOpenMeeting={(id) => setOpenMeeting(id)}
         />
       )}
@@ -1557,11 +1931,12 @@ function Admin() {
       {openMeeting !== null && (
         <MeetingManager
           appointmentId={openMeeting}
-          onClose={() => setOpenMeeting(null)}
+          onClose={() => {
+            setOpenMeeting(null);
+            bump();
+          }}
           onError={onError}
-          onChanged={(updated) =>
-            setMeetings((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
-          }
+          onChanged={bump}
         />
       )}
     </main>

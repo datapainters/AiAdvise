@@ -8,6 +8,8 @@ import com.advisory.api.auth.InviteService;
 import com.advisory.api.auth.LoginEventRepository;
 import com.advisory.api.mail.Notifications;
 import com.advisory.api.portal.Client;
+import com.advisory.api.portal.Company;
+import com.advisory.api.portal.CompanyRepository;
 import com.advisory.api.portal.ClientRepository;
 import com.advisory.api.portal.Engagement;
 import com.advisory.api.portal.EngagementRepository;
@@ -20,6 +22,8 @@ import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +37,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -64,6 +69,7 @@ public class AdminController {
     private final LoginEventRepository loginEvents;
     private final Notifications notifications;
     private final InviteService invites;
+    private final CompanyRepository companies;
 
     /** Where the invite link points. Same origin the SPA is served from. */
     private final String appBaseUrl;
@@ -81,6 +87,7 @@ public class AdminController {
     public AdminController(ClientRepository clients, EngagementRepository engagements,
             AppUserRepository users, LoginEventRepository loginEvents,
             Notifications notifications, InviteService invites,
+            CompanyRepository companies,
             @Value("${APP_BASE_URL:https://ai.datapainters.com}") String appBaseUrl) {
         this.clients = clients;
         this.engagements = engagements;
@@ -88,6 +95,7 @@ public class AdminController {
         this.loginEvents = loginEvents;
         this.notifications = notifications;
         this.invites = invites;
+        this.companies = companies;
         this.appBaseUrl = appBaseUrl;
     }
 
@@ -104,9 +112,57 @@ public class AdminController {
         }
     }
 
+    /** Whitelist of filterable and sortable columns, shared with the UI. */
+    private static Grid.Spec<ClientView> clientSpec() {
+        return new Grid.Spec<ClientView>()
+                .add("name", "Client", "text", ClientView::name)
+                .add("primaryEmail", "Primary email", "text", ClientView::primaryEmail)
+                .add("createdAt", "Added", "date", ClientView::createdAt);
+    }
+
+    @GetMapping("/clients/columns")
+    public List<Grid.Column> clientColumns() {
+        return clientSpec().columns();
+    }
+
     @GetMapping("/clients")
-    public List<ClientView> listClients() {
-        return clients.findAllByOrderByNameAsc().stream().map(ClientView::of).toList();
+    public Grid.Page<ClientView> listClients(
+            @RequestParam(name = "filter", required = false) List<String> filter,
+            @RequestParam(defaultValue = "name:asc") String sort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size) {
+
+        List<ClientView> all =
+                clients.findAllByOrderByNameAsc().stream().map(ClientView::of).toList();
+        return Grid.apply(all, clientSpec().accessors(), Grid.parse(filter), sort, page, size);
+    }
+
+    public record UpdateClient(
+            @NotBlank String name,
+            @NotBlank @Email String primaryEmail) {}
+
+    @PutMapping("/clients/{id}")
+    @Transactional
+    public ClientView updateClient(
+            @PathVariable Long id, @Valid @RequestBody UpdateClient request) {
+
+        Client client = clients.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+
+        String email = request.primaryEmail().trim();
+        // Guard the unique index explicitly so a collision reads as a
+        // conflict rather than a constraint violation at flush.
+        clients.findByPrimaryEmailIgnoringCase(email)
+                .filter(other -> !other.getId().equals(id))
+                .ifPresent(other -> {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                            "Another client already uses that primary email");
+                });
+
+        client.setName(request.name().trim());
+        client.setPrimaryEmail(email);
+        log.info("Updated client {}", id);
+        return ClientView.of(clients.save(client));
     }
 
     @PostMapping("/clients")
@@ -145,9 +201,58 @@ public class AdminController {
         }
     }
 
+    private Grid.Spec<EngagementView> engagementSpec(Map<Long, String> clientNames) {
+        return new Grid.Spec<EngagementView>()
+                .add("title", "Engagement", "text", EngagementView::title)
+                .add("clientName", "Client", "text",
+                        e -> clientNames.getOrDefault(e.clientId(), ""))
+                .add("status", "Status", "text", EngagementView::status)
+                .add("startedOn", "Started", "date", EngagementView::startedOn);
+    }
+
+    @GetMapping("/engagements/columns")
+    public List<Grid.Column> engagementColumns() {
+        return engagementSpec(Map.of()).columns();
+    }
+
     @GetMapping("/engagements")
-    public List<EngagementView> listEngagements() {
-        return engagements.findAll().stream().map(EngagementView::of).toList();
+    public Grid.Page<EngagementView> listEngagements(
+            @RequestParam(name = "filter", required = false) List<String> filter,
+            @RequestParam(defaultValue = "startedOn:desc") String sort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size) {
+
+        Map<Long, String> names = clients.findAll().stream()
+                .collect(Collectors.toMap(Client::getId, Client::getName, (a, b) -> a));
+
+        List<EngagementView> all = engagements.findAll().stream()
+                .map(EngagementView::of).toList();
+
+        return Grid.apply(all, engagementSpec(names).accessors(),
+                Grid.parse(filter), sort, page, size);
+    }
+
+    public record UpdateEngagement(
+            @NotBlank String title,
+            @NotBlank String status) {}
+
+    @PutMapping("/engagements/{id}")
+    @Transactional
+    public EngagementView updateEngagement(
+            @PathVariable Long id, @Valid @RequestBody UpdateEngagement request) {
+
+        if (!List.of("active", "paused", "closed").contains(request.status())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "status must be active, paused or closed");
+        }
+
+        Engagement engagement = engagements.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+
+        engagement.setTitle(request.title().trim());
+        engagement.setStatus(request.status());
+        log.info("Updated engagement {}", id);
+        return EngagementView.of(engagements.save(engagement));
     }
 
     @PostMapping("/engagements")
@@ -172,14 +277,30 @@ public class AdminController {
 
     public record CreateUser(
             @NotNull Long clientId,
+            @NotBlank String firstName,
+            @NotBlank String lastName,
             @NotBlank @Email String email,
-            @NotBlank String displayName) {}
+            /** Employer, stored as its own record. May differ from the client. */
+            String companyName,
+            String phone) {
+
+        /** displayName is derived, not asked for -- two fields, not three. */
+        String displayName() {
+            return (firstName.trim() + " " + lastName.trim()).trim();
+        }
+    }
 
     public record UserView(Long id, Long clientId, String email, String displayName,
+            String firstName, String lastName, String phone, String companyName,
             String role, boolean enabled, Instant lastLoginAt) {
 
         static UserView of(AppUser u) {
+            return of(u, null);
+        }
+
+        static UserView of(AppUser u, String companyName) {
             return new UserView(u.getId(), u.getClientId(), u.getEmail(), u.getDisplayName(),
+                    u.getFirstName(), u.getLastName(), u.getPhone(), companyName,
                     u.getRole(), u.isEnabled(), u.getLastLoginAt());
         }
     }
@@ -199,7 +320,12 @@ public class AdminController {
 
     @GetMapping("/users")
     public List<UserView> listUsers() {
-        return users.findAll().stream().map(UserView::of).toList();
+        Map<Long, String> names = companies.findAll().stream()
+                .collect(Collectors.toMap(Company::getId, Company::getName, (a, b) -> a));
+        return users.findAll().stream()
+                .map(u -> UserView.of(u, u.getCompanyId() == null
+                        ? null : names.get(u.getCompanyId())))
+                .toList();
     }
 
     @PostMapping("/users")
@@ -216,7 +342,11 @@ public class AdminController {
 
         AppUser user = new AppUser();
         user.setEmail(email);
-        user.setDisplayName(request.displayName().trim());
+        user.setDisplayName(request.displayName());
+        user.setFirstName(request.firstName());
+        user.setLastName(request.lastName());
+        user.setPhone(request.phone());
+        user.setCompanyId(resolveCompany(request.companyName()));
         user.setRole(AppUser.ROLE_CLIENT);
         user.setClientId(request.clientId());
         // No password the firm knows ever exists for this account. The hash
@@ -313,6 +443,34 @@ public class AdminController {
     public AdminError handleDuplicate(DataIntegrityViolationException e) {
         log.info("Rejected admin create: constraint violation");
         return new AdminError("That name or email is already in use");
+    }
+
+    /**
+     * Finds the company by name or creates it.
+     *
+     * <p>Matched case-insensitively against the same expression as the unique
+     * index, so "Acme" typed twice with different capitalisation resolves to
+     * one record rather than quietly becoming two.
+     */
+    private Long resolveCompany(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        String trimmed = name.trim();
+        return companies.findByNameIgnoringCase(trimmed)
+                .map(Company::getId)
+                .orElseGet(() -> {
+                    Company created = new Company();
+                    created.setName(trimmed);
+                    Company saved = companies.save(created);
+                    log.info("Created company {} ({})", saved.getId(), saved.getName());
+                    return saved.getId();
+                });
+    }
+
+    @GetMapping("/companies")
+    public List<String> listCompanies() {
+        return companies.findAllByOrderByNameAsc().stream().map(Company::getName).toList();
     }
 
     private void requireClient(Long clientId) {

@@ -7,6 +7,8 @@ import com.advisory.api.portal.Appointment;
 import com.advisory.api.portal.AppointmentRepository;
 import com.advisory.api.portal.Client;
 import com.advisory.api.portal.ClientRepository;
+import com.advisory.api.portal.Company;
+import com.advisory.api.portal.CompanyRepository;
 import com.advisory.api.portal.Engagement;
 import com.advisory.api.portal.EngagementRepository;
 import com.advisory.api.portal.MeetingNote;
@@ -30,6 +32,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -53,11 +57,13 @@ public class MeetingController {
     private final AppUserRepository users;
     private final SchedulingService scheduling;
     private final Notifications notifications;
+    private final CompanyRepository companies;
 
     public MeetingController(AppointmentRepository appointments, ClientRepository clients,
             EngagementRepository engagements, TopicRepository topics,
             MeetingNoteRepository notes, AppUserRepository users,
-            SchedulingService scheduling, Notifications notifications) {
+            SchedulingService scheduling, Notifications notifications,
+            CompanyRepository companies) {
         this.appointments = appointments;
         this.clients = clients;
         this.engagements = engagements;
@@ -66,6 +72,7 @@ public class MeetingController {
         this.users = users;
         this.scheduling = scheduling;
         this.notifications = notifications;
+        this.companies = companies;
     }
 
     /* -------------------------------------------------------- appointments */
@@ -75,9 +82,70 @@ public class MeetingController {
             String engagementTitle, Instant startsAt, Instant endsAt, int durationMinutes,
             String status, int topicCount, int notedCount) {}
 
+    private static Grid.Spec<AppointmentRow> appointmentSpec() {
+        return new Grid.Spec<AppointmentRow>()
+                .add("startsAt", "When", "datetime", AppointmentRow::startsAt)
+                .add("clientName", "Client", "text", AppointmentRow::clientName)
+                .add("engagementTitle", "Engagement", "text", AppointmentRow::engagementTitle)
+                .add("durationMinutes", "Length (min)", "number",
+                        AppointmentRow::durationMinutes)
+                .add("status", "Status", "text", AppointmentRow::status)
+                .add("topicCount", "Agenda items", "number", AppointmentRow::topicCount)
+                .add("notedCount", "Noted", "number", AppointmentRow::notedCount);
+    }
+
+    @GetMapping("/appointments/columns")
+    public List<Grid.Column> appointmentColumns() {
+        return appointmentSpec().columns();
+    }
+
     @GetMapping("/appointments")
-    public List<AppointmentRow> listAppointments() {
-        return rows(appointments.findAllByOrderByStartsAtDesc());
+    public Grid.Page<AppointmentRow> listAppointments(
+            @RequestParam(name = "filter", required = false) List<String> filter,
+            @RequestParam(defaultValue = "startsAt:desc") String sort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size) {
+
+        return Grid.apply(rows(appointments.findAllByOrderByStartsAtDesc()),
+                appointmentSpec().accessors(), Grid.parse(filter), sort, page, size);
+    }
+
+    public record UpdateAppointment(
+            @NotNull Instant startsAt,
+            @NotNull Integer durationMinutes,
+            @NotNull String status) {}
+
+    /**
+     * Reschedules or re-lengthens a meeting.
+     *
+     * <p>Start time and length go through the same validation booking does,
+     * because the database constraints that enforce 30-minute blocks and
+     * aligned starts do not care which endpoint wrote the row.
+     */
+    @PutMapping("/appointments/{id}")
+    @Transactional
+    public AppointmentRow updateAppointment(
+            @PathVariable Long id, @Valid @RequestBody UpdateAppointment request) {
+
+        Appointment appointment = appointments.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+
+        if (!List.of(Appointment.REQUESTED, Appointment.CONFIRMED, Appointment.COMPLETED,
+                Appointment.CANCELLED).contains(request.status())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown status");
+        }
+
+        // allowPast: an admin correcting the record of a call that already
+        // happened needs a past start; a client booking never does.
+        Instant start = scheduling.normaliseAndValidate(
+                request.startsAt(), request.durationMinutes(), true);
+
+        appointment.setStartsAt(start);
+        appointment.setDurationMinutes(request.durationMinutes());
+        appointment.setStatus(request.status());
+
+        log.info("Updated appointment {}", id);
+        return rows(List.of(appointments.save(appointment))).get(0);
     }
 
     /* ----------------------------------------------------- meeting manager */
@@ -235,7 +303,8 @@ public class MeetingController {
 
     /* ---------------------------------------------------------- client view */
 
-    public record ClientUser(Long id, String email, String displayName, String role,
+    public record ClientUser(Long id, String email, String displayName, String firstName,
+            String lastName, String phone, String companyName, String role,
             boolean enabled, boolean mustChangePassword, Instant lastLoginAt) {}
 
     public record ClientEngagement(Long id, String title, String status,
@@ -288,6 +357,10 @@ public class MeetingController {
                 rows(clientAppointments),
                 users.findAllByClientIdOrderByDisplayNameAsc(id).stream()
                         .map(u -> new ClientUser(u.getId(), u.getEmail(), u.getDisplayName(),
+                                u.getFirstName(), u.getLastName(), u.getPhone(),
+                                u.getCompanyId() == null ? null
+                                        : companies.findById(u.getCompanyId())
+                                                .map(Company::getName).orElse(null),
                                 u.getRole(), u.isEnabled(), u.isMustChangePassword(),
                                 u.getLastLoginAt()))
                         .toList(),

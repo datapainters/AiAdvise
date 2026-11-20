@@ -153,6 +153,12 @@ public class InviteService {
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         // They chose it themselves, so there is nothing left to force.
         user.setMustChangePassword(false);
+        // Redeeming an invite hands back a session -- the caller issues a
+        // token and the browser lands in the portal signed in -- so this is
+        // a sign-in and has to be recorded as one. Without it the admin's
+        // user list said "never" for someone who was looking at the portal
+        // at that moment, which is the opposite of what that column is for.
+        user.setLastLoginAt(Instant.now());
         users.save(user);
 
         invite.setUsedAt(Instant.now());

@@ -449,7 +449,11 @@ export function ClientDetailModal({
                 </span>
                 <span>
                   <b>{detail.users.length}</b>
-                  <small>Logins</small>
+                  {/* The count of portal accounts, not of sign-ins. It was
+                      labelled "Logins", which read as activity: a client who
+                      had never signed in still showed 1, and adding a user
+                      made it 2. */}
+                  <small>Users</small>
                 </span>
               </div>
             </div>
@@ -482,7 +486,7 @@ export function ClientDetailModal({
               <dd>{detail.engagements.length}</dd>
               <dt>Meetings</dt>
               <dd>{detail.appointments.length}</dd>
-              <dt>Portal logins</dt>
+              <dt>Portal users</dt>
               <dd>{detail.users.length}</dd>
             </dl>
           )}

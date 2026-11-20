@@ -113,11 +113,17 @@ public final class Grid {
             // Nulls last in both directions: an empty cell is not "smallest",
             // it is absent, and burying it at the top of a descending sort
             // hides the rows someone is actually looking for.
-            Comparator<T> comparator = Comparator.comparing(
-                    accessor::apply, Comparator.nullsLast(Grid::compareValues));
-            working = working.stream()
-                    .sorted(descending ? comparator.reversed() : comparator)
-                    .toList();
+            //
+            // The direction is applied to the value comparison, NOT to the
+            // finished comparator. Reversing a nullsLast comparator also
+            // reverses its null handling and silently turns it into
+            // nulls-first, which is the one thing this is here to prevent.
+            Comparator<Object> values = descending
+                    ? (x, y) -> compareValues(y, x)
+                    : Grid::compareValues;
+            Comparator<T> comparator =
+                    Comparator.comparing(accessor::apply, Comparator.nullsLast(values));
+            working = working.stream().sorted(comparator).toList();
         }
 
         int safeSize = Math.min(Math.max(size, 1), MAX_SIZE);
@@ -138,6 +144,20 @@ public final class Grid {
     private static int compareValues(Object a, Object b) {
         if (a instanceof Number na && b instanceof Number nb) {
             return Double.compare(na.doubleValue(), nb.doubleValue());
+        }
+        // Text compares case-insensitively, and this check has to come before
+        // the Comparable one below: String is itself Comparable, so the
+        // general branch used to swallow every string column and sort it by
+        // String.compareTo. That is ASCII order, which puts every capitalised
+        // name above every lowercase one -- "Zenith" before "client" -- and
+        // made the client list look broken next to the filters, which have
+        // always matched case-insensitively.
+        if (a instanceof CharSequence && b instanceof CharSequence) {
+            int byText = String.valueOf(a).compareToIgnoreCase(String.valueOf(b));
+            // Fall back to the case-sensitive order only to break an exact
+            // tie, so "ACME" and "acme" keep a stable relative order instead
+            // of swapping places between requests.
+            return byText != 0 ? byText : String.valueOf(a).compareTo(String.valueOf(b));
         }
         if (a instanceof Comparable ca && a.getClass().isInstance(b)) {
             return ca.compareTo(b);

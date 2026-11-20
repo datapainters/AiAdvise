@@ -98,7 +98,10 @@ public class AppointmentController {
                 request.engagementId(),
                 request.startsAt(),
                 request.durationMinutes(),
-                request.topicIds() == null ? List.of() : request.topicIds());
+                request.topicIds() == null ? List.of() : request.topicIds(),
+                // Null for an admin: the firm may agenda any of the client's
+                // topics. A client user is held to their own.
+                user.isAdmin() ? null : user.id());
 
         AppointmentView view = decorate(List.of(saved)).get(0);
 

@@ -26,14 +26,28 @@ import org.springframework.web.server.ResponseStatusException;
 /**
  * Topics for an engagement.
  *
- * <p>Authorization rule, applied on every path in and out: the engagement
- * must belong to the caller's client. The engagement id still arrives as a
- * parameter because a client can have several, but it is checked against the
- * token rather than trusted. Admins are unscoped and may address any
- * engagement.
+ * <p>Authorization rule, applied on every path in and out, in two layers:
  *
- * <p>A request for someone else's engagement returns 404, not 403. A 403
- * would confirm the engagement exists, which is itself a disclosure.
+ * <ol>
+ *   <li>the engagement must belong to the caller's client, and
+ *   <li>the topic must have been created by the caller.
+ * </ol>
+ *
+ * <p>The second layer is the one that matters here. A topic is private to
+ * its author: two users of the same client, on the same engagement, do not
+ * see each other's topics. The first layer alone used to be the whole rule,
+ * which meant anyone invited under a client could read and close the
+ * client's entire backlog.
+ *
+ * <p>The engagement id still arrives as a parameter because a client can
+ * have several, but it is checked against the token rather than trusted.
+ * Admins bypass both layers: the firm's engineers need the full agenda to
+ * run a meeting.
+ *
+ * <p>A request for someone else's engagement or topic returns 404, not 403.
+ * A 403 would confirm the row exists, which is itself a disclosure -- and
+ * with ids being sequential, a 403 on a guessed id would let a client user
+ * count another user's topics without reading them.
  */
 @RestController
 @RequestMapping("/api/topics")
@@ -98,6 +112,27 @@ public class TopicController {
         }
     }
 
+    /**
+     * Throws 404 unless the caller created this topic.
+     *
+     * <p>Separate from {@link #requireAccess} on purpose. Passing the client
+     * check only proves the caller is in the right company; a topic written
+     * by a colleague is still not theirs to read or close. An unowned legacy
+     * row (null creator) belongs to nobody and so fails this for every
+     * client user.
+     */
+    // Package-private rather than private so TopicOwnershipTest can exercise
+    // the rule directly. It is the whole of the privacy guarantee; it should
+    // not only be reachable through a controller and a database.
+    static void requireOwnership(CurrentUser user, Topic topic) {
+        if (user.isAdmin()) {
+            return;
+        }
+        if (!user.id().equals(topic.getCreatedByUserId())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+    }
+
     @GetMapping
     public List<TopicView> list(
             @AuthenticationPrincipal Jwt jwt,
@@ -107,9 +142,21 @@ public class TopicController {
         CurrentUser user = CurrentUser.from(jwt);
         requireAccess(user, engagementId);
 
-        List<Topic> found = (status == null)
-                ? topics.findByEngagementIdOrderByPriorityAscCreatedAtAsc(engagementId)
-                : topics.findByEngagementIdAndStatusOrderByPriorityAsc(engagementId, status);
+        List<Topic> found;
+        if (user.isAdmin()) {
+            found = (status == null)
+                    ? topics.findByEngagementIdOrderByPriorityAscCreatedAtAsc(engagementId)
+                    : topics.findByEngagementIdAndStatusOrderByPriorityAsc(engagementId, status);
+        } else {
+            // Scoped to the caller, not to their client. The filter is in the
+            // query rather than applied to the result, so another user's
+            // topics are never loaded in the first place.
+            found = (status == null)
+                    ? topics.findByEngagementIdAndCreatedByUserIdOrderByPriorityAscCreatedAtAsc(
+                            engagementId, user.id())
+                    : topics.findByEngagementIdAndCreatedByUserIdAndStatusOrderByPriorityAsc(
+                            engagementId, user.id(), status);
+        }
 
         return found.stream().map(TopicView::of).toList();
     }
@@ -124,6 +171,9 @@ public class TopicController {
 
         Topic topic = new Topic();
         topic.setEngagementId(request.engagementId());
+        // From the token, never the request body: a creator the caller could
+        // nominate would be a way to plant a topic in someone else's backlog.
+        topic.setCreatedByUserId(user.id());
         topic.setTitle(request.title());
         topic.setDetail(request.detail());
         topic.setDesiredOutcome(request.desiredOutcome());
@@ -154,7 +204,9 @@ public class TopicController {
 
         // Check access against the topic's own engagement, so an id guessed
         // from another client's range is rejected like any other miss.
-        requireAccess(CurrentUser.from(jwt), topic.getEngagementId());
+        CurrentUser user = CurrentUser.from(jwt);
+        requireAccess(user, topic.getEngagementId());
+        requireOwnership(user, topic);
 
         topic.setStatus(request.status());
         return TopicView.of(topics.save(topic));

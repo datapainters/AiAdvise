@@ -36,6 +36,20 @@ public class Topic {
     @Column(name = "engagement_id", nullable = false)
     private Long engagementId;
 
+    /**
+     * The user who created this topic. A topic is private to its creator:
+     * other users of the same client cannot see it, even though they share
+     * the engagement.
+     *
+     * <p>Nullable only because V8 backfilled rows that predate the column and
+     * could not be attributed to anyone. The application always sets it on
+     * create, so a null here means an unowned legacy row, visible to admins
+     * only. It also goes null if the creator's account is deleted, which
+     * preserves the topic and any meeting notes attached to it.
+     */
+    @Column(name = "created_by_user_id")
+    private Long createdByUserId;
+
     @Column(nullable = false)
     private String title;
 
@@ -82,6 +96,14 @@ public class Topic {
 
     public void setEngagementId(Long engagementId) {
         this.engagementId = engagementId;
+    }
+
+    public Long getCreatedByUserId() {
+        return createdByUserId;
+    }
+
+    public void setCreatedByUserId(Long createdByUserId) {
+        this.createdByUserId = createdByUserId;
     }
 
     public String getTitle() {

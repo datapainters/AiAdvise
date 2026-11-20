@@ -42,10 +42,12 @@ public class SchedulingService {
      *
      * @param clientId the caller's client, or for an admin the engagement's owner
      * @param userId who asked; recorded on the appointment
+     * @param topicOwner the user every named topic must belong to, or null for
+     *     an admin, who may put any of the client's topics on the agenda
      */
     @Transactional
     public Appointment book(Long clientId, Long userId, Long engagementId,
-            Instant startsAt, int durationMinutes, List<Long> topicIds) {
+            Instant startsAt, int durationMinutes, List<Long> topicIds, Long topicOwner) {
 
         Engagement engagement = engagements.findById(engagementId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
@@ -68,7 +70,7 @@ public class SchedulingService {
 
         Appointment saved = appointments.save(appointment);
 
-        attach(saved, engagementId, topicIds);
+        attach(saved, engagementId, topicIds, topicOwner);
 
         log.info("Booked appointment {} for client {} on engagement {} ({} min, {} topics)",
                 saved.getId(), clientId, engagementId, durationMinutes, topicIds.size());
@@ -78,11 +80,18 @@ public class SchedulingService {
     /**
      * Moves topics onto a meeting.
      *
-     * <p>Every topic is checked against the meeting's engagement and against
-     * its current state. Attaching a topic that is already on another meeting
-     * would silently move it off that agenda, so it is rejected instead.
+     * <p>Every topic is checked against the meeting's engagement, against its
+     * owner, and against its current state. Attaching a topic that is already
+     * on another meeting would silently move it off that agenda, so it is
+     * rejected instead.
+     *
+     * <p>The ownership check is what stops a client user booking a meeting
+     * with a colleague's topics on it. Without it, topics stay private to
+     * read but not to use: naming someone else's id here would move that
+     * topic onto an agenda the caller can then open.
      */
-    private void attach(Appointment appointment, Long engagementId, List<Long> topicIds) {
+    private void attach(Appointment appointment, Long engagementId, List<Long> topicIds,
+            Long topicOwner) {
         if (topicIds.isEmpty()) {
             return;
         }
@@ -97,6 +106,13 @@ public class SchedulingService {
             if (!topic.getEngagementId().equals(engagementId)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Topic " + topic.getId() + " belongs to a different engagement");
+            }
+            if (topicOwner != null && !topicOwner.equals(topic.getCreatedByUserId())) {
+                // Same wording as a nonexistent id, deliberately. Telling the
+                // caller this one exists but is someone else's would leak the
+                // fact that a colleague has a topic at that id.
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "One or more topics do not exist");
             }
             if (topic.getAppointmentId() != null) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,

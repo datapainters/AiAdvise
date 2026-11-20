@@ -422,7 +422,55 @@ The admin still sees the link even when the email sent, because mail goes
 missing and a working fallback beats re-issuing. When it did not send, the
 copy says so rather than letting an admin assume it did.
 
-**Not yet exercised by a human.** The flow is deployed and verified
-structurally — V6 applied, service healthy, every client path resolves to a
-server route — but nobody has clicked an actual invite link. That is the
-next thing worth doing.
+**Exercised end to end on 2026-11-19.** Wes followed a real invite link, the
+account was created, and the portal opened signed in. The flow works.
+
+What the test surfaced: the second user under a client could see the first
+user's topics. Not a cross-client leak — authorisation was being applied
+consistently, and correctly, to the rule as written. The rule was the
+problem. See below.
+
+## Topic ownership (V8, 2026-11-19)
+
+Topics are now private to the user who created them, including from other
+users of the same client.
+
+Before V8 a topic belonged to an engagement, and an engagement belongs to a
+client, so "may this caller see this topic" resolved to "is this caller at
+this client". Every user invited under a client therefore saw that client's
+entire topic backlog and could close any of it. Three client-facing paths
+relied on that rule and all three were changed:
+
+| Path | Was | Now |
+| --- | --- | --- |
+| `GET /api/topics` | engagement ∈ caller's client | ...and topic created by caller |
+| `PATCH /api/topics/{id}/status` | engagement ∈ caller's client | ...and topic created by caller |
+| `POST /api/appointments` → `attach` | topic ∈ engagement | ...and topic created by caller |
+
+The third mattered as much as the first. Making topics private to read but
+not private to *use* would have left a hole: naming a colleague's topic id
+when booking moves that topic onto an agenda the caller can then open.
+
+Admin paths are deliberately unscoped — the engineer running a meeting needs
+the whole agenda, whoever on the client side raised each item.
+
+Refusals are 404, not 403, and `attach` reuses the "does not exist" wording.
+Ids are sequential, so a 403 on a guessed id would let one user count a
+colleague's topics without reading any of them.
+
+Backfill: rows predating the column were attributed to the earliest CLIENT
+user of the engagement's client. That cannot widen visibility, since those
+users could all already see the row. Where a client had no users the row is
+left null; null never matches a caller, so it is admin-visible only.
+
+### Two open questions this raises
+
+1. **An admin creating a topic now owns it**, so no client user can see it.
+   There is no admin UI that creates topics, so this is only reachable by
+   direct API call — but if engineers should be able to add agenda items a
+   client can see, that needs its own rule.
+2. **Appointments and notes are still client-scoped, not per-user.** User B
+   can see that a meeting User A booked exists, and its topic *count*, though
+   not the topics. Meeting notes are admin-only. Worth deciding whether a
+   meeting is a personal or a company-level thing before more users land on
+   one client.

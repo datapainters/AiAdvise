@@ -255,7 +255,13 @@ module "api" {
     APP_BASE_URL           = "https://${var.domain_name}"
   }
 
-  ses_identity_arn = module.email.identity_arn
+  # Both: SendEmail with a configuration set is authorised against the
+  # identity and the configuration set, and a policy with only the first
+  # fails in a way that reads like the identity is at fault.
+  ses_send_resource_arns = [
+    module.email.identity_arn,
+    module.email.configuration_set_arn,
+  ]
 }
 
 module "web" {

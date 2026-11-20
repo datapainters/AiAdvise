@@ -98,13 +98,21 @@ variable "log_retention_days" {
   default = 30
 }
 
-variable "ses_identity_arn" {
-  type        = string
+variable "ses_send_resource_arns" {
+  type        = list(string)
   description = <<-EOT
-    SES identity the service may send as. Null disables the grant entirely,
-    which is the right default for an environment with no verified domain.
+    Every SES resource the sender must be authorised against.
+
+    This is a list, not a single identity ARN, because SendEmail authorises
+    against each resource the request touches. A request that names a
+    configuration set is checked against the identity AND the configuration
+    set; a policy granting only the identity denies it with a message that
+    reads like the identity is wrong. Pass both.
+
+    Empty disables the grant entirely, which is right for an environment
+    with no verified domain.
   EOT
-  default     = null
+  default     = []
 }
 
 variable "bootstrap_admin_email" {
@@ -281,12 +289,10 @@ data "aws_iam_policy_document" "task" {
     resources = local.readable_secret_arns
   }
 
-  # Outbound mail. Scoped to the one verified identity rather than "*", so a
-  # bug cannot send as some other domain this account verifies later. The
-  # condition pins the From address too: SendEmail is authorised only when
-  # the message claims to come from an address on that identity.
+  # Outbound mail. Scoped to named resources rather than "*", so a bug
+  # cannot send as some other domain this account verifies later.
   dynamic "statement" {
-    for_each = var.ses_identity_arn == null ? [] : [var.ses_identity_arn]
+    for_each = length(var.ses_send_resource_arns) == 0 ? [] : [1]
     content {
       sid    = "SendMail"
       effect = "Allow"
@@ -294,7 +300,7 @@ data "aws_iam_policy_document" "task" {
         "ses:SendEmail",
         "ses:SendRawEmail",
       ]
-      resources = [statement.value]
+      resources = var.ses_send_resource_arns
     }
   }
 

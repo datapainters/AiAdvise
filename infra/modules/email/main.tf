@@ -169,6 +169,15 @@ output "configuration_set_name" {
   value = aws_sesv2_configuration_set.this.configuration_set_name
 }
 
+output "configuration_set_arn" {
+  description = <<-EOT
+    Needed in the sender's IAM policy as well as the identity ARN. A
+    SendEmail request that names a configuration set is authorised against
+    BOTH resources, so a policy listing only the identity denies it.
+  EOT
+  value       = aws_sesv2_configuration_set.this.arn
+}
+
 output "verification_status_note" {
   description = "DKIM verification is asynchronous; check with sesv2 get-email-identity."
   value       = "DKIM CNAMEs published for ${var.domain}; verification completes within minutes"

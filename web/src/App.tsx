@@ -882,12 +882,16 @@ function ChangePassword({ forced }: { forced: boolean }) {
             value={confirm}
             autoComplete="new-password"
             minLength={MIN_PASSWORD_LENGTH}
+            maxLength={72}
             required
             onChange={(e) => setConfirm(e.target.value)}
           />
         </label>
-        <p className="hint">At least {MIN_PASSWORD_LENGTH} characters.</p>
-        <button type="submit" disabled={busy}>
+        <p className="hint">
+          At least {MIN_PASSWORD_LENGTH} characters, up to 72 bytes &mdash; accented
+          characters and emoji count as more than one.
+        </p>
+        <button className="btn btn-primary" type="submit" disabled={busy}>
           {busy ? 'Saving...' : 'Save password'}
         </button>
       </form>
@@ -2037,6 +2041,7 @@ function AcceptInvite() {
             value={password}
             autoComplete="new-password"
             minLength={MIN_PASSWORD_LENGTH}
+            maxLength={72}
             required
             autoFocus
             onChange={(e) => setPassword(e.target.value)}
@@ -2049,12 +2054,16 @@ function AcceptInvite() {
             value={confirm}
             autoComplete="new-password"
             minLength={MIN_PASSWORD_LENGTH}
+            maxLength={72}
             required
             onChange={(e) => setConfirm(e.target.value)}
           />
         </label>
-        <p className="hint">At least {MIN_PASSWORD_LENGTH} characters.</p>
-        <button type="submit" disabled={busy}>
+        <p className="hint">
+          At least {MIN_PASSWORD_LENGTH} characters, up to 72 bytes &mdash; accented
+          characters and emoji count as more than one.
+        </p>
+        <button className="btn btn-primary" type="submit" disabled={busy}>
           {busy ? 'Setting...' : 'Set password and sign in'}
         </button>
       </form>

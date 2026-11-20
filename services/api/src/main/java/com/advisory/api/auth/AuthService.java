@@ -54,6 +54,39 @@ public class AuthService {
     public static final int MIN_PASSWORD_LENGTH = 12;
 
     /**
+     * BCrypt's hard limit, in bytes.
+     *
+     * <p>The algorithm ignores anything past 72 bytes, and Spring Security
+     * throws rather than silently truncating. Measured in UTF-8 bytes, not
+     * characters: an accented letter costs two and an emoji four, so a
+     * 40-character passphrase can exceed it.
+     *
+     * <p>Without this check the failure is a 500 on an endpoint that was
+     * handed a perfectly good password -- which punishes exactly the people
+     * choosing long passphrases.
+     */
+    public static final int MAX_PASSWORD_BYTES = 72;
+
+    /**
+     * Shared by every path that sets a password.
+     *
+     * @throws IllegalArgumentException which the controllers map to 400
+     */
+    public static void validatePassword(String password) {
+        if (password == null || password.length() < MIN_PASSWORD_LENGTH) {
+            throw new IllegalArgumentException(
+                    "Password must be at least " + MIN_PASSWORD_LENGTH + " characters");
+        }
+        int bytes = password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        if (bytes > MAX_PASSWORD_BYTES) {
+            throw new IllegalArgumentException(
+                    "Password is too long. The limit is " + MAX_PASSWORD_BYTES
+                            + " bytes and this one is " + bytes
+                            + "; non-ASCII characters count as more than one.");
+        }
+    }
+
+    /**
      * Changes a password after verifying the current one, and clears any
      * pending forced reset.
      *
@@ -76,10 +109,7 @@ public class AuthService {
             throw new AuthenticationFailed();
         }
 
-        if (newPassword == null || newPassword.length() < MIN_PASSWORD_LENGTH) {
-            throw new IllegalArgumentException(
-                    "New password must be at least " + MIN_PASSWORD_LENGTH + " characters");
-        }
+        validatePassword(newPassword);
 
         if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
             throw new IllegalArgumentException("New password must differ from the current one");

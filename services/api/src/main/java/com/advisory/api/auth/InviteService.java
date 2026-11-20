@@ -101,7 +101,11 @@ public class InviteService {
      * future comparison might treat as empty.
      */
     public String unusablePassword() {
-        return passwordEncoder.encode(UUID.randomUUID() + ":" + UUID.randomUUID());
+        // One UUID, not two. Two joined by a colon is 73 bytes and BCrypt
+        // rejects anything past 72, which turned every invite into a 500.
+        // A single UUID is 36 bytes and 122 bits of entropy -- nothing has
+        // to match it, ever, so more would buy nothing.
+        return passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
     /** Who an invite is for, without redeeming it. */
@@ -144,11 +148,7 @@ public class InviteService {
             return null;
         }
 
-        if (newPassword == null || newPassword.length() < AuthService.MIN_PASSWORD_LENGTH) {
-            throw new IllegalArgumentException(
-                    "Password must be at least " + AuthService.MIN_PASSWORD_LENGTH
-                            + " characters");
-        }
+        AuthService.validatePassword(newPassword);
 
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         // They chose it themselves, so there is nothing left to force.

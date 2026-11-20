@@ -474,3 +474,71 @@ left null; null never matches a caller, so it is admin-visible only.
    not the topics. Meeting notes are admin-only. Worth deciding whether a
    meeting is a personal or a company-level thing before more users land on
    one client.
+
+## Browser test sweep (2026-11-20)
+
+Drove the admin and portal screens in Chrome against the live site as an
+admin, with test records created through the UI. Five clients, two
+engagements, one appointment, two topics, one meeting note, one invited
+user (`client3@schiesz.com`, "QA Tester", under client 1).
+
+### Fixed in this pass
+
+| Defect | Cause |
+| --- | --- |
+| Grid sorting was case-sensitive | `String` is `Comparable`, so the generic branch in `Grid.compareValues` claimed every text column; the `compareToIgnoreCase` below it was unreachable |
+| Descending sorts put empty cells first | `Comparator.nullsLast(..).reversed()` reverses the null handling too |
+| Redeeming an invite recorded no sign-in | `InviteService.accept` issues a session but never set `last_login_at` |
+| A client's "Portal logins" counted accounts | It rendered `users.length` under a label that reads as activity |
+
+The sort bug mattered more than it looks: filters have always matched
+case-insensitively, so the two halves of the same grid disagreed about
+what case means. The nulls bug came out of writing the test, not off the
+screen — the seed data has no empty cells.
+
+`GridTest` is new and covers sorting, filtering and paging. Paging had
+never been exercised at all: every grid has only ever been seen with five
+rows against a minimum page size of ten.
+
+### Confirmed working
+
+Filter tagging (type-aware operators, multi-tag AND, removal, clear all,
+per-tab reset), sortable headers with a single-column indicator, create
+and edit for clients and engagements, the client detail popup and its tab
+counts, add-user with first/last/email/company/phone, the invite email,
+the full booking flow in 30-minute blocks with correct end times, the
+Meeting Manager with per-topic notes and dirty-state tracking, the agenda
+`n/m noted` counter, confirm, the sign-in audit log, and the three
+notification emails.
+
+### Open
+
+1. **A meeting confirmation reached one of a client's two users.**
+   `Notifications.meetingConfirmed` loads every enabled user for the
+   client and `MailSender.sendAll` loops over them, and both users are
+   enabled on the same client — but only `client2@schiesz.com` got the
+   mail, not `client3@schiesz.com`, which had received its invite
+   minutes earlier. `MailSender` swallows failures by design, so a send
+   that threw would leave no trace in the response. Needs the service
+   logs to tell an un-attempted send from a failed one. **Not yet
+   diagnosed; do not assume the code is wrong.**
+2. **A topic can strand in `scheduled` with no appointment.** `topic 1`
+   is in that state, and because the portal offers only `proposed`
+   topics, it cannot be scheduled and cannot be dropped from any
+   meeting — it just sits there. The "Schedule a meeting" button stays
+   disabled whenever every topic is stranded. Worth a migration to
+   return orphaned `scheduled` topics to `proposed`, plus whatever
+   created the state in the first place.
+3. **Date filters compare in UTC; the grids render local dates.** A row
+   displaying 11/18 is excluded by "Added less than 2026-11-19" when its
+   instant is early on the 19th UTC. The engine is right and the filter
+   works; the two halves just disagree about the timezone.
+4. **The filter value box is `type=text` even for date columns**, so the
+   format is a guess. The operators go type-aware already; the input
+   should too.
+5. **Booking offers all 48 half-hour slots**, midnight included. No
+   business-hours constraint.
+6. Stale notices persist across admin tab switches.
+7. Dates render `11/20/2026` in Clients and `2026-11-20` in Engagements.
+8. Sortable headers are plain `generic` elements, so sorting is not
+   reachable from the keyboard.

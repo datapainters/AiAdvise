@@ -241,9 +241,9 @@ public class AdminController {
     public EngagementView updateEngagement(
             @PathVariable Long id, @Valid @RequestBody UpdateEngagement request) {
 
-        if (!List.of("active", "paused", "closed").contains(request.status())) {
+        if (!List.of("inquiry", "active", "paused", "closed").contains(request.status())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "status must be active, paused or closed");
+                    "status must be inquiry, active, paused or closed");
         }
 
         Engagement engagement = engagements.findById(id)

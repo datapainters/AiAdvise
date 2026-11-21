@@ -57,12 +57,6 @@ import {
   type Topic,
 } from './api';
 import {
-  PilotToProduction,
-  ServiceIcon,
-  SourcesToOutput,
-  Timeline,
-} from './graphics';
-import {
   BookingForm,
   formatLength,
   formatRange,
@@ -82,6 +76,37 @@ import {
   type GridPage,
 } from './datagrid';
 import { clearToken, getToken, type User } from './auth';
+import {
+  Approach,
+  BookConsultation,
+  Home,
+  Services,
+  SiteFooter,
+  SiteNav,
+} from './marketing';
+import {
+  AgingReport,
+  InvoiceModal,
+  InvoiceStatus,
+  PrintInvoice,
+  PrintMeeting,
+  PrintStatement,
+  RecordPaymentModal,
+  RevenueReport,
+  SystemOptions,
+  UnbilledReport,
+} from './billing';
+import {
+  getSnapshot,
+  invoiceColumns,
+  listInvoices,
+  listPayments,
+  money,
+  paymentColumns,
+  type Invoice,
+  type Payment,
+  type Snapshot,
+} from './billing-api';
 
 /* ------------------------------------------------------------------ auth */
 
@@ -216,201 +241,29 @@ function UserMenu({ user }: { user: User }) {
   );
 }
 
-function Nav() {
+/** Site header; shows the account controls only when someone is signed in. */
+function SiteHeader() {
   const { user } = useAuth();
+  return <SiteNav account={user ? <NavAccount /> : undefined} />;
+}
 
+/** The signed-in part of the site header: the admin link and the user menu. */
+function NavAccount() {
+  const { user } = useAuth();
+  if (!user) return null;
   return (
-    <nav className="nav">
-      <Link to="/" className="brand">
-        Data Painters
-      </Link>
-      <div className="nav-links">
-        <Link to="/approach">Approach</Link>
-        <Link to="/portal">Client portal</Link>
-        {user?.role === 'ADMIN' && <Link to="/admin">Admin</Link>}
-        {user && <UserMenu user={user} />}
-      </div>
-    </nav>
+    <span className="nav-account">
+      {user.role === 'ADMIN' && (
+        <Link to="/admin" className="nav-admin-link">
+          Admin
+        </Link>
+      )}
+      <UserMenu user={user} />
+    </span>
   );
 }
 
 /* ------------------------------------------------------------------ pages */
-
-function Home() {
-  return (
-    <main className="page">
-      {/* Copy and figure share the width; the hero used to leave the right
-          third of a 68rem container empty. */}
-      <section className="hero split">
-        <div>
-          <h1>Enterprise AI, built by people who built enterprise BI.</h1>
-          <p className="lede">
-            We spent twenty-five years making data trustworthy inside large
-            organisations &mdash; the warehouses, the semantic layers, the governance,
-            the migrations nobody wanted to own. The hard part was never the model. It
-            was the data it has to read, the systems it has to write to, and the people
-            who have to defend the output in a meeting. That has not changed. The tools
-            have.
-          </p>
-          <Link to="/portal" className="cta">
-            Client portal
-          </Link>
-        </div>
-        <figure className="figure-wrap">
-          <SourcesToOutput />
-          <figcaption>
-            Sources rarely agree. Everything expensive happens before the model.
-          </figcaption>
-        </figure>
-      </section>
-
-      <section className="split">
-        <div>
-          <h2 className="section-head">Why the scaling problem is the familiar one</h2>
-          <p className="body">
-            Most AI pilots work. Most AI programmes stall anyway, and they stall on
-            things an enterprise data team has seen before: lineage nobody can trace,
-            access controls that do not survive an audit, a pipeline that was never
-            going to run twice, an output no owner will sign off on. We recognise those
-            failures because we spent a career fixing the business intelligence versions
-            of them.
-          </p>
-          <p className="body">
-            We moved into AI the way we moved into everything else &mdash; by shipping
-            it inside organisations where it had to integrate with what already existed,
-            clear review, and keep working after we left.
-          </p>
-        </div>
-        <figure className="figure-wrap">
-          <PilotToProduction />
-          <figcaption>
-            A pilot is one workload that worked once. Production is the same workload,
-            replicated, observed and on somebody&rsquo;s rota.
-          </figcaption>
-        </figure>
-      </section>
-
-      <section className="services">
-        <article>
-          <ServiceIcon name="assess" />
-          <h2>Assessment</h2>
-          <p>
-            Where AI would actually move a number in your business, and where it would
-            just add a subscription. Delivered as a ranked list with effort and payback
-            against each item.
-          </p>
-        </article>
-        <article>
-          <ServiceIcon name="data" />
-          <h2>Data readiness</h2>
-          <p>
-            The unglamorous prerequisite. What your data looks like now, what it needs
-            to look like, and the shortest path between the two &mdash; schema, quality,
-            access, and the migrations nobody wants to own.
-          </p>
-        </article>
-        <article>
-          <ServiceIcon name="scale" />
-          <h2>Build and scale</h2>
-          <p>
-            From a working prototype to something that holds a production load, an
-            audit and a support rotation. The step most pilots never budget for, and
-            the one our background is actually in.
-          </p>
-        </article>
-        <article>
-          <ServiceIcon name="oversee" />
-          <h2>Implementation oversight</h2>
-          <p>
-            Working alongside your team or your vendor, making sure what ships can be
-            operated by the people who will own it after the engagement ends.
-          </p>
-        </article>
-      </section>
-
-      <section className="clients">
-        <h2 className="section-head">Where our team has worked</h2>
-        <p className="body">
-          Data Painters is a small group of engineers. Between us, our work has been
-          delivered for:
-        </p>
-        <ul className="client-list">
-          <li>Amazon</li>
-          <li>Apple</li>
-          <li>Blackboard</li>
-          <li>Facebook</li>
-          <li>Google</li>
-          <li>IBM</li>
-          <li>Microsoft</li>
-          <li>NBC</li>
-          <li>PwC</li>
-          <li>United Airlines</li>
-        </ul>
-        <p className="fine">
-          Engagements were delivered by members of our team, in some cases through
-          previous employers. Named for experience, not as endorsements.
-        </p>
-      </section>
-    </main>
-  );
-}
-
-function Approach() {
-  return (
-    <main className="page">
-      <section className="hero split">
-        <div>
-          <h1>Approach</h1>
-          <p className="lede">
-            We were doing most of this before it was called AI. The principles came from
-            enterprise data work &mdash; migrations that went well, and a few that did
-            not.
-          </p>
-        </div>
-        <figure className="figure-wrap">
-          <Timeline />
-          <figcaption>
-            The same line, not a new one. Each era inherited the previous era&rsquo;s
-            unsolved problems.
-          </figcaption>
-        </figure>
-      </section>
-
-      <section className="split">
-        <ol className="principles">
-          <li>
-            <strong>Start where the data already is.</strong> An integration that needs
-            a data migration first is two projects wearing one budget.
-          </li>
-          <li>
-            <strong>Measure before and after, on the same metric.</strong> If nobody
-            wrote down the baseline, the project cannot succeed or fail &mdash; it can
-            only end.
-          </li>
-          <li>
-            <strong>Design for the second year.</strong> Anything can be made to work
-            once by the people who built it. Enterprise scale is mostly a question of
-            what happens on the day none of them are available.
-          </li>
-          <li>
-            <strong>Leave it operable.</strong> The test of an engagement is what still
-            works six months after the consultant stops answering the phone.
-          </li>
-        </ol>
-        <div className="aside">
-          <h2 className="section-head">What twenty-five years actually buys you</h2>
-          <p className="body">
-            Pattern recognition, mostly. An enterprise AI programme fails in a small
-            number of recognisable ways, and nearly all of them are data and
-            organisational problems wearing new vocabulary. Having watched the business
-            intelligence generation of the same mistakes, we tend to know which corner a
-            project is about to turn before it turns it.
-          </p>
-        </div>
-      </section>
-    </main>
-  );
-}
 
 function Login() {
   const { setUser } = useAuth();
@@ -1041,7 +894,19 @@ function InviteIssued({
   );
 }
 
-type AdminView = 'overview' | 'clients' | 'engagements' | 'appointments' | 'signins' | 'logins';
+type AdminView =
+  | 'overview'
+  | 'clients'
+  | 'engagements'
+  | 'appointments'
+  | 'invoices'
+  | 'payments'
+  | 'ar'
+  | 'revenue'
+  | 'unbilled'
+  | 'signins'
+  | 'logins'
+  | 'options';
 type SystemTool = 'signins' | 'logins';
 
 /**
@@ -1366,6 +1231,41 @@ const ADMIN_VIEWS: {
     blurb: 'Requested and confirmed meetings. Click a row to run the meeting and take notes.',
   },
   {
+    id: 'invoices',
+    label: 'Invoices',
+    group: 'Billing',
+    icon: 'receipt',
+    blurb: 'Every invoice with its balance. Click one to record a payment, print it or void it.',
+  },
+  {
+    id: 'payments',
+    label: 'Payments',
+    group: 'Billing',
+    icon: 'cash',
+    blurb: 'Payments received, applied to invoices or held on account.',
+  },
+  {
+    id: 'ar',
+    label: 'Accounts receivable',
+    group: 'Reports',
+    icon: 'chart',
+    blurb: 'What each client owes, aged by days past due.',
+  },
+  {
+    id: 'revenue',
+    label: 'Revenue & hours',
+    group: 'Reports',
+    icon: 'trend',
+    blurb: 'Hours and amounts billed by month and by client, against cash collected.',
+  },
+  {
+    id: 'unbilled',
+    label: 'Unbilled work',
+    group: 'Reports',
+    icon: 'clock',
+    blurb: 'Charges not yet invoiced, and past meetings whose billing needs attention.',
+  },
+  {
     id: 'logins',
     label: 'Portal logins',
     group: 'System',
@@ -1379,14 +1279,35 @@ const ADMIN_VIEWS: {
     icon: 'shield',
     blurb: SYSTEM_TOOLS[0].blurb,
   },
+  {
+    id: 'options',
+    label: 'System options',
+    group: 'System',
+    icon: 'sliders',
+    blurb: 'Settings that apply across the system, such as the hourly rate used for every charge.',
+  },
 ];
 
 const ADMIN_NAV_GROUPS: { title: string; items: AdminView[] }[] = [
   { title: 'Workspace', items: ['overview', 'clients', 'engagements', 'appointments'] },
-  { title: 'System', items: ['logins', 'signins'] },
+  { title: 'Billing', items: ['invoices', 'payments'] },
+  { title: 'Reports', items: ['ar', 'revenue', 'unbilled'] },
+  { title: 'System', items: ['logins', 'signins', 'options'] },
 ];
 
-type IconName = 'home' | 'building' | 'briefcase' | 'calendar' | 'users' | 'shield';
+type IconName =
+  | 'home'
+  | 'building'
+  | 'briefcase'
+  | 'calendar'
+  | 'users'
+  | 'shield'
+  | 'receipt'
+  | 'cash'
+  | 'chart'
+  | 'trend'
+  | 'clock'
+  | 'sliders';
 
 /** Small stroke icons for the admin sidebar; inline so nothing is fetched. */
 function NavIcon({ name }: { name: IconName }) {
@@ -1417,6 +1338,23 @@ function NavIcon({ name }: { name: IconName }) {
       </>
     ),
     shield: <path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6z M9 12l2 2 4-4" />,
+    receipt: <path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h4" />,
+    cash: (
+      <>
+        <rect x="2.5" y="6" width="19" height="12" rx="1.5" />
+        <circle cx="12" cy="12" r="2.5" />
+        <path d="M6 9v.01M18 15v.01" />
+      </>
+    ),
+    chart: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
+    trend: <path d="M3 17l6-6 4 4 8-8M15 7h6v6" />,
+    clock: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </>
+    ),
+    sliders: <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" />,
   };
   return (
     <svg
@@ -1482,6 +1420,7 @@ function Overview({
     active: number;
     pending: GridPage<AdminAppointment>;
     upcoming: GridPage<AdminAppointment>;
+    billing: Snapshot | null;
   } | null>(null);
 
   useEffect(() => {
@@ -1493,9 +1432,11 @@ function Overview({
       listAdminAppointments(
         `filter=status:eq:confirmed&filter=startsAt:gte:${encodeURIComponent(now)}&sort=startsAt:asc&size=8`,
       ),
+      // Billing is additive: the dashboard still renders if it fails.
+      getSnapshot().catch(() => null),
     ])
-      .then(([c, e, pending, upcoming]) =>
-        setData({ clients: c.total, active: e.total, pending, upcoming }),
+      .then(([c, e, pending, upcoming, billing]) =>
+        setData({ clients: c.total, active: e.total, pending, upcoming, billing }),
       )
       .catch(onError);
   }, [refreshKey, onError]);
@@ -1533,6 +1474,33 @@ function Overview({
     },
   ];
 
+  const b = data.billing;
+  const money2: { label: string; value: string; hint: string; view: AdminView; tone?: string }[] = b
+    ? [
+        {
+          label: 'Accounts receivable',
+          value: money(b.receivableCents),
+          hint: b.overdueCents > 0 ? `${money(b.overdueCents)} past due` : 'Nothing past due',
+          view: 'ar',
+          tone: b.overdueCents > 0 ? 'warn' : undefined,
+        },
+        { label: 'Unbilled', value: money(b.unbilledCents), hint: 'Ready to invoice', view: 'unbilled' },
+        {
+          label: 'Billed this month',
+          value: money(b.billedThisMonthCents),
+          hint: `Collected ${money(b.collectedThisMonthCents)}`,
+          view: 'revenue',
+        },
+        {
+          label: 'New inquiries',
+          value: String(b.openInquiries),
+          hint: b.openInquiries ? 'Free consultations to follow up' : 'None open',
+          view: 'engagements',
+          tone: b.openInquiries ? 'warn' : undefined,
+        },
+      ]
+    : [];
+
   const list = (rows: AdminAppointment[], empty: string) =>
     rows.length === 0 ? (
       <p className="panel-empty">{empty}</p>
@@ -1564,8 +1532,19 @@ function Overview({
 
   return (
     <>
+      {b && b.hourlyRateCents === 0 && (
+        <div className="notice" role="status">
+          <span>
+            <strong>Set your hourly rate.</strong> Until it is set, completed meetings are charged at
+            $0 and the website shows “contact us for rates”.
+          </span>
+          <button className="btn" onClick={() => onGo('options')}>
+            System options
+          </button>
+        </div>
+      )}
       <div className="kpis">
-        {kpis.map((k) => (
+        {[...kpis, ...money2].map((k) => (
           <button
             key={k.label}
             className={k.tone ? `kpi kpi-${k.tone}` : 'kpi'}
@@ -1838,6 +1817,7 @@ function EngagementForm({
           <label>
             Status
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="inquiry">Inquiry</option>
               <option value="active">Active</option>
               <option value="paused">Paused</option>
               <option value="closed">Closed</option>
@@ -1986,7 +1966,9 @@ function Admin() {
     clients: GridColumn[];
     engagements: GridColumn[];
     appointments: GridColumn[];
-  }>({ clients: [], engagements: [], appointments: [] });
+    invoices: GridColumn[];
+    payments: GridColumn[];
+  }>({ clients: [], engagements: [], appointments: [], invoices: [], payments: [] });
 
   // Every client, for the pickers in the forms. Separate from the paged
   // grid: a dropdown must show all of them, not page 1 of them.
@@ -2000,7 +1982,9 @@ function Admin() {
   const [editEngagement, setEditEngagement] = useState<AdminEngagement | 'new' | null>(null);
   const [editAppointment, setEditAppointment] = useState<AdminAppointment | null>(null);
 
-  const [openClient, setOpenClient] = useState<number | null>(null);
+  const [openClient, setOpenClient] = useState<{ id: number; tab?: 'accounting' } | null>(null);
+  const [openInvoice, setOpenInvoice] = useState<number | null>(null);
+  const [paying, setPaying] = useState(false);
   const [openMeeting, setOpenMeeting] = useState<number | null>(null);
 
   const onError = useCallback(
@@ -2021,9 +2005,11 @@ function Admin() {
       appointmentColumns(),
       listClients('size=200&sort=name:asc'),
       listUsers(),
+      invoiceColumns(),
+      paymentColumns(),
     ])
-      .then(([c, e, a, clientPage, u]) => {
-        setCols({ clients: c, engagements: e, appointments: a });
+      .then(([c, e, a, clientPage, u, inv, pay]) => {
+        setCols({ clients: c, engagements: e, appointments: a, invoices: inv, payments: pay });
         setAllClients(clientPage.rows);
         setUsers(u);
       })
@@ -2033,6 +2019,8 @@ function Admin() {
   const loadClients = useCallback((q: string) => listClients(q), []);
   const loadEngagements = useCallback((q: string) => listAllEngagements(q), []);
   const loadAppointments = useCallback((q: string) => listAdminAppointments(q), []);
+  const loadInvoices = useCallback((q: string) => listInvoices(q), []);
+  const loadPayments = useCallback((q: string) => listPayments(q), []);
 
   const current = ADMIN_VIEWS.find((v) => v.id === view)!;
 
@@ -2140,7 +2128,7 @@ function Admin() {
           defaultSort="name:asc"
           addLabel="Add New"
           onAdd={() => setEditClient('new')}
-          onRowClick={(c) => setOpenClient(c.id)}
+          onRowClick={(c) => setOpenClient({ id: c.id })}
           empty="No clients yet."
           gridColumns={[
             { field: 'name', label: 'Client', render: (c) => <strong>{c.name}</strong> },
@@ -2289,6 +2277,73 @@ function Admin() {
         />
       )}
 
+      {view === 'invoices' && (
+        <ListTab<Invoice>
+          columns={cols.invoices}
+          load={loadInvoices}
+          refreshKey={refresh}
+          defaultSort="issuedOn:desc"
+          addLabel="Record payment"
+          onAdd={() => setPaying(true)}
+          onRowClick={(i) => setOpenInvoice(i.id)}
+          rowClassName={(i) => (i.status === 'void' ? 'row-bad' : undefined)}
+          empty="No invoices yet. Create one from a client's Accounting tab."
+          gridColumns={[
+            { field: 'number', label: 'Invoice', render: (i) => <strong>{i.number}</strong> },
+            { field: 'clientName', label: 'Client' },
+            { field: 'issuedOn', label: 'Issued', render: (i) => <span className="nowrap">{formatDay(i.issuedOn)}</span> },
+            { field: 'dueOn', label: 'Due', render: (i) => <span className="nowrap">{formatDay(i.dueOn)}</span> },
+            { field: 'totalCents', label: 'Total', type: 'number', render: (i) => money(i.totalCents) },
+            { field: 'balanceCents', label: 'Balance', type: 'number', render: (i) => <strong>{money(i.balanceCents)}</strong> },
+            { field: 'status', label: 'Status', render: (i) => <InvoiceStatus status={i.status} /> },
+          ]}
+        />
+      )}
+
+      {view === 'payments' && (
+        <ListTab<Payment>
+          columns={cols.payments}
+          load={loadPayments}
+          refreshKey={refresh}
+          defaultSort="receivedOn:desc"
+          addLabel="Record payment"
+          onAdd={() => setPaying(true)}
+          onRowClick={(p) => setOpenClient({ id: p.clientId, tab: 'accounting' })}
+          rowClassName={(p) => (p.voidedAt ? 'row-bad' : undefined)}
+          empty="No payments recorded yet."
+          gridColumns={[
+            { field: 'receivedOn', label: 'Received', render: (p) => <span className="nowrap">{formatDay(p.receivedOn)}</span> },
+            { field: 'clientName', label: 'Client', render: (p) => <strong>{p.clientName}</strong> },
+            {
+              field: 'invoiceNumber',
+              label: 'Applied to',
+              render: (p) => p.invoiceNumber ?? <span className="muted">On account</span>,
+            },
+            { field: 'method', label: 'Method', render: (p) => p.method.toUpperCase() },
+            { field: 'reference', label: 'Reference', render: (p) => p.reference ?? '—' },
+            {
+              field: 'amountCents',
+              label: 'Amount',
+              type: 'number',
+              render: (p) => (p.voidedAt ? <s>{money(p.amountCents)}</s> : <strong>{money(p.amountCents)}</strong>),
+            },
+          ]}
+        />
+      )}
+
+      {view === 'ar' && (
+        <AgingReport onError={onError} onOpenClient={(id) => setOpenClient({ id, tab: 'accounting' })} />
+      )}
+      {view === 'revenue' && <RevenueReport onError={onError} />}
+      {view === 'unbilled' && (
+        <UnbilledReport
+          onError={onError}
+          onOpenMeeting={(id) => setOpenMeeting(id)}
+          onOpenClient={(id) => setOpenClient({ id, tab: 'accounting' })}
+        />
+      )}
+      {view === 'options' && <SystemOptions onError={onError} onSaved={(m) => setToast(m)} />}
+
       {view === 'signins' && <SignInActivity onError={onError} />}
       {view === 'logins' && (
         <PortalLogins
@@ -2346,7 +2401,10 @@ function Admin() {
 
       {openClient !== null && (
         <ClientDetailModal
-          clientId={openClient}
+          key={`${openClient.id}-${openClient.tab ?? ''}`}
+          clientId={openClient.id}
+          initialTab={openClient.tab}
+          onToast={(m) => setToast(m)}
           onClose={() => {
             setOpenClient(null);
             bump();
@@ -2354,6 +2412,29 @@ function Admin() {
           onError={onError}
           onIssued={(created) => setIssued(created)}
           onOpenMeeting={(id) => setOpenMeeting(id)}
+        />
+      )}
+
+      {openInvoice !== null && (
+        <InvoiceModal
+          invoiceId={openInvoice}
+          onClose={() => setOpenInvoice(null)}
+          onChanged={bump}
+          onError={onError}
+          onToast={(m) => setToast(m)}
+        />
+      )}
+
+      {paying && (
+        <RecordPaymentModal
+          clients={allClients}
+          onCancel={() => setPaying(false)}
+          onError={onError}
+          onDone={(p) => {
+            setPaying(false);
+            setToast(`Payment of ${money(p.amountCents)} recorded for ${p.clientName}`);
+            bump();
+          }}
         />
       )}
 
@@ -2516,10 +2597,12 @@ export default function App() {
   return (
     <AuthProvider>
       <div className={isConsole ? 'app app-console' : 'app'}>
-        {!isConsole && <Nav />}
+        {!isConsole && <SiteHeader />}
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/services" element={<Services />} />
           <Route path="/approach" element={<Approach />} />
+          <Route path="/book" element={<BookConsultation />} />
           <Route path="/login" element={<Login />} />
           {/* Not wrapped in RequireAuth: that would bounce straight back
               here, since the whole point is that this user must change
@@ -2544,17 +2627,33 @@ export default function App() {
               </RequireAdmin>
             }
           />
+          <Route
+            path="/admin/print/meeting/:id"
+            element={
+              <RequireAdmin>
+                <PrintMeeting />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/admin/print/invoice/:id"
+            element={
+              <RequireAdmin>
+                <PrintInvoice />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/admin/print/statement/:id"
+            element={
+              <RequireAdmin>
+                <PrintStatement />
+              </RequireAdmin>
+            }
+          />
           <Route path="*" element={<main className="page"><h1>Not found</h1></main>} />
         </Routes>
-        {!isConsole && (
-          <footer className="footer">
-            <span>&copy; {new Date().getFullYear()} Data Painters</span>
-            <span className="footer-links">
-              <Link to="/approach">Approach</Link>
-              <Link to="/portal">Client portal</Link>
-            </span>
-          </footer>
-        )}
+        {!isConsole && <SiteFooter />}
       </div>
     </AuthProvider>
   );

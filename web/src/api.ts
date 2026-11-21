@@ -84,7 +84,7 @@ async function friendlyError(response: Response): Promise<string> {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
 
   const response = await fetch(`${BASE_URL}${path}`, {

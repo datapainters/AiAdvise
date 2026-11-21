@@ -196,6 +196,142 @@ Set your password</a>
                 subject, plain, html);
     }
 
+    /* -------------------------------------------------------- inquiries */
+
+    /**
+     * Tells the firm a free consultation was requested from the website.
+     *
+     * @param overrideTo the inquiry-email system option; blank falls back to
+     *     the configured admin recipient
+     */
+    public void consultationRequested(String overrideTo, String reference, Long clientId,
+            String clientName, String contactName, String email, String phone, String role,
+            String segment, Instant startsAt, List<String> topics, String message) {
+
+        String to = overrideTo != null && !overrideTo.isBlank() ? overrideTo
+                : mail.adminRecipient();
+        if (to == null || to.isBlank()) {
+            log.warn("No inquiry recipient configured; consultation {} was not announced",
+                    reference);
+            return;
+        }
+
+        String when = when(startsAt);
+        String subject = "New consultation request: %s (%s), %s"
+                .formatted(contactName, clientName, when);
+        String topicLines = topics.stream().map(t -> "  - " + t)
+                .collect(java.util.stream.Collectors.joining("\n"));
+
+        String plain = """
+                A free 30-minute consultation was requested on the website.
+
+                Reference:   %s
+                Name:        %s%s
+                Company:     %s
+                Email:       %s
+                Phone:       %s
+                Interest:    %s
+                Requested:   %s (%s)
+
+                Topics:
+                %s
+                %s
+                Confirm it in the admin console (Meetings, or the client's record):
+                %s/admin?view=appointments
+
+                Data Painters
+                """.formatted(reference, contactName, role == null ? "" : ", " + role,
+                clientName, email, phone == null ? "-" : phone, segment, when,
+                displayZone.getId(), topicLines,
+                message == null ? "" : "\nAdditional context:\n" + message + "\n",
+                mail.baseUrl());
+
+        StringBuilder items = new StringBuilder();
+        for (String t : topics) {
+            items.append("<li>").append(esc(t)).append("</li>");
+        }
+        String html = wrap("""
+                <p><strong>New free consultation request</strong> from the website.</p>
+                <table cellpadding="4" style="border-collapse:collapse;font-size:14px">
+                  <tr><td style="color:#595f6b">Reference</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">Name</td><td>%s%s</td></tr>
+                  <tr><td style="color:#595f6b">Company</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">Email</td><td><a href="mailto:%s">%s</a></td></tr>
+                  <tr><td style="color:#595f6b">Phone</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">Interest</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">Requested</td><td>%s (%s)</td></tr>
+                </table>
+                <p style="margin:16px 0 4px"><strong>Topics</strong></p>
+                <ul style="margin:0;padding-left:20px">%s</ul>
+                %s
+                <p style="margin:24px 0">
+                  <a href="%s/admin?view=appointments" style="background:#16181d;color:#fcfcfd;\
+text-decoration:none;padding:11px 20px;border-radius:2px;display:inline-block">\
+Review and confirm</a>
+                </p>
+                """.formatted(esc(reference), esc(contactName),
+                role == null ? "" : ", " + esc(role), esc(clientName), esc(email), esc(email),
+                esc(phone == null ? "-" : phone), esc(segment), esc(when),
+                esc(displayZone.getId()), items,
+                message == null ? "" : "<p style=\"margin:16px 0 4px\"><strong>Additional "
+                        + "context</strong></p><p style=\"white-space:pre-wrap\">"
+                        + esc(message) + "</p>",
+                esc(mail.baseUrl())));
+
+        mail.send(to, subject, plain, html);
+        log.info("Consultation {} for client {} announced", reference, clientId);
+    }
+
+    /** Acknowledges a consultation request to the person who made it. */
+    public void consultationReceived(String email, String name, String reference,
+            String segment, Instant startsAt, List<String> topics) {
+
+        String when = when(startsAt);
+        String subject = "We received your consultation request (" + reference + ")";
+        String topicLines = topics.stream().map(t -> "  - " + t)
+                .collect(java.util.stream.Collectors.joining("\n"));
+
+        String plain = """
+                Hello %s,
+
+                Thank you for requesting a free 30-minute consultation with Data Painters.
+
+                Reference:  %s
+                Area:       %s
+                Requested:  %s (%s)
+
+                You asked to cover:
+                %s
+
+                We will confirm the time by email, or suggest another if that slot
+                does not work. There is no charge for this call and no obligation.
+
+                Data Painters
+                """.formatted(name, reference, segment, when, displayZone.getId(),
+                topicLines);
+
+        StringBuilder items = new StringBuilder();
+        for (String t : topics) {
+            items.append("<li>").append(esc(t)).append("</li>");
+        }
+        String html = wrap("""
+                <p>Hello %s,</p>
+                <p>Thank you for requesting a free 30-minute consultation with Data Painters.</p>
+                <table cellpadding="4" style="border-collapse:collapse;font-size:14px">
+                  <tr><td style="color:#595f6b">Reference</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">Area</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">Requested</td><td>%s (%s)</td></tr>
+                </table>
+                <p style="margin:16px 0 4px">You asked to cover:</p>
+                <ul style="margin:0;padding-left:20px">%s</ul>
+                <p>We will confirm the time by email, or suggest another if that slot does
+                not work. There is no charge for this call and no obligation.</p>
+                """.formatted(esc(name), esc(reference), esc(segment), esc(when),
+                esc(displayZone.getId()), items));
+
+        mail.send(email, subject, plain, html);
+    }
+
     /* ------------------------------------------------------------ helpers */
 
     private String when(Instant instant) {

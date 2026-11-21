@@ -20,6 +20,7 @@ import {
   type MeetingDetail,
 } from './api';
 import { formatLength, formatRange, statusLabel } from './scheduling';
+import { AccountingTab, TimeTracker } from './billing';
 
 /* --------------------------------------------------------------- modal shell */
 
@@ -213,6 +214,9 @@ export function MeetingManager({
 }) {
   const [meeting, setMeeting] = useState<MeetingDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  // Completing a meeting compiles its time into a charge; the tracker
+  // reloads on this key to show the result.
+  const [timeKey, setTimeKey] = useState(0);
 
   useEffect(() => {
     getMeeting(appointmentId)
@@ -225,6 +229,7 @@ export function MeetingManager({
     try {
       const updated = await setAppointmentStatus(appointmentId, status);
       setMeeting((m) => (m ? { ...m, appointment: updated } : m));
+      setTimeKey((k) => k + 1);
       onChanged();
       if (status === 'cancelled') onClose();
     } catch (err) {
@@ -254,12 +259,33 @@ export function MeetingManager({
                 <button onClick={() => changeStatus('confirmed')}>Confirm</button>
               )}
               {a.status !== 'completed' && a.status !== 'cancelled' && (
-                <button onClick={() => changeStatus('completed')}>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        'Mark this meeting complete? Recorded time will be compiled into a charge in 30-minute blocks.',
+                      )
+                    ) {
+                      changeStatus('completed');
+                    }
+                  }}
+                >
                   Mark complete
                 </button>
               )}
+              <button
+                className="btn"
+                onClick={() => window.open(`/admin/print/meeting/${appointmentId}`, '_blank')}
+              >
+                Summary report
+              </button>
             </div>
           </div>
+
+          <TimeTracker appointmentId={appointmentId} refreshKey={timeKey} onError={onError} />
+
+          <h3 className="section-label">Agenda</h3>
 
           {meeting.agenda.length === 0 ? (
             <p className="empty">
@@ -297,7 +323,7 @@ export function MeetingManager({
 
 /* -------------------------------------------------------------- client detail */
 
-type DetailTab = 'overview' | 'engagements' | 'appointments' | 'users' | 'notes';
+type DetailTab = 'overview' | 'engagements' | 'appointments' | 'users' | 'notes' | 'accounting';
 
 export function ClientDetailModal({
   clientId,
@@ -305,16 +331,20 @@ export function ClientDetailModal({
   onIssued,
   onError,
   onOpenMeeting,
+  onToast,
+  initialTab,
 }: {
   clientId: number;
   onClose: () => void;
   onIssued: (created: CreatedUser) => void;
   onError: (e: unknown) => void;
   onOpenMeeting: (appointmentId: number) => void;
+  onToast?: (message: string) => void;
+  initialTab?: DetailTab;
 }) {
   const [detail, setDetail] = useState<ClientDetail | null>(null);
   const [companies, setCompanies] = useState<string[]>([]);
-  const [tab, setTab] = useState<DetailTab>('overview');
+  const [tab, setTab] = useState<DetailTab>(initialTab ?? 'overview');
   const [loading, setLoading] = useState(true);
 
   const [inviting, setInviting] = useState(false);
@@ -359,7 +389,7 @@ export function ClientDetailModal({
     }
   }
 
-  const tabs: DetailTab[] = ['overview', 'engagements', 'appointments', 'users', 'notes'];
+  const tabs: DetailTab[] = ['overview', 'engagements', 'appointments', 'users', 'notes', 'accounting'];
 
   const counts: Record<DetailTab, number | null> = {
     overview: null,
@@ -367,6 +397,7 @@ export function ClientDetailModal({
     appointments: detail?.appointments.length ?? 0,
     users: detail?.users.length ?? 0,
     notes: detail?.notes.length ?? 0,
+    accounting: null,
   };
 
   const active = detail?.engagements.filter((e) => e.status === 'active').length ?? 0;
@@ -380,8 +411,20 @@ export function ClientDetailModal({
   return (
     <Modal
       title={detail?.name ?? 'Client'}
-      badge={active > 0 ? 'Active' : 'No active engagements'}
-      badgeTone={active > 0 ? 'good' : 'neutral'}
+      badge={
+        active > 0
+          ? 'Active'
+          : detail?.engagements.some((e) => e.status === 'inquiry')
+            ? 'Inquiry'
+            : 'No active engagements'
+      }
+      badgeTone={
+        active > 0
+          ? 'good'
+          : detail?.engagements.some((e) => e.status === 'inquiry')
+            ? 'warn'
+            : 'neutral'
+      }
       onClose={onClose}
       wide
       toolbar={
@@ -398,6 +441,9 @@ export function ClientDetailModal({
             </button>
             <button className="btn" onClick={() => setTab('notes')}>
               Notes
+            </button>
+            <button className="btn" onClick={() => setTab('accounting')}>
+              Accounting
             </button>
           </>
         )
@@ -701,6 +747,15 @@ export function ClientDetailModal({
                 </div>
               )}
             </>
+          )}
+
+          {tab === 'accounting' && (
+            <AccountingTab
+              clientId={clientId}
+              onError={onError}
+              onToast={onToast ?? (() => undefined)}
+              onOpenMeeting={onOpenMeeting}
+            />
           )}
 
           {tab === 'notes' &&

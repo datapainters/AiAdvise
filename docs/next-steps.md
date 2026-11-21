@@ -657,3 +657,21 @@ editing a meeting's length, and the sign-in audit.
 3. The public rate limit is in memory per task.
 4. Converting an inquiry into a client relationship is manual: set the
    engagement to *active* and invite a portal user.
+
+## Client portal redesign and client billing (2026-11-21)
+
+- `/portal` is now a full-screen application like the admin console, with
+  a light sidebar: **Overview** (next meeting, open topics, amount due, time
+  billed, coming up, recent invoices), **Topics** (open / on a meeting /
+  closed board, add in a dialog), **Meetings** (upcoming and past, book in a
+  dialog, cancel) and **Billing**. The view is kept in `?view=`.
+- **Billing for clients** (`GET /api/billing`, `/api/billing/invoices/{id}`,
+  `/api/billing/statement`), always scoped to the client in the token:
+  amount due (open invoice balances less credit on account), overdue, paid
+  to date, time billed in 30-minute blocks, invoices with View / PDF,
+  payments, billed time by month, a downloadable statement, how billing
+  works (rate, increments, terms) and the payment instructions from the
+  *Invoice footer* option. Voided records and internal fields are never
+  returned; another client's invoice reads as 404.
+- An admin previewing `/portal` does not call the client billing endpoint:
+  the API client treats 403 as an expired session and would sign them out.

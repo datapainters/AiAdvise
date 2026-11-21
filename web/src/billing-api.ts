@@ -395,3 +395,65 @@ export function downloadCsv(filename: string, header: string[], rows: (string | 
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/* ------------------------------------------------------- client portal */
+
+export interface ClientInvoice {
+  id: number;
+  number: string;
+  issuedOn: string;
+  dueOn: string;
+  totalCents: number;
+  paidCents: number;
+  balanceCents: number;
+  status: Invoice['status'];
+  daysOverdue: number;
+}
+
+export interface ClientPayment {
+  id: number;
+  receivedOn: string;
+  amountCents: number;
+  method: string;
+  reference: string | null;
+  invoiceId: number | null;
+  invoiceNumber: string | null;
+}
+
+export interface BilledItem {
+  id: number;
+  serviceDate: string;
+  description: string;
+  minutes: number | null;
+  blocks: number | null;
+  rateCents: number | null;
+  amountCents: number;
+  invoiceId: number | null;
+  invoiceNumber: string | null;
+  appointmentId: number | null;
+}
+
+export interface ClientBilling {
+  summary: {
+    amountDueCents: number;
+    overdueCents: number;
+    creditCents: number;
+    paidCents: number;
+    invoicedCents: number;
+    notYetInvoicedCents: number;
+    nextDueOn: string | null;
+    lastPaymentOn: string | null;
+    billedMinutes: number;
+    billedBlocks: number;
+  };
+  invoices: ClientInvoice[];
+  payments: ClientPayment[];
+  billed: BilledItem[];
+  hourlyRateCents: number;
+  paymentInstructions: string;
+  paymentTermsDays: number;
+}
+
+export const getMyBilling = () => request<ClientBilling>('/api/billing');
+export const getMyInvoice = (id: number) => request<InvoiceDetail>(`/api/billing/invoices/${id}`);
+export const getMyStatement = () => request<Statement>('/api/billing/statement');

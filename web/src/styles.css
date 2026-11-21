@@ -2491,7 +2491,7 @@ button:disabled,
 
 @media (max-width: 900px) {
   .admin-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .admin-side {
@@ -3291,4 +3291,409 @@ button:disabled,
 
 .nav-admin-link:hover {
   color: var(--accent);
+}
+
+/* =====================================================================
+   Client portal (2026-11-21): the console layout with a light sidebar
+   ===================================================================== */
+
+.portal-shell .admin-side {
+  background: var(--surface);
+  color: var(--ink);
+  border-right: 1px solid var(--rule);
+}
+
+.portal-shell .admin-brand-mark {
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.portal-mark {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #c48a4f 0 50%, var(--ink) 50% 100%);
+}
+
+.portal-shell .admin-brand-sub,
+.portal-shell .admin-me-text small {
+  color: var(--ink-soft);
+}
+
+.portal-shell .admin-nav-item,
+.portal-shell .admin-nav-item:hover:not(:disabled) {
+  color: var(--ink-soft);
+}
+
+.portal-shell .admin-nav-item:hover:not(:disabled) {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.portal-shell .admin-nav-item.on,
+.portal-shell .admin-nav-item.on:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.portal-shell .admin-side-foot {
+  border-top-color: var(--rule);
+}
+
+.portal-shell .admin-me-text strong {
+  color: var(--ink);
+}
+
+.portal-shell .admin-me-actions a,
+.portal-shell .admin-me-actions .linklike {
+  color: var(--ink-soft);
+}
+
+.portal-shell .admin-me-actions a:hover,
+.portal-shell .admin-me-actions .linklike:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.nav-badge {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.admin-nav-item.on .nav-badge {
+  background: var(--surface);
+}
+
+.nav-badge.bad {
+  background: #fbe3e3;
+  color: #a32626;
+}
+
+.portal-help {
+  margin-top: 1.5rem;
+  padding: 0.9rem;
+  border-radius: var(--radius);
+  background: var(--canvas);
+  font-size: 0.8rem;
+}
+
+.portal-help p {
+  margin: 0.3rem 0 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.portal-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.top-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.engagement-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+}
+
+.engagement-switch select {
+  font-weight: 400;
+}
+
+.spaced {
+  margin-top: 1rem;
+}
+
+.panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.panel-empty p {
+  margin: 0;
+}
+
+.meeting-list.static .ml-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 1.25rem;
+}
+
+.topic-mini {
+  list-style: none;
+  margin: 0;
+  padding: 0.4rem 0;
+}
+
+.topic-mini li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.55rem 1.25rem;
+  font-size: 0.9rem;
+}
+
+.topic-mini li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.prio {
+  flex: none;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: #eef0f3;
+  color: var(--ink-soft);
+}
+
+.prio-1 {
+  background: #fbe3e3;
+  color: #a32626;
+}
+
+.prio-2 {
+  background: #fff1dc;
+  color: #8a5a00;
+}
+
+.topic-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.board-closed {
+  grid-column: 1 / -1;
+}
+
+.board-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.board-head h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.board-head .btn-sm {
+  margin-left: auto;
+}
+
+.btn-sm,
+.btn-sm:hover:not(:disabled) {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+}
+
+.topic-card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 1rem 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.topic-card header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.topic-card h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  flex: 1;
+}
+
+.topic-card p {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+}
+
+.topic-card footer {
+  margin-top: 0.6rem;
+  text-align: right;
+}
+
+.topic-discussed,
+.topic-dropped {
+  opacity: 0.7;
+}
+
+.section-label.first {
+  margin-top: 0;
+}
+
+.billing-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18rem;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.billing-layout .tabs {
+  margin-top: 0;
+}
+
+.billing-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.facts {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 1.25rem;
+}
+
+.facts li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.45rem 0;
+  font-size: 0.875rem;
+}
+
+.facts li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.facts span {
+  color: var(--ink-soft);
+}
+
+.aside-copy {
+  margin: 0;
+  padding: 0 1.25rem 1.1rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.panel-card > header + .aside-copy {
+  padding-top: 0.9rem;
+}
+
+.month-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.month-strip > div {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+}
+
+.month-strip small {
+  color: var(--ink-soft);
+}
+
+.grid-wrap.flush {
+  box-shadow: var(--shadow-sm);
+}
+
+.panel-card .grid-wrap.flush {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.neg-text {
+  color: #a32626;
+}
+
+.kpi-warn {
+  border-left: 3px solid #e0a43a !important;
+}
+
+/* The booking form sits in a modal here; it needs no card of its own. */
+.modal .panel {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  max-width: none;
+}
+
+@media (max-width: 1000px) {
+  /* minmax(0, ...) so a wide table scrolls inside its wrapper instead of
+     stretching the column past the screen. */
+  .billing-layout,
+  .topic-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .portal-shell .admin-side {
+    border-right: none;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .portal-shell .admin-nav-toggle,
+  .portal-shell .admin-nav-toggle:hover:not(:disabled) {
+    background: var(--canvas);
+    color: var(--ink);
+  }
+
+  .portal-help {
+    display: none;
+  }
+
+  .top-actions {
+    width: 100%;
+  }
+
+  .top-actions .btn {
+    flex: 1;
+  }
+}
+
+.tab {
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .portal-shell .tabs {
+    overflow-x: auto;
+  }
+
+  .portal-shell .tab {
+    padding: 0.6rem 0.75rem;
+  }
 }

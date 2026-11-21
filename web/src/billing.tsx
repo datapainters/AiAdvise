@@ -19,6 +19,8 @@ import {
   getAging,
   getInvoice,
   getMeetingSummary,
+  getMyInvoice,
+  getMyStatement,
   getRevenue,
   getStatement,
   getTime,
@@ -1436,15 +1438,25 @@ export function UnbilledReport({
 
 /* ======================================================= printable pages */
 
-function PrintShell({ title, children, loading }: { title: string; children: ReactNode; loading: boolean }) {
+function PrintShell({
+  title,
+  children,
+  loading,
+  back = { to: '/admin', label: 'Admin console' },
+}: {
+  title: string;
+  children: ReactNode;
+  loading: boolean;
+  back?: { to: string; label: string };
+}) {
   useEffect(() => {
     document.title = `${title} · Data Painters`;
   }, [title]);
   return (
     <div className="print-page">
       <div className="print-bar no-print">
-        <Link to="/admin" className="linklike">
-          ← Admin console
+        <Link to={back.to} className="linklike">
+          ← {back.label}
         </Link>
         <button className="btn btn-primary" onClick={() => window.print()} disabled={loading}>
           Print / Save as PDF
@@ -1589,12 +1601,22 @@ export function PrintMeeting() {
   );
 }
 
-export function PrintInvoice() {
+/** Admin and client share these documents; only the loader and way back differ. */
+type DocSource = 'admin' | 'client';
+const CLIENT_BACK = { to: '/portal?view=billing', label: 'Back to billing' };
+
+export function PrintInvoice({ source = 'admin' }: { source?: DocSource }) {
   const id = Number(useParams().id);
-  const { data: d, error } = useDoc<InvoiceDetail>(() => getInvoice(id));
+  const { data: d, error } = useDoc<InvoiceDetail>(() =>
+    source === 'client' ? getMyInvoice(id) : getInvoice(id),
+  );
   const inv = d?.invoice;
   return (
-    <PrintShell title={inv ? `Invoice ${inv.number}` : 'Invoice'} loading={!d && !error}>
+    <PrintShell
+      title={inv ? `Invoice ${inv.number}` : 'Invoice'}
+      loading={!d && !error}
+      back={source === 'client' ? CLIENT_BACK : undefined}
+    >
       {error && <p className="error">{error}</p>}
       {d && inv && (
         <>
@@ -1670,11 +1692,17 @@ export function PrintInvoice() {
   );
 }
 
-export function PrintStatement() {
+export function PrintStatement({ source = 'admin' }: { source?: DocSource }) {
   const id = Number(useParams().id);
-  const { data: s, error } = useDoc<Statement>(() => getStatement(id));
+  const { data: s, error } = useDoc<Statement>(() =>
+    source === 'client' ? getMyStatement() : getStatement(id),
+  );
   return (
-    <PrintShell title="Statement of Account" loading={!s && !error}>
+    <PrintShell
+      title="Statement of Account"
+      loading={!s && !error}
+      back={source === 'client' ? CLIENT_BACK : undefined}
+    >
       {error && <p className="error">{error}</p>}
       {s && (
         <>

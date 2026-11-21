@@ -1,3 +1,4 @@
+import type { BusinessHours } from './hours';
 /**
  * Client for the unauthenticated /api/public endpoints used by the marketing
  * site: published pricing, consultation availability and booking.
@@ -16,6 +17,8 @@ export interface PublicInfo {
   currency: string;
   blockMinutes: number;
   consultationMinutes: number;
+  /** Hours of operation, in the business's time zone. */
+  businessHours?: BusinessHours;
 }
 
 export interface BusyInterval {

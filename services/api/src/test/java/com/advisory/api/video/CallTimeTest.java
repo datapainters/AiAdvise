@@ -18,7 +18,7 @@ class CallTimeTest {
                 return sessions;
             }
         };
-        return new VideoService(daily, null);
+        return new VideoService(daily, null, null);
     }
 
     private static Appointment meeting() {
@@ -30,7 +30,8 @@ class CallTimeTest {
     }
 
     private static Session s(long seconds, boolean ongoing, int people) {
-        return new Session("x", Instant.parse("2026-12-01T15:00:00Z"), seconds, ongoing, people);
+        return new Session("x", Instant.parse("2026-12-01T15:00:00Z"), seconds, ongoing, people,
+                seconds * people);
     }
 
     @Test

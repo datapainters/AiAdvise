@@ -42,7 +42,7 @@ public class DailyClient {
 
     /** One call in a room. Duration is in seconds; ongoing calls have none yet. */
     public record Session(String id, Instant startTime, long durationSeconds, boolean ongoing,
-            int maxParticipants) {}
+            int maxParticipants, long participantSeconds) {}
 
     public static class DailyException extends RuntimeException {
         final int status;
@@ -189,11 +189,18 @@ public class DailyClient {
         JsonNode r = call("GET", "/meetings?room=" + enc(roomName) + "&limit=100", null);
         List<Session> out = new ArrayList<>();
         for (JsonNode m : r.path("data")) {
+            // Daily bills per participant-minute: the sum of every
+            // participant's time in the call, not the call's length.
+            long participantSeconds = 0;
+            for (JsonNode p : m.path("participants")) {
+                participantSeconds += p.path("duration").asLong(0);
+            }
             out.add(new Session(m.path("id").asText(),
                     Instant.ofEpochSecond(m.path("start_time").asLong()),
                     m.path("duration").asLong(0),
                     m.path("ongoing").asBoolean(false),
-                    m.path("max_participants").asInt(0)));
+                    m.path("max_participants").asInt(0),
+                    participantSeconds));
         }
         return out;
     }

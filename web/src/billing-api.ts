@@ -43,7 +43,7 @@ export function todayIso(): string {
 export interface SystemOption {
   key: string;
   value: string;
-  type: 'money' | 'integer' | 'text' | 'longtext' | 'email';
+  type: 'money' | 'integer' | 'text' | 'longtext' | 'email' | 'hours' | 'rate';
   label: string;
   description: string | null;
   updatedAt: string;
@@ -460,3 +460,92 @@ export interface ClientBilling {
 export const getMyBilling = () => request<ClientBilling>('/api/billing');
 export const getMyInvoice = (id: number) => request<InvoiceDetail>(`/api/billing/invoices/${id}`);
 export const getMyStatement = () => request<Statement>('/api/billing/statement');
+
+/* ------------------------------------------------------- engagement costs */
+
+export interface CostRow {
+  engagementId: number | null;
+  engagementTitle: string;
+  engagementStatus: string | null;
+  clientId: number | null;
+  clientName: string | null;
+  meetings: number;
+  billedMinutes: number;
+  billedCents: number;
+  videoSessions: number;
+  participantMinutes: number;
+  videoCostCents: number;
+  otherCostCents: number;
+  totalCostCents: number;
+  marginCents: number;
+  marginPercent: number | null;
+}
+
+export interface CostReport {
+  from: string;
+  to: string;
+  videoRatePerMinute: string;
+  rows: CostRow[];
+  totals: CostRow;
+}
+
+export const getCostReport = (from?: string, to?: string) => {
+  const p = new URLSearchParams();
+  if (from) p.set('from', from);
+  if (to) p.set('to', to);
+  return request<CostReport>(`/api/admin/reports/engagement-costs?${p}`);
+};
+
+export const syncVideoUsage = () =>
+  request<{ enabled: boolean; rooms: number; sessions: number; failed: number }>(
+    '/api/admin/reports/engagement-costs/sync',
+    { method: 'POST' },
+  );
+
+export interface CostDetail {
+  engagementId: number;
+  engagementTitle: string;
+  clientName: string;
+  videoRatePerMinute: string;
+  video: {
+    sessionId: string;
+    appointmentId: number;
+    startedAt: string;
+    durationSeconds: number;
+    maxParticipants: number;
+    participantMinutes: number;
+    costCents: number;
+  }[];
+  costs: {
+    id: number;
+    incurredOn: string;
+    category: string;
+    description: string;
+    amountCents: number;
+    voidedAt: string | null;
+    createdBy: string | null;
+  }[];
+}
+
+export const getCostDetail = (engagementId: number) =>
+  request<CostDetail>(`/api/admin/engagements/${engagementId}/costs`);
+
+export const addEngagementCost = (
+  engagementId: number,
+  body: { incurredOn?: string; category: string; description: string; amount: string },
+) =>
+  request<unknown>(`/api/admin/engagements/${engagementId}/costs`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const voidEngagementCost = (id: number) =>
+  request<void>(`/api/admin/engagement-costs/${id}/void`, { method: 'POST' });
+
+export const COST_CATEGORIES = [
+  { value: 'software', label: 'Software' },
+  { value: 'subcontractor', label: 'Subcontractor' },
+  { value: 'travel', label: 'Travel' },
+  { value: 'video', label: 'Video (other)' },
+  { value: 'other', label: 'Other' },
+];

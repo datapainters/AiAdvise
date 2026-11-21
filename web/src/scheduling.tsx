@@ -7,7 +7,15 @@
  * this file so there is one place to be wrong.
  */
 
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import {
+  DEFAULT_HOURS,
+  describeHours,
+  loadBusinessHours,
+  openSlots,
+  timezoneLabel,
+  type BusinessHours,
+} from './hours';
 import {
   bookAppointment,
   type Appointment,
@@ -16,21 +24,6 @@ import {
 } from './api';
 
 export const BLOCK_MINUTES = 30;
-
-/**
- * Bookable hours, in the client's local time. Start times run from the
- * opening hour up to the last half hour before close; weekends are closed.
- * The server still accepts any 30-minute boundary, so an admin editing a
- * meeting can place it outside these hours deliberately.
- */
-export const OPEN_HOUR = 8;
-export const CLOSE_HOUR = 18;
-
-export function isWeekend(dayIso: string): boolean {
-  const [y, m, d] = dayIso.split('-').map(Number);
-  const dow = new Date(y, m - 1, d).getDay();
-  return dow === 0 || dow === 6;
-}
 
 /** Offered meeting lengths. Whole blocks, up to half a day. */
 export const LENGTH_OPTIONS = [30, 60, 90, 120, 150, 180, 240];
@@ -154,16 +147,26 @@ export function BookingForm({
     [engagementId, openTopics],
   );
 
-  const closed = isWeekend(day);
+  // Hours of operation come from System options; the server enforces them too.
+  const [hours, setHours] = useState<BusinessHours>(DEFAULT_HOURS);
+  useEffect(() => {
+    loadBusinessHours().then(setHours);
+  }, []);
+
   const slots = useMemo(() => {
-    if (isWeekend(day)) return [];
-    const all = slotsForDay(day).filter((s) => {
-      const h = new Date(s.value).getHours();
-      return h >= OPEN_HOUR && h < CLOSE_HOUR;
-    });
+    const all = openSlots(day, length, hours).map((d) => ({
+      label: d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+      value: d.toISOString(),
+    }));
     // Hide times already gone, so today behaves like every other day.
     return day === todayIso() ? all.filter((s) => new Date(s.value) > new Date()) : all;
-  }, [day]);
+  }, [day, length, hours]);
+  const closed = openSlots(day, BLOCK_MINUTES, hours).length === 0;
+
+  // A start that no longer fits (a longer meeting, a different day) is cleared.
+  useEffect(() => {
+    if (slot && !slots.some((s) => s.value === slot)) setSlot('');
+  }, [slots, slot]);
 
   // A sensible default length: half an hour per topic, rounded into the
   // offered options. Easy to override, but closer than a fixed 30 minutes.
@@ -291,17 +294,20 @@ export function BookingForm({
       </div>
 
       {closed ? (
-        <p className="hint hint-warn">We meet Monday to Friday. Pick a weekday.</p>
+        <p className="hint hint-warn">We are closed that day. Pick another date.</p>
       ) : (
         slots.length === 0 && (
-          <p className="hint hint-warn">No remaining start times today. Pick another date.</p>
+          <p className="hint hint-warn">
+            No start times left that day for a {formatLength(length)} meeting. Pick another date
+            or a shorter length.
+          </p>
         )
       )}
 
       <p className="hint">
-        Start times are offered on weekdays from {OPEN_HOUR}:00 AM to{' '}
-        {CLOSE_HOUR - 13}:30 PM your time, in {BLOCK_MINUTES}-minute blocks. We will confirm the time; you will see the status
-        change here.
+        Our hours: {describeHours(hours)}, {timezoneLabel(hours.timezone)}. Times above are shown
+        in your local time, in {BLOCK_MINUTES}-minute blocks. We will confirm the time; you will
+        see the status change here.
       </p>
 
       <div className="button-row">

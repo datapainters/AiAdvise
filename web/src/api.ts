@@ -600,3 +600,9 @@ export const createVideoRoom = (id: number) =>
 export const JOIN_EARLY_MINUTES = 15;
 /** Minutes after the scheduled end that the room stays open. */
 export const ROOM_GRACE_MINUTES = 120;
+
+/** Every meeting starting in [from, to), for the admin calendar. */
+export const listCalendar = (from: Date, to: Date) =>
+  request<AdminAppointment[]>(
+    `/api/admin/calendar?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
+  );

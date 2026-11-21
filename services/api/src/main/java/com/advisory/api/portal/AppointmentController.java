@@ -39,12 +39,15 @@ public class AppointmentController {
     private final Notifications notifications;
     private final ClientRepository clients;
     private final com.advisory.api.video.VideoService video;
+    private final com.advisory.api.billing.OptionsService options;
 
     public AppointmentController(AppointmentRepository appointments,
             EngagementRepository engagements, TopicRepository topics,
             SchedulingService scheduling, Notifications notifications,
-            ClientRepository clients, com.advisory.api.video.VideoService video) {
+            ClientRepository clients, com.advisory.api.video.VideoService video,
+            com.advisory.api.billing.OptionsService options) {
         this.video = video;
+        this.options = options;
         this.appointments = appointments;
         this.engagements = engagements;
         this.topics = topics;
@@ -94,6 +97,15 @@ public class AppointmentController {
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND))
                         .getClientId()
                 : user.requireClientId();
+
+        // Clients book inside opening hours; the firm may book any time.
+        if (!user.isAdmin() && request.startsAt() != null && request.durationMinutes() != null) {
+            com.advisory.api.billing.BusinessHours hours = options.businessHours();
+            if (!hours.contains(request.startsAt(), request.durationMinutes())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Choose a time within our hours: " + hours.describe());
+            }
+        }
 
         Appointment saved = scheduling.book(
                 clientId,

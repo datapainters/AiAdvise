@@ -145,6 +145,9 @@ public class InquiryService {
         if (start.isAfter(Instant.now().plus(62, ChronoUnit.DAYS))) {
             throw bad("Choose a time within the next two months");
         }
+        if (!options.businessHours().contains(start, CONSULTATION_MINUTES)) {
+            throw bad("Choose a time within our hours: " + options.businessHours().describe());
+        }
         Instant end = start.plus(CONSULTATION_MINUTES, ChronoUnit.MINUTES);
         if (!busy(start, end).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,

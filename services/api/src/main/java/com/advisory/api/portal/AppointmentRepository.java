@@ -8,4 +8,7 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
     List<Appointment> findAllByClientIdOrderByStartsAtDesc(Long clientId);
 
     List<Appointment> findAllByOrderByStartsAtDesc();
+
+    List<Appointment> findAllByStartsAtBetweenOrderByStartsAtAsc(
+            java.time.Instant from, java.time.Instant to);
 }

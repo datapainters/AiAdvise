@@ -29,6 +29,7 @@ import {
   type Segment,
 } from './public-api';
 import './marketing.css';
+import { DEFAULT_HOURS, describeHours, openSlots, type BusinessHours } from './hours';
 
 /* ------------------------------------------------------------------ data */
 
@@ -759,8 +760,6 @@ export function Approach() {
 
 /* --------------------------------------------------------------- booking */
 
-const OPEN_HOUR = 8;
-const CLOSE_HOUR = 18; // last start 17:30
 const HORIZON_DAYS = 60;
 const MAX_TOPICS = 5;
 
@@ -776,30 +775,15 @@ function parseDay(key: string): Date {
   return new Date(y, m - 1, d);
 }
 
-/** Weekdays from tomorrow to the horizon, in local time. */
-function bookableDays(): string[] {
+/** Days from tomorrow to the horizon, in local time, with at least one open slot. */
+function bookableDays(hours: BusinessHours, minutes: number): string[] {
   const out: string[] = [];
   const cursor = new Date();
   cursor.setHours(0, 0, 0, 0);
   for (let i = 1; i <= HORIZON_DAYS; i++) {
     const d = new Date(cursor);
     d.setDate(cursor.getDate() + i);
-    const dow = d.getDay();
-    if (dow !== 0 && dow !== 6) out.push(dayKey(d));
-  }
-  return out;
-}
-
-function slotsFor(key: string): Date[] {
-  const base = parseDay(key);
-  const out: Date[] = [];
-  for (let h = OPEN_HOUR; h < CLOSE_HOUR; h++) {
-    for (const m of [0, 30]) {
-      const d = new Date(base);
-      d.setHours(h, m, 0, 0);
-      // The server only accepts UTC :00/:30 boundaries.
-      if (d.getUTCMinutes() % 30 === 0 && d.getUTCSeconds() === 0) out.push(d);
-    }
+    if (openSlots(dayKey(d), minutes, hours).length > 0) out.push(dayKey(d));
   }
   return out;
 }
@@ -840,7 +824,8 @@ export function BookConsultation() {
   const [step, setStep] = useState(0);
   const [segment, setSegment] = useState<Segment | null>(initialSegment);
   const [topics, setTopics] = useState<TopicDraft[]>([{ title: '', detail: '' }]);
-  const days = useMemo(bookableDays, []);
+  const hours = info?.businessHours ?? DEFAULT_HOURS;
+  const days = useMemo(() => bookableDays(hours, info?.consultationMinutes ?? 30), [hours, info]);
   const [page, setPage] = useState(0);
   const [day, setDay] = useState<string | null>(null);
   const [slot, setSlot] = useState<string | null>(null);
@@ -1208,7 +1193,9 @@ export function BookConsultation() {
 
                 <fieldset className="mk-fieldset">
                   <legend>Choose a start time</legend>
-                  <p className="mk-help">Times shown in {tzName()}. Weekdays, 8:00 AM – 5:30 PM.</p>
+                  <p className="mk-help">
+                    Times shown in {tzName()}. Our hours: {describeHours(hours)} ({hours.timezone}).
+                  </p>
                   {!day ? (
                     <p className="mk-empty">Pick a day to see open times.</p>
                   ) : loadingSlots ? (
@@ -1221,7 +1208,7 @@ export function BookConsultation() {
                         </p>
                       )}
                       <div className="mk-slots">
-                        {slotsFor(day).map((d) => {
+                        {openSlots(day, duration, hours).map((d) => {
                           const iso = d.toISOString();
                           const taken = d.getTime() <= Date.now() || overlaps(d, duration, busy);
                           return (

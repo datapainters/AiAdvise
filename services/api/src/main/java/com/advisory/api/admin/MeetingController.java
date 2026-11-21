@@ -116,6 +116,19 @@ public class MeetingController {
                 appointmentSpec().accessors(), Grid.parse(filter), sort, page, size);
     }
 
+    /**
+     * Every meeting starting in a window, for the calendar. Unpaged: a
+     * calendar needs the whole month, and the window is capped at 100 days.
+     */
+    @GetMapping("/calendar")
+    public List<AppointmentRow> calendar(@RequestParam Instant from, @RequestParam Instant to) {
+        if (!to.isAfter(from) || java.time.Duration.between(from, to).toDays() > 100) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Ask for a window of up to 100 days");
+        }
+        return rows(appointments.findAllByStartsAtBetweenOrderByStartsAtAsc(from, to));
+    }
+
     public record UpdateAppointment(
             @NotNull Instant startsAt,
             @NotNull Integer durationMinutes,
@@ -462,7 +475,16 @@ public class MeetingController {
     }
 
     private void importCallTimeIfEmpty(Appointment appointment, Long userId) {
-        if (!appointment.hasVideo() || !video.enabled() || billing.hasTime(appointment.getId())) {
+        if (!appointment.hasVideo() || !video.enabled()) {
+            return;
+        }
+        try {
+            video.syncUsage(appointment);
+        } catch (RuntimeException e) {
+            log.warn("Could not record video usage for appointment {}: {}", appointment.getId(),
+                    e.getMessage());
+        }
+        if (billing.hasTime(appointment.getId())) {
             return;
         }
         try {

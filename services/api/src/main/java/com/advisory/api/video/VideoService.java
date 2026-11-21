@@ -10,6 +10,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -39,10 +40,45 @@ public class VideoService {
 
     private final DailyClient daily;
     private final AppointmentRepository appointments;
+    private final JdbcClient jdbc;
 
-    public VideoService(DailyClient daily, AppointmentRepository appointments) {
+    public VideoService(DailyClient daily, AppointmentRepository appointments, JdbcClient jdbc) {
         this.daily = daily;
         this.appointments = appointments;
+        this.jdbc = jdbc;
+    }
+
+    /**
+     * Copies the room's finished calls from Daily into video_session, so the
+     * engagement costs report keeps them after the room is deleted.
+     * Idempotent: a session already copied is updated in place.
+     *
+     * @return the number of sessions recorded
+     */
+    public int syncUsage(Appointment a) {
+        if (a.getVideoRoomName() == null || !daily.enabled()) {
+            return 0;
+        }
+        int n = 0;
+        for (Session s : daily.sessions(a.getVideoRoomName())) {
+            if (s.ongoing()) {
+                continue;
+            }
+            jdbc.sql("""
+                    INSERT INTO video_session (id, appointment_id, room_name, started_at,
+                        duration_seconds, participant_seconds, max_participants)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO UPDATE SET duration_seconds = EXCLUDED.duration_seconds,
+                        participant_seconds = EXCLUDED.participant_seconds,
+                        max_participants = EXCLUDED.max_participants, synced_at = now()
+                    """)
+                    .params(s.id(), a.getId(), a.getVideoRoomName(),
+                            java.sql.Timestamp.from(s.startTime()), (int) s.durationSeconds(),
+                            s.participantSeconds(), s.maxParticipants())
+                    .update();
+            n++;
+        }
+        return n;
     }
 
     public boolean enabled() {
@@ -88,6 +124,15 @@ public class VideoService {
         String name = a.getVideoRoomName();
         if (name == null) {
             return;
+        }
+        if (daily.enabled()) {
+            // Keep the cost record of any calls before the history goes.
+            try {
+                syncUsage(a);
+            } catch (RuntimeException e) {
+                log.warn("Could not record video usage for appointment {}: {}", a.getId(),
+                        e.getMessage());
+            }
         }
         a.setVideoRoomName(null);
         a.setVideoRoomUrl(null);

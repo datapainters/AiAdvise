@@ -111,6 +111,11 @@ public class VideoController {
         Appointment a = appointments.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         VideoService.CallTime t = video.callTime(a);
+        try {
+            video.syncUsage(a);
+        } catch (RuntimeException e) {
+            // Usage is for the cost report; the import itself still stands.
+        }
         if (t.minutes() == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "No finished call with two or more people was found in this meeting's room");

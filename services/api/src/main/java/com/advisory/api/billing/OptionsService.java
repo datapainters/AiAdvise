@@ -31,8 +31,11 @@ public class OptionsService {
     public static final String INVOICE_PREFIX = "invoice_prefix";
     public static final String INVOICE_NOTES = "invoice_notes";
     public static final String INQUIRY_EMAIL = "inquiry_email";
+    public static final String BUSINESS_HOURS = "business_hours";
+    public static final String VIDEO_COST_RATE = "video_cost_per_participant_minute";
 
     private static final Pattern MONEY = Pattern.compile("^\\d{1,7}(\\.\\d{1,2})?$");
+    private static final Pattern RATE = Pattern.compile("^\\d{1,5}(\\.\\d{1,6})?$");
     private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
     public record Option(String key, String value, String type, String label,
@@ -91,6 +94,20 @@ public class OptionsService {
                 }
                 return new BigDecimal(s).setScale(2, RoundingMode.UNNECESSARY).toPlainString();
             }
+            case "rate" -> {
+                String r = v.replace("$", "");
+                if (!RATE.matcher(r).matches()) {
+                    throw bad("Enter a rate like 0.004");
+                }
+                return new BigDecimal(r).stripTrailingZeros().toPlainString();
+            }
+            case "hours" -> {
+                try {
+                    return BusinessHours.parse(v).toJson();
+                } catch (IllegalArgumentException e) {
+                    throw bad(e.getMessage());
+                }
+            }
             case "integer" -> {
                 try {
                     int n = Integer.parseInt(v);
@@ -146,6 +163,24 @@ public class OptionsService {
 
     public String invoiceNotes() {
         return get(INVOICE_NOTES).orElse("");
+    }
+
+    /** Opening hours; the built-in default if the stored value is unreadable. */
+    public BusinessHours businessHours() {
+        return get(BUSINESS_HOURS).map(v -> {
+            try {
+                return BusinessHours.parse(v);
+            } catch (IllegalArgumentException e) {
+                log.warn("Stored business hours are invalid ({}); using the default",
+                        e.getMessage());
+                return BusinessHours.DEFAULT;
+            }
+        }).orElse(BusinessHours.DEFAULT);
+    }
+
+    /** Video cost per participant-minute, in dollars. */
+    public BigDecimal videoCostRate() {
+        return get(VIDEO_COST_RATE).map(BigDecimal::new).orElse(BigDecimal.ZERO);
     }
 
     public String inquiryEmail() {

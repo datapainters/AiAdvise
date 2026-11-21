@@ -7,9 +7,19 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Modal } from './admin-meetings';
+import { HoursEditor } from './hours-editor';
+import { resetBusinessHours } from './hours';
 import {
   PAYMENT_METHODS,
   addAdjustment,
+  addEngagementCost,
+  COST_CATEGORIES,
+  getCostDetail,
+  getCostReport,
+  syncVideoUsage,
+  voidEngagementCost,
+  type CostDetail,
+  type CostReport,
   addTime,
   createInvoice,
   day,
@@ -109,6 +119,7 @@ export function SystemOptions({ onError, onSaved }: { onError: OnError; onSaved:
       const updated = await updateOption(o.key, draft[o.key] ?? '');
       setOptions((prev) => prev?.map((x) => (x.key === o.key ? updated : x)) ?? null);
       setDraft((d) => ({ ...d, [o.key]: updated.value }));
+      if (o.type === 'hours') resetBusinessHours();
       onSaved(`${o.label} saved`);
     } catch (e) {
       onError(e);
@@ -127,7 +138,13 @@ export function SystemOptions({ onError, onSaved }: { onError: OnError; onSaved:
         return (
           <form
             key={o.key}
-            className={unsetRate ? 'option-card option-warn' : 'option-card'}
+            className={[
+              'option-card',
+              unsetRate ? 'option-warn' : '',
+              o.type === 'hours' ? 'option-wide' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
             onSubmit={(e) => {
               e.preventDefault();
               save(o);
@@ -148,7 +165,14 @@ export function SystemOptions({ onError, onSaved }: { onError: OnError; onSaved:
               </p>
             </div>
             <div className="option-input">
-              {o.type === 'longtext' ? (
+              {o.type === 'hours' ? (
+                <HoursEditor
+                  id={`opt-${o.key}`}
+                  value={draft[o.key] ?? o.value}
+                  saved={o.value}
+                  onChange={(v) => setDraft((d) => ({ ...d, [o.key]: v }))}
+                />
+              ) : o.type === 'longtext' ? (
                 <textarea
                   id={`opt-${o.key}`}
                   rows={3}
@@ -156,16 +180,23 @@ export function SystemOptions({ onError, onSaved }: { onError: OnError; onSaved:
                   onChange={(e) => setDraft((d) => ({ ...d, [o.key]: e.target.value }))}
                 />
               ) : (
-                <div className={o.type === 'money' ? 'input-affix' : undefined}>
-                  {o.type === 'money' && <span aria-hidden="true">$</span>}
+                <div className={o.type === 'money' || o.type === 'rate' ? 'input-affix' : undefined}>
+                  {(o.type === 'money' || o.type === 'rate') && <span aria-hidden="true">$</span>}
                   <input
                     id={`opt-${o.key}`}
-                    inputMode={o.type === 'money' ? 'decimal' : o.type === 'integer' ? 'numeric' : undefined}
+                    inputMode={
+                    o.type === 'money' || o.type === 'rate'
+                      ? 'decimal'
+                      : o.type === 'integer'
+                        ? 'numeric'
+                        : undefined
+                  }
                     type={o.type === 'email' ? 'email' : 'text'}
                     value={draft[o.key] ?? ''}
                     onChange={(e) => setDraft((d) => ({ ...d, [o.key]: e.target.value }))}
                   />
                   {o.type === 'money' && <span className="affix-after">per hour</span>}
+                  {o.type === 'rate' && <span className="affix-after">per minute</span>}
                 </div>
               )}
               <button className="btn btn-primary" type="submit" disabled={!dirty || saving === o.key}>
@@ -1820,5 +1851,361 @@ export function PrintStatement({ source = 'admin' }: { source?: DocSource }) {
         </>
       )}
     </PrintShell>
+  );
+}
+
+/* ======================================================= engagement costs */
+
+export function EngagementCostsReport({ onError, onToast }: { onError: OnError; onToast: (m: string) => void }) {
+  const year = new Date().getFullYear();
+  const [from, setFrom] = useState(`${year}-01-01`);
+  const [to, setTo] = useState(`${year}-12-31`);
+  const [r, setR] = useState<CostReport | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [key, setKey] = useState(0);
+
+  useEffect(() => {
+    getCostReport(from, to).then(setR).catch(onError);
+  }, [from, to, key, onError]);
+
+  async function sync() {
+    setSyncing(true);
+    try {
+      const s = await syncVideoUsage();
+      onToast(
+        s.enabled
+          ? `Video usage synced: ${s.sessions} call(s) from ${s.rooms} room(s)${s.failed ? `, ${s.failed} failed` : ''}`
+          : 'Video is not configured, so there is no usage to sync',
+      );
+      setKey((k) => k + 1);
+    } catch (e) {
+      onError(e);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  const pct = (v: number | null) => (v === null ? '—' : `${v.toFixed(1)}%`);
+
+  return (
+    <section className="report">
+      <div className="report-head">
+        <div className="field-row report-range">
+          <label>
+            From
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label>
+            To
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+        </div>
+        <div className="report-actions">
+          <button className="btn" onClick={sync} disabled={syncing}>
+            {syncing ? 'Syncing…' : 'Sync video usage'}
+          </button>
+          {r && (
+            <button
+              className="btn"
+              onClick={() =>
+                downloadCsv(
+                  `engagement-costs-${r.from}-to-${r.to}.csv`,
+                  ['Client', 'Engagement', 'Status', 'Meetings', 'Hours billed', 'Billed', 'Video calls', 'Participant minutes', 'Video cost', 'Other costs', 'Total cost', 'Margin', 'Margin %'],
+                  [...r.rows, r.totals].map((x) => [
+                    x.clientName ?? '',
+                    x.engagementTitle,
+                    x.engagementStatus ?? '',
+                    x.meetings,
+                    (x.billedMinutes / 60).toFixed(2),
+                    (x.billedCents / 100).toFixed(2),
+                    x.videoSessions,
+                    x.participantMinutes,
+                    (x.videoCostCents / 100).toFixed(2),
+                    (x.otherCostCents / 100).toFixed(2),
+                    (x.totalCostCents / 100).toFixed(2),
+                    (x.marginCents / 100).toFixed(2),
+                    x.marginPercent ?? '',
+                  ]),
+                )
+              }
+            >
+              Export CSV
+            </button>
+          )}
+          <button className="btn" onClick={() => window.print()}>
+            Print
+          </button>
+        </div>
+      </div>
+
+      {!r ? (
+        <p className="empty">Loading…</p>
+      ) : (
+        <>
+          <div className="kpis kpis-compact">
+            <Stat label="Billed" value={money(r.totals.billedCents)} hint={`${r.totals.meetings} completed meeting(s)`} />
+            <Stat
+              label="Video cost"
+              value={money(r.totals.videoCostCents)}
+              hint={`${r.totals.participantMinutes.toLocaleString()} participant-min at $${r.videoRatePerMinute}`}
+            />
+            <Stat label="Other costs" value={money(r.totals.otherCostCents)} hint="Entered by hand" />
+            <Stat
+              label="Margin"
+              value={money(r.totals.marginCents)}
+              tone={r.totals.marginCents < 0 ? 'bad' : undefined}
+              hint={r.totals.marginPercent === null ? 'No billing in range' : `${pct(r.totals.marginPercent)} of billed`}
+            />
+          </div>
+          <p className="muted small report-note">
+            Video cost is Daily usage (every participant's minutes in each call) at the rate in System
+            options. Revenue is billed charges on the engagement. Click an engagement for its calls
+            and to add costs such as software, subcontractors or travel.
+          </p>
+          {r.rows.length === 0 ? (
+            <div className="empty-state">
+              <p>
+                <strong>No engagement activity in this range.</strong>
+              </p>
+            </div>
+          ) : (
+            <div className="grid-wrap">
+              <table className="grid report-table">
+                <thead>
+                  <tr>
+                    <th>Engagement</th>
+                    <th className="num">Meetings</th>
+                    <th className="num">Billed</th>
+                    <th className="num">Video calls</th>
+                    <th className="num">Video cost</th>
+                    <th className="num">Other costs</th>
+                    <th className="num">Total cost</th>
+                    <th className="num">Margin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.rows.map((x) => (
+                    <tr key={x.engagementId} className="clickable" onClick={() => setOpen(x.engagementId)}>
+                      <td>
+                        <strong>{x.engagementTitle}</strong>
+                        <div className="muted small">
+                          {x.clientName} · {x.engagementStatus}
+                        </div>
+                      </td>
+                      <td className="num">{x.meetings}</td>
+                      <td className="num">{money(x.billedCents)}</td>
+                      <td className="num">
+                        {x.videoSessions}
+                        {x.participantMinutes > 0 && <div className="muted small">{x.participantMinutes} p-min</div>}
+                      </td>
+                      <td className="num">{money(x.videoCostCents)}</td>
+                      <td className="num">{money(x.otherCostCents)}</td>
+                      <td className="num">
+                        <strong>{money(x.totalCostCents)}</strong>
+                      </td>
+                      <td className={`num${x.marginCents < 0 ? ' neg' : ''}`}>
+                        {money(x.marginCents)}
+                        <div className="muted small">{pct(x.marginPercent)}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th>Total</th>
+                    <th className="num">{r.totals.meetings}</th>
+                    <th className="num">{money(r.totals.billedCents)}</th>
+                    <th className="num">{r.totals.videoSessions}</th>
+                    <th className="num">{money(r.totals.videoCostCents)}</th>
+                    <th className="num">{money(r.totals.otherCostCents)}</th>
+                    <th className="num">{money(r.totals.totalCostCents)}</th>
+                    <th className="num">{money(r.totals.marginCents)}</th>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {open !== null && (
+        <CostDetailModal
+          engagementId={open}
+          onClose={() => {
+            setOpen(null);
+            setKey((k) => k + 1);
+          }}
+          onError={onError}
+          onToast={onToast}
+        />
+      )}
+    </section>
+  );
+}
+
+function CostDetailModal({
+  engagementId,
+  onClose,
+  onError,
+  onToast,
+}: {
+  engagementId: number;
+  onClose: () => void;
+  onError: OnError;
+  onToast: (m: string) => void;
+}) {
+  const [d, setD] = useState<CostDetail | null>(null);
+  const [category, setCategory] = useState('software');
+  const [description, setDescription] = useState('');
+  const [amount, setAmount] = useState('');
+  const [incurredOn, setIncurredOn] = useState(todayIso());
+  const [busy, setBusy] = useState(false);
+
+  const reload = useCallback(() => getCostDetail(engagementId).then(setD).catch(onError), [engagementId, onError]);
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await addEngagementCost(engagementId, { category, description, amount, incurredOn });
+      onToast('Cost added');
+      setDescription('');
+      setAmount('');
+      reload();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const live = d?.costs.filter((c) => !c.voidedAt) ?? [];
+  const videoTotal = d?.video.reduce((t, v) => t + v.costCents, 0) ?? 0;
+
+  return (
+    <Modal title={d ? d.engagementTitle : 'Engagement costs'} badge={d?.clientName} badgeTone="neutral" onClose={onClose} wide>
+      {!d ? (
+        <p>Loading…</p>
+      ) : (
+        <>
+          <h4 className="subhead">Video calls</h4>
+          {d.video.length === 0 ? (
+            <p className="empty">No video calls recorded. Use “Sync video usage” on the report to pull them from Daily.</p>
+          ) : (
+            <div className="grid-wrap">
+              <table className="grid">
+                <thead>
+                  <tr>
+                    <th>Call</th>
+                    <th className="num">Length</th>
+                    <th className="num">People</th>
+                    <th className="num">Participant-min</th>
+                    <th className="num">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.video.map((v) => (
+                    <tr key={v.sessionId}>
+                      <td className="nowrap">{new Date(v.startedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</td>
+                      <td className="num">{Math.ceil(v.durationSeconds / 60)} min</td>
+                      <td className="num">{v.maxParticipants}</td>
+                      <td className="num">{v.participantMinutes}</td>
+                      <td className="num">{money(v.costCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th colSpan={4}>Video total at ${d.videoRatePerMinute}/participant-minute</th>
+                    <th className="num">{money(videoTotal)}</th>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+
+          <h4 className="subhead">Other costs</h4>
+          {live.length === 0 ? (
+            <p className="empty">None recorded.</p>
+          ) : (
+            <div className="grid-wrap">
+              <table className="grid">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th className="num">Amount</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {live.map((c) => (
+                    <tr key={c.id}>
+                      <td className="nowrap">{day(c.incurredOn)}</td>
+                      <td>{COST_CATEGORIES.find((k) => k.value === c.category)?.label ?? c.category}</td>
+                      <td>{c.description}</td>
+                      <td className="num">{money(c.amountCents)}</td>
+                      <td>
+                        <button
+                          className="linklike danger"
+                          onClick={async () => {
+                            if (!window.confirm('Void this cost?')) return;
+                            try {
+                              await voidEngagementCost(c.id);
+                              onToast('Cost voided');
+                              reload();
+                            } catch (e) {
+                              onError(e);
+                            }
+                          }}
+                        >
+                          Void
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <form className="cost-form" onSubmit={add}>
+            <label>
+              Category
+              <select value={category} onChange={(e) => setCategory(e.target.value)}>
+                {COST_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grow">
+              Description
+              <input required value={description} placeholder="Vector database, December" onChange={(e) => setDescription(e.target.value)} />
+            </label>
+            <label>
+              Amount
+              <div className="input-affix">
+                <span aria-hidden="true">$</span>
+                <input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+              </div>
+            </label>
+            <label>
+              Date
+              <input type="date" value={incurredOn} onChange={(e) => setIncurredOn(e.target.value)} />
+            </label>
+            <button className="btn btn-primary" type="submit" disabled={busy}>
+              Add cost
+            </button>
+          </form>
+        </>
+      )}
+    </Modal>
   );
 }

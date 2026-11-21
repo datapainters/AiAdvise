@@ -75,8 +75,10 @@ import {
   SiteFooter,
   SiteNav,
 } from './marketing';
+import { CalendarView } from './calendar';
 import {
   AgingReport,
+  EngagementCostsReport,
   InvoiceModal,
   InvoiceStatus,
   PrintInvoice,
@@ -492,6 +494,7 @@ function InviteIssued({
 
 type AdminView =
   | 'overview'
+  | 'calendar'
   | 'clients'
   | 'engagements'
   | 'appointments'
@@ -500,6 +503,7 @@ type AdminView =
   | 'ar'
   | 'revenue'
   | 'unbilled'
+  | 'costs'
   | 'signins'
   | 'logins'
   | 'options';
@@ -806,6 +810,13 @@ const ADMIN_VIEWS: {
     blurb: 'What needs you today: meetings awaiting confirmation and the week ahead.',
   },
   {
+    id: 'calendar',
+    label: 'Calendar',
+    group: 'Workspace',
+    icon: 'calgrid',
+    blurb: 'Every client meeting by month or week, with business hours shaded. Click a meeting to open it.',
+  },
+  {
     id: 'clients',
     label: 'Clients',
     group: 'Workspace',
@@ -862,6 +873,13 @@ const ADMIN_VIEWS: {
     blurb: 'Charges not yet invoiced, and past meetings whose billing needs attention.',
   },
   {
+    id: 'costs',
+    label: 'Engagement costs',
+    group: 'Reports',
+    icon: 'coins',
+    blurb: 'What each engagement costs to deliver, including video calls, against what it billed.',
+  },
+  {
     id: 'logins',
     label: 'Portal logins',
     group: 'System',
@@ -885,9 +903,9 @@ const ADMIN_VIEWS: {
 ];
 
 const ADMIN_NAV_GROUPS: { title: string; items: AdminView[] }[] = [
-  { title: 'Workspace', items: ['overview', 'clients', 'engagements', 'appointments'] },
+  { title: 'Workspace', items: ['overview', 'calendar', 'clients', 'engagements', 'appointments'] },
   { title: 'Billing', items: ['invoices', 'payments'] },
-  { title: 'Reports', items: ['ar', 'revenue', 'unbilled'] },
+  { title: 'Reports', items: ['ar', 'revenue', 'unbilled', 'costs'] },
   { title: 'System', items: ['logins', 'signins', 'options'] },
 ];
 
@@ -903,7 +921,9 @@ type IconName =
   | 'chart'
   | 'trend'
   | 'clock'
-  | 'sliders';
+  | 'sliders'
+  | 'calgrid'
+  | 'coins';
 
 /** Small stroke icons for the admin sidebar; inline so nothing is fetched. */
 function NavIcon({ name }: { name: IconName }) {
@@ -948,6 +968,19 @@ function NavIcon({ name }: { name: IconName }) {
       <>
         <circle cx="12" cy="12" r="9" />
         <path d="M12 7v5l3 2" />
+      </>
+    ),
+    calgrid: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="1.5" />
+        <path d="M3 10h18M8 3v4M16 3v4M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01" />
+      </>
+    ),
+    coins: (
+      <>
+        <ellipse cx="9" cy="7" rx="6" ry="2.5" />
+        <path d="M3 7v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V7M3 11v4c0 1.4 2.7 2.5 6 2.5 1 0 2-.1 2.8-.3" />
+        <circle cx="17" cy="16" r="4" />
       </>
     ),
     sliders: <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" />,
@@ -1926,6 +1959,11 @@ function Admin() {
           ]}
         />
       )}
+
+      {view === 'calendar' && (
+        <CalendarView refreshKey={refresh} onError={onError} onOpenMeeting={(id) => setOpenMeeting(id)} />
+      )}
+      {view === 'costs' && <EngagementCostsReport onError={onError} onToast={(m) => setToast(m)} />}
 
       {view === 'ar' && (
         <AgingReport onError={onError} onOpenClient={(id) => setOpenClient({ id, tab: 'accounting' })} />

@@ -709,3 +709,29 @@ editing a meeting's length, and the sign-in audit.
 - Not verifiable from the build sandbox: a real two-person call (the
   browser cannot reach `*.daily.co` from there). The call-time rule is
   covered by `CallTimeTest` against the documented `/meetings` fields.
+
+## Calendar, hours of operation and engagement costs (2026-11-21)
+
+- **Calendar** (admin *Workspace → Calendar*): month and week views of
+  every client meeting from `GET /api/admin/calendar?from&to` (window capped
+  at 100 days), coloured by status, cancelled hidden by default. The week
+  view shades business hours converted into the viewer's time zone and
+  marks the current time. Clicking a meeting opens the Meeting Manager.
+- **Hours of operation** (*System options*, option `business_hours`, type
+  `hours`): per-weekday open/close in half-hour steps plus the business
+  time zone, seeded with the rule that was hard-coded before (Mon–Fri
+  8:00–18:00, America/Chicago). The editor shows the current hours in
+  words and whether the business is open now. Published in
+  `/api/public/info`; the portal booking form and the website `/book`
+  page offer only starts that fit the meeting inside the hours, shown in
+  the visitor's local time. **Enforced on the server** for client and
+  website bookings (`BusinessHours.contains`); admins can still book or move
+  meetings outside hours.
+- **Engagement costs** (*Reports → Engagement costs*): per engagement,
+  billed revenue against costs and margin. Video cost is Daily usage
+  copied into `video_session` (participant-seconds per call) at the
+  `video_cost_per_participant_minute` option (default $0.004 — check your
+  Daily plan). Usage is synced when call time is imported, when a meeting
+  with a room is completed, before a room is deleted, and on demand with
+  *Sync video usage*. Other costs (software, subcontractor, travel, other)
+  are entered per engagement and voided rather than deleted.

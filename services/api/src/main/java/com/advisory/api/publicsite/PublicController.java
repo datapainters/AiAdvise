@@ -5,6 +5,8 @@ import com.advisory.api.publicsite.InquiryService.Busy;
 import com.advisory.api.publicsite.InquiryService.Confirmation;
 import com.advisory.api.publicsite.InquiryService.ConsultationRequest;
 import jakarta.servlet.http.HttpServletRequest;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -44,13 +46,19 @@ public class PublicController {
     }
 
     public record Info(String hourlyRate, String currency, int blockMinutes,
-            int consultationMinutes) {}
+            int consultationMinutes, JsonNode businessHours) {}
 
     @GetMapping("/info")
     public Info info() {
         String rate = BigDecimal.valueOf(options.hourlyRateCents()).movePointLeft(2)
                 .setScale(2).toPlainString();
-        return new Info(rate, "USD", 30, InquiryService.CONSULTATION_MINUTES);
+        JsonNode hours;
+        try {
+            hours = new ObjectMapper().readTree(options.businessHours().toJson());
+        } catch (Exception e) {
+            hours = null;
+        }
+        return new Info(rate, "USD", 30, InquiryService.CONSULTATION_MINUTES, hours);
     }
 
     public record Availability(List<Busy> taken) {}

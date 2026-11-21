@@ -46,6 +46,10 @@ public class Appointment {
     @Column(name = "requested_by")
     private Long requestedBy;
 
+    /** False for a complimentary consultation: its time is recorded at $0. */
+    @Column(nullable = false)
+    private boolean billable = true;
+
     // Set here rather than left to the column default, so the entity
     // returned from save() -- and the create response built from it --
     // carries the timestamp instead of null.
@@ -107,6 +111,14 @@ public class Appointment {
 
     public void setRequestedBy(Long requestedBy) {
         this.requestedBy = requestedBy;
+    }
+
+    public boolean isBillable() {
+        return billable;
+    }
+
+    public void setBillable(boolean billable) {
+        this.billable = billable;
     }
 
     public Instant getCreatedAt() {

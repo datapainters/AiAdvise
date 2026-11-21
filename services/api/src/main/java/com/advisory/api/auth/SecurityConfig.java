@@ -45,6 +45,9 @@ public class SecurityConfig {
                         // expiry -- and the controller answers 404 for
                         // expired, spent and never-existed alike.
                         .requestMatchers("/api/invites/**").permitAll()
+                        // The marketing site: published rate, busy slots and
+                        // consultation requests. Rate limited in the controller.
+                        .requestMatchers("/api/public/**").permitAll()
                         // The load balancer polls these and cannot hold a token.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/**").hasAuthority("ROLE_ADMIN")

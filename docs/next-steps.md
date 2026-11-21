@@ -600,3 +600,60 @@ editing a meeting's length, and the sign-in audit.
    not know the client's time zone, so it cannot apply 8–5:30 local;
    admins rely on that freedom when editing. Leave unless it is abused.
 3. Items 1–4 of the 2026-11-20 list are untouched.
+
+## Billing, accounting, inquiries and the new marketing site (2026-11-21)
+
+### What shipped
+
+- **Marketing site** (`web/src/marketing.tsx`, `marketing.css`): Home,
+  Services, Approach and a `/book` consultation flow, built around the three
+  practices (Corporate AI Development, AI Data Development, Development Team
+  AI Enablement). Every page drives to a free 30-minute consultation. The
+  hourly rate shown comes from `GET /api/public/info`.
+- **Website inquiries** (`publicsite/`): `POST /api/public/consultations`
+  creates or reuses the client (by primary email), an engagement in the new
+  `inquiry` status, a 30-minute **non-billable** appointment and its topics,
+  then emails the firm (the *Inquiry notification email* option, else
+  `MAIL_ADMIN_RECIPIENT`) and the person who asked. Honeypot field, 5
+  requests per address per hour, double-booking refused with 409.
+- **System options** (`system_option` table, admin *System → System
+  options*): hourly rate, payment terms, invoice prefix, invoice footer,
+  inquiry email. Values are validated by type.
+- **Time tracker** in the Meeting Manager: start/stop timer (one running per
+  meeting), manual entries, delete. **Marking a meeting complete compiles
+  its time into a charge**: total minutes rounded up to 30-minute blocks, at
+  half the hourly rate per block. The rate is copied onto the charge.
+  Re-completing recalculates unless the charge is already invoiced.
+- **Meeting Summary Report**: printable page per meeting (agenda, notes,
+  time, charge).
+- **Accounting tab** on the client record: balance, unbilled, invoiced and
+  paid; record payments (applied to an invoice or on account); charge/credit
+  adjustments; invoice all unbilled charges; void with a reason; printable
+  statement.
+- **Billing**: Invoices and Payments lists. Invoices number from a sequence
+  (`INV-0001`), are due after the payment terms, and can be voided only
+  while no payment is applied — voiding releases the charges.
+- **Reports**: Accounts receivable (aged current / 1–30 / 31–60 / 61–90 /
+  90+, with unbilled and credits so Balance = charges − payments), Revenue &
+  hours (by month and client, billed vs collected), Unbilled work (plus
+  meetings whose billing needs attention). CSV export and print on each.
+
+### Decisions worth knowing
+
+- **The hourly rate ships at $0.00.** Set it in *System options* after the
+  deploy. Until then charges compile at $0 and the website says "contact us
+  for rates"; the admin Overview shows a warning.
+- Financial rows are never deleted, only voided; billing tables reference
+  `client` with `ON DELETE RESTRICT`.
+- Billing uses `JdbcClient` rather than JPA entities: it is almost all
+  aggregates.
+- Print pages open in a new tab **without `noopener`**, because the session
+  token is in `sessionStorage` and only an opener-linked tab inherits it.
+
+### Still open
+
+1. Invoices are printed/PDF'd from the browser; nothing emails them yet.
+2. No online card payments; payments are recorded by hand.
+3. The public rate limit is in memory per task.
+4. Converting an inquiry into a client relationship is manual: set the
+   engagement to *active* and invite a portal user.

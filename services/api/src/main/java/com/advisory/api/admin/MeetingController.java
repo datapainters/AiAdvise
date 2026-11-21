@@ -2,6 +2,7 @@ package com.advisory.api.admin;
 
 import com.advisory.api.auth.AppUserRepository;
 import com.advisory.api.auth.CurrentUser;
+import com.advisory.api.billing.BillingService;
 import com.advisory.api.mail.Notifications;
 import com.advisory.api.portal.Appointment;
 import com.advisory.api.portal.AppointmentRepository;
@@ -58,12 +59,14 @@ public class MeetingController {
     private final SchedulingService scheduling;
     private final Notifications notifications;
     private final CompanyRepository companies;
+    private final BillingService billing;
 
     public MeetingController(AppointmentRepository appointments, ClientRepository clients,
             EngagementRepository engagements, TopicRepository topics,
             MeetingNoteRepository notes, AppUserRepository users,
             SchedulingService scheduling, Notifications notifications,
-            CompanyRepository companies) {
+            CompanyRepository companies, BillingService billing) {
+        this.billing = billing;
         this.appointments = appointments;
         this.clients = clients;
         this.engagements = engagements;
@@ -125,6 +128,7 @@ public class MeetingController {
     @PutMapping("/appointments/{id}")
     @Transactional
     public AppointmentRow updateAppointment(
+            @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id, @Valid @RequestBody UpdateAppointment request) {
 
         Appointment appointment = appointments.findById(id)
@@ -140,12 +144,19 @@ public class MeetingController {
         Instant start = scheduling.normaliseAndValidate(
                 request.startsAt(), request.durationMinutes(), true);
 
+        String previous = appointment.getStatus();
         appointment.setStartsAt(start);
         appointment.setDurationMinutes(request.durationMinutes());
         appointment.setStatus(request.status());
 
         log.info("Updated appointment {}", id);
-        return rows(List.of(appointments.save(appointment))).get(0);
+        AppointmentRow row = rows(List.of(appointments.saveAndFlush(appointment))).get(0);
+        if (Appointment.COMPLETED.equals(request.status())) {
+            // Recompiles on every save while completed, so a corrected start
+            // date reaches the charge too. An invoiced charge is left alone.
+            billing.compile(id, CurrentUser.from(jwt).id());
+        }
+        return row;
     }
 
     /* ----------------------------------------------------- meeting manager */
@@ -264,7 +275,9 @@ public class MeetingController {
     }
 
     @PutMapping("/appointments/{id}/status")
+    @Transactional
     public AppointmentRow setAppointmentStatus(
+            @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id, @Valid @RequestBody UpdateStatus request) {
 
         if (Appointment.CANCELLED.equals(request.status())) {
@@ -284,7 +297,14 @@ public class MeetingController {
         String previous = appointment.getStatus();
         appointment.setStatus(request.status());
         log.info("Appointment {} marked {}", id, request.status());
-        AppointmentRow row = rows(List.of(appointments.save(appointment))).get(0);
+        AppointmentRow row = rows(List.of(appointments.saveAndFlush(appointment))).get(0);
+
+        // Completing a meeting turns its recorded time into a charge, in
+        // 30-minute blocks at the current hourly rate.
+        if (Appointment.COMPLETED.equals(request.status())
+                && !Appointment.COMPLETED.equals(previous)) {
+            billing.compile(id, CurrentUser.from(jwt).id());
+        }
 
         // Only on the transition into confirmed. Re-saving an already
         // confirmed meeting must not mail the client again.

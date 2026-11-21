@@ -23,6 +23,15 @@ public class Client {
     @Column(name = "primary_email", nullable = false)
     private String primaryEmail;
 
+    @Column(name = "contact_name")
+    private String contactName;
+
+    private String phone;
+
+    /** admin, or website for a client created by a consultation request. */
+    @Column(nullable = false)
+    private String source = "admin";
+
     // Set here rather than left to the column default, so the entity
     // returned from save() -- and the create response built from it --
     // carries the timestamp instead of null.
@@ -51,5 +60,29 @@ public class Client {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getContactName() {
+        return contactName;
+    }
+
+    public void setContactName(String contactName) {
+        this.contactName = contactName;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
     }
 }

@@ -3,6 +3,7 @@ package com.advisory.api.admin;
 import com.advisory.api.auth.AppUserRepository;
 import com.advisory.api.auth.CurrentUser;
 import com.advisory.api.billing.BillingService;
+import com.advisory.api.video.VideoService;
 import com.advisory.api.mail.Notifications;
 import com.advisory.api.portal.Appointment;
 import com.advisory.api.portal.AppointmentRepository;
@@ -60,13 +61,15 @@ public class MeetingController {
     private final Notifications notifications;
     private final CompanyRepository companies;
     private final BillingService billing;
+    private final VideoService video;
 
     public MeetingController(AppointmentRepository appointments, ClientRepository clients,
             EngagementRepository engagements, TopicRepository topics,
             MeetingNoteRepository notes, AppUserRepository users,
             SchedulingService scheduling, Notifications notifications,
-            CompanyRepository companies, BillingService billing) {
+            CompanyRepository companies, BillingService billing, VideoService video) {
         this.billing = billing;
+        this.video = video;
         this.appointments = appointments;
         this.clients = clients;
         this.engagements = engagements;
@@ -83,7 +86,7 @@ public class MeetingController {
     public record AppointmentRow(
             Long id, Long clientId, String clientName, Long engagementId,
             String engagementTitle, Instant startsAt, Instant endsAt, int durationMinutes,
-            String status, int topicCount, int notedCount) {}
+            String status, int topicCount, int notedCount, boolean video) {}
 
     private static Grid.Spec<AppointmentRow> appointmentSpec() {
         return new Grid.Spec<AppointmentRow>()
@@ -150,13 +153,25 @@ public class MeetingController {
         appointment.setStatus(request.status());
 
         log.info("Updated appointment {}", id);
-        AppointmentRow row = rows(List.of(appointments.saveAndFlush(appointment))).get(0);
+        appointments.saveAndFlush(appointment);
+        if (Appointment.CANCELLED.equals(request.status())) {
+            video.removeRoom(appointment);
+        } else if (Appointment.CONFIRMED.equals(request.status()) || appointment.hasVideo()) {
+            // Creates the room on confirmation, and keeps an existing room's
+            // expiry in step with a moved or lengthened meeting.
+            video.ensureRoom(appointment);
+        }
         if (Appointment.COMPLETED.equals(request.status())) {
             // Recompiles on every save while completed, so a corrected start
             // date reaches the charge too. An invoiced charge is left alone.
+            importCallTimeIfEmpty(appointment, CurrentUser.from(jwt).id());
             billing.compile(id, CurrentUser.from(jwt).id());
         }
-        return row;
+        if (Appointment.CONFIRMED.equals(request.status())
+                && !Appointment.CONFIRMED.equals(previous)) {
+            announceConfirmed(appointment);
+        }
+        return rows(List.of(appointment)).get(0);
     }
 
     /* ----------------------------------------------------- meeting manager */
@@ -283,7 +298,9 @@ public class MeetingController {
         if (Appointment.CANCELLED.equals(request.status())) {
             // Cancelling has to return the agenda to the backlog, which is
             // the scheduling service's job, not a field assignment.
-            return rows(List.of(scheduling.cancel(id))).get(0);
+            Appointment cancelled = scheduling.cancel(id);
+            video.removeRoom(cancelled);
+            return rows(List.of(cancelled)).get(0);
         }
 
         if (!List.of(Appointment.REQUESTED, Appointment.CONFIRMED, Appointment.COMPLETED)
@@ -297,12 +314,14 @@ public class MeetingController {
         String previous = appointment.getStatus();
         appointment.setStatus(request.status());
         log.info("Appointment {} marked {}", id, request.status());
-        AppointmentRow row = rows(List.of(appointments.saveAndFlush(appointment))).get(0);
+        appointments.saveAndFlush(appointment);
 
         // Completing a meeting turns its recorded time into a charge, in
-        // 30-minute blocks at the current hourly rate.
+        // 30-minute blocks at the current hourly rate. With nothing recorded,
+        // the video call's measured length is used.
         if (Appointment.COMPLETED.equals(request.status())
                 && !Appointment.COMPLETED.equals(previous)) {
+            importCallTimeIfEmpty(appointment, CurrentUser.from(jwt).id());
             billing.compile(id, CurrentUser.from(jwt).id());
         }
 
@@ -310,15 +329,11 @@ public class MeetingController {
         // confirmed meeting must not mail the client again.
         if (Appointment.CONFIRMED.equals(request.status())
                 && !Appointment.CONFIRMED.equals(previous)) {
-            notifications.meetingConfirmed(
-                    appointment.getClientId(),
-                    row.engagementTitle(),
-                    appointment.getStartsAt(),
-                    appointment.getDurationMinutes(),
-                    row.topicCount());
+            video.ensureRoom(appointment);
+            announceConfirmed(appointment);
         }
 
-        return row;
+        return rows(List.of(appointment)).get(0);
     }
 
     /* ---------------------------------------------------------- client view */
@@ -409,6 +424,63 @@ public class MeetingController {
                 .toList();
     }
 
+    /* ---------------------------------------------------------------- video */
+
+    /**
+     * Tells the client a meeting is confirmed. People with portal logins are
+     * pointed at the portal, where they join with their own token. A client
+     * with no logins -- a website inquiry -- gets a direct join link at the
+     * primary email instead, since there is nowhere for them to sign in.
+     */
+    private void announceConfirmed(Appointment appointment) {
+        AppointmentRow row = rows(List.of(appointment)).get(0);
+        boolean hasLogins = users.findAllByClientIdOrderByDisplayNameAsc(appointment.getClientId())
+                .stream().anyMatch(u -> u.isEnabled());
+        if (hasLogins) {
+            notifications.meetingConfirmed(appointment.getClientId(), row.engagementTitle(),
+                    appointment.getStartsAt(), appointment.getDurationMinutes(),
+                    row.topicCount(), appointment.hasVideo());
+            return;
+        }
+        Client client = clients.findById(appointment.getClientId()).orElse(null);
+        if (client == null) {
+            return;
+        }
+        String guest = client.getContactName() != null ? client.getContactName() : client.getName();
+        String joinUrl = null;
+        if (appointment.hasVideo()) {
+            try {
+                joinUrl = video.joinUrl(appointment, guest, false);
+            } catch (RuntimeException e) {
+                log.warn("No join link for the guest confirmation of appointment {}: {}",
+                        appointment.getId(), e.getMessage());
+            }
+        }
+        notifications.meetingConfirmedGuest(client.getPrimaryEmail(), guest, row.engagementTitle(),
+                appointment.getStartsAt(), appointment.getDurationMinutes(), row.topicCount(),
+                joinUrl);
+    }
+
+    private void importCallTimeIfEmpty(Appointment appointment, Long userId) {
+        if (!appointment.hasVideo() || !video.enabled() || billing.hasTime(appointment.getId())) {
+            return;
+        }
+        try {
+            VideoService.CallTime t = video.callTime(appointment);
+            if (t.minutes() > 0) {
+                billing.importVideoTime(appointment.getId(), t.minutes(),
+                        "Video call: " + t.sessions() + (t.sessions() == 1 ? " session" : " sessions")
+                                + ", " + t.minutes() + " min (imported on completion)",
+                        userId);
+            }
+        } catch (RuntimeException e) {
+            // Completion must not fail because Daily is unreachable; the time
+            // can be imported from the Meeting Manager afterwards.
+            log.warn("Could not import call time for appointment {}: {}", appointment.getId(),
+                    e.getMessage());
+        }
+    }
+
     /* -------------------------------------------------------------- helpers */
 
     /**
@@ -453,7 +525,8 @@ public class MeetingController {
                         a.getDurationMinutes(),
                         a.getStatus(),
                         topicCounts.getOrDefault(a.getId(), 0L).intValue(),
-                        noteCounts.getOrDefault(a.getId(), 0L).intValue()))
+                        noteCounts.getOrDefault(a.getId(), 0L).intValue(),
+                        a.hasVideo()))
                 .toList();
     }
 }

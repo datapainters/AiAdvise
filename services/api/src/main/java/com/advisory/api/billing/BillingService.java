@@ -78,14 +78,14 @@ public class BillingService {
     /* ======================================================== time entries */
 
     public record TimeEntry(Long id, Instant startedAt, Instant endedAt, int minutes,
-            boolean running, boolean manual, String note, String userName) {}
+            boolean running, boolean manual, String note, String userName, String source) {}
 
     public record TimeSheet(Long appointmentId, List<TimeEntry> entries, int totalMinutes,
             int blocks, long rateCents, long estimatedCents, boolean billable,
             boolean locked, String appointmentStatus, ChargeView charge) {}
 
     private static final String ENTRY_SELECT = """
-            SELECT t.id, t.started_at, t.ended_at, t.minutes AS manual_minutes, t.note,
+            SELECT t.id, t.started_at, t.ended_at, t.minutes AS manual_minutes, t.note, t.source,
                    COALESCE(t.minutes,
                             GREATEST(1, CEIL(EXTRACT(EPOCH FROM
                                 (COALESCE(t.ended_at, now()) - t.started_at)) / 60.0)))::int
@@ -105,7 +105,8 @@ public class BillingService {
                 rs.getBoolean("running"),
                 rs.getObject("manual_minutes") != null,
                 rs.getString("note"),
-                rs.getString("user_name"));
+                rs.getString("user_name"),
+                rs.getString("source"));
     }
 
     public TimeSheet timeSheet(Long appointmentId) {
@@ -135,8 +136,8 @@ public class BillingService {
         requireUnlocked(appointmentId);
         try {
             jdbc.sql("""
-                    INSERT INTO time_entry (appointment_id, started_at, user_id)
-                    VALUES (?, now(), ?)
+                    INSERT INTO time_entry (appointment_id, started_at, user_id, source)
+                    VALUES (?, now(), ?, 'timer')
                     """).params(appointmentId, userId).update();
         } catch (DuplicateKeyException e) {
             throw conflict("A timer is already running for this meeting");
@@ -166,13 +167,44 @@ public class BillingService {
         }
         requireUnlocked(appointmentId);
         jdbc.sql("""
-                INSERT INTO time_entry (appointment_id, started_at, ended_at, minutes, note, user_id)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO time_entry (appointment_id, started_at, ended_at, minutes, note, user_id,
+                                        source)
+                VALUES (?, ?, ?, ?, ?, ?, 'manual')
                 """)
                 .params(appointmentId, appt.get("starts_at"), appt.get("starts_at"), minutes,
                         blank(note), userId)
                 .update();
         return timeSheet(appointmentId);
+    }
+
+    /**
+     * Records the video call's measured length as the meeting's video time
+     * entry, replacing any earlier import, so importing twice never counts
+     * the call twice. Zero minutes removes the entry.
+     */
+    @Transactional
+    public TimeSheet importVideoTime(Long appointmentId, int minutes, String note, Long userId) {
+        Map<String, Object> appt = appointment(appointmentId);
+        requireUnlocked(appointmentId);
+        jdbc.sql("DELETE FROM time_entry WHERE appointment_id = ? AND source = 'video'")
+                .param(appointmentId).update();
+        if (minutes > 0) {
+            jdbc.sql("""
+                    INSERT INTO time_entry (appointment_id, started_at, ended_at, minutes, note,
+                                            user_id, source)
+                    VALUES (?, ?, ?, ?, ?, ?, 'video')
+                    """)
+                    .params(appointmentId, appt.get("starts_at"), appt.get("starts_at"),
+                            Math.min(minutes, 1440), note, userId)
+                    .update();
+        }
+        return timeSheet(appointmentId);
+    }
+
+    /** Whether any time has been recorded against the meeting, by any means. */
+    public boolean hasTime(Long appointmentId) {
+        return jdbc.sql("SELECT count(*) FROM time_entry WHERE appointment_id = ?")
+                .param(appointmentId).query(Long.class).single() > 0;
     }
 
     @Transactional

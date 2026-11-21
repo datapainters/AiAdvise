@@ -33,6 +33,7 @@ import {
   type ClientBilling,
 } from './billing-api';
 import { BookingForm, formatLength, formatRange, plural, statusLabel } from './scheduling';
+import { JoinCallButton } from './video';
 
 type View = 'overview' | 'topics' | 'meetings' | 'billing';
 
@@ -340,6 +341,7 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
 
               {view === 'overview' && (
                 <Overview
+                  onError={onError}
                   upcoming={upcoming}
                   openTopics={openTopics}
                   billing={billing}
@@ -355,7 +357,7 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
               )}
 
               {view === 'meetings' && (
-                <MeetingsView upcoming={upcoming} past={past} onCancel={onCancelMeeting} onBook={startBooking} canBook={bookable.length > 0} />
+                <MeetingsView onError={onError} upcoming={upcoming} past={past} onCancel={onCancelMeeting} onBook={startBooking} canBook={bookable.length > 0} />
               )}
 
               {view === 'billing' && <BillingView billing={billing} />}
@@ -409,6 +411,7 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
 /* --------------------------------------------------------------- overview */
 
 function Overview({
+  onError,
   upcoming,
   openTopics,
   billing,
@@ -424,6 +427,7 @@ function Overview({
   onGo: (v: View) => void;
   onAddTopic: () => void;
   onBook: () => void;
+  onError: (e: unknown) => void;
 }) {
   const next = upcoming[0];
   const s = billing?.summary;
@@ -497,7 +501,10 @@ function Overview({
                         {a.engagementTitle} · {plural(a.topicCount, 'topic')}
                       </span>
                     </span>
-                    <span className={`status status-ap-${a.status}`}>{statusLabel(a.status)}</span>
+                    <span className="ml-actions">
+                      <span className={`status status-ap-${a.status}`}>{statusLabel(a.status)}</span>
+                      <JoinCallButton appointment={a} onError={onError} size="sm" />
+                    </span>
                   </div>
                 </li>
               ))}
@@ -720,6 +727,7 @@ function AddTopicModal({
 /* --------------------------------------------------------------- meetings */
 
 function MeetingsView({
+  onError,
   upcoming,
   past,
   onCancel,
@@ -731,6 +739,7 @@ function MeetingsView({
   onCancel: (a: Appointment) => void;
   onBook: () => void;
   canBook: boolean;
+  onError: (e: unknown) => void;
 }) {
   const table = (rows: Appointment[], allowCancel: boolean) => (
     <div className="grid-wrap">
@@ -742,6 +751,7 @@ function MeetingsView({
             <th>Engagement</th>
             <th>Agenda</th>
             <th>Status</th>
+            {allowCancel && <th>Video</th>}
             {allowCancel && <th />}
           </tr>
         </thead>
@@ -757,6 +767,17 @@ function MeetingsView({
               <td>
                 <span className={`status status-ap-${a.status}`}>{statusLabel(a.status)}</span>
               </td>
+              {allowCancel && (
+                <td className="nowrap">
+                  {a.video ? (
+                    <JoinCallButton appointment={a} onError={onError} size="sm" />
+                  ) : (
+                    <span className="muted small">
+                      {a.status === 'requested' ? 'After confirmation' : '—'}
+                    </span>
+                  )}
+                </td>
+              )}
               {allowCancel && (
                 <td>
                   <button className="linklike danger" onClick={() => onCancel(a)}>

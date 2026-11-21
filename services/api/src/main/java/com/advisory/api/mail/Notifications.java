@@ -152,7 +152,7 @@ Set your password</a>
 
     /** Tells a client's people that a requested meeting is now confirmed. */
     public void meetingConfirmed(Long clientId, String engagementTitle,
-            Instant startsAt, int durationMinutes, int topicCount) {
+            Instant startsAt, int durationMinutes, int topicCount, boolean video) {
 
         List<AppUser> recipients = users.findAllByClientIdOrderByDisplayNameAsc(clientId)
                 .stream().filter(AppUser::isEnabled).toList();
@@ -173,12 +173,16 @@ Set your password</a>
                 Length:      %d minutes
                 Agenda:      %d topic(s)
 
-                You can review the agenda in the portal:
-                %s/portal
+                %s
+                %s/portal?view=meetings
 
                 Data Painters
                 """.formatted(engagementTitle, when, displayZone.getId(),
-                durationMinutes, topicCount, mail.baseUrl());
+                durationMinutes, topicCount,
+                video ? "This is a video meeting. Join from your portal; the room opens\n"
+                        + "15 minutes before the start:"
+                        : "You can review the agenda in the portal:",
+                mail.baseUrl());
 
         String html = wrap("""
                 <p>Your meeting is confirmed.</p>
@@ -188,12 +192,74 @@ Set your password</a>
                   <tr><td style="color:#595f6b">Length</td><td>%d minutes</td></tr>
                   <tr><td style="color:#595f6b">Agenda</td><td>%d topic(s)</td></tr>
                 </table>
-                <p><a href="%s/portal" style="color:#8a5a2b">Review the agenda</a></p>
+                %s
                 """.formatted(esc(engagementTitle), esc(when), esc(displayZone.getId()),
-                durationMinutes, topicCount, esc(mail.baseUrl())));
+                durationMinutes, topicCount,
+                video
+                        ? "<p>This is a video meeting. Join from your portal &mdash; the room "
+                                + "opens 15 minutes before the start.</p><p style=\"margin:24px 0\">"
+                                + "<a href=\"" + esc(mail.baseUrl()) + "/portal?view=meetings\" "
+                                + "style=\"background:#16181d;color:#fcfcfd;text-decoration:none;"
+                                + "padding:11px 20px;border-radius:2px;display:inline-block\">"
+                                + "Open the portal to join</a></p>"
+                        : "<p><a href=\"" + esc(mail.baseUrl())
+                                + "/portal\" style=\"color:#8a5a2b\">Review the agenda</a></p>"));
 
         mail.sendAll(recipients.stream().map(AppUser::getEmail).toList(),
                 subject, plain, html);
+    }
+
+    /**
+     * Confirms a meeting to someone with no portal login, such as a website
+     * inquiry. The join link carries a personal token that works from 15
+     * minutes before the start until the room closes.
+     */
+    public void meetingConfirmedGuest(String email, String name, String engagementTitle,
+            Instant startsAt, int durationMinutes, int topicCount, String joinUrl) {
+
+        String when = when(startsAt);
+        String subject = "Confirmed: %s on %s".formatted(engagementTitle, when);
+
+        String plain = """
+                Hello %s,
+
+                Your meeting with Data Painters is confirmed.
+
+                Meeting:  %s
+                When:     %s (%s)
+                Length:   %d minutes
+                Agenda:   %d topic(s)
+
+                %s
+
+                Data Painters
+                """.formatted(name, engagementTitle, when, displayZone.getId(), durationMinutes,
+                topicCount,
+                joinUrl == null ? "We will send joining details before the meeting."
+                        : "Join the video call (opens 15 minutes before the start):\n" + joinUrl
+                                + "\n\nThis link is personal to you; please do not forward it.");
+
+        String html = wrap("""
+                <p>Hello %s,</p>
+                <p>Your meeting with Data Painters is confirmed.</p>
+                <table cellpadding="4" style="border-collapse:collapse;font-size:14px">
+                  <tr><td style="color:#595f6b">Meeting</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">When</td><td>%s (%s)</td></tr>
+                  <tr><td style="color:#595f6b">Length</td><td>%d minutes</td></tr>
+                  <tr><td style="color:#595f6b">Agenda</td><td>%d topic(s)</td></tr>
+                </table>
+                %s
+                """.formatted(esc(name), esc(engagementTitle), esc(when), esc(displayZone.getId()),
+                durationMinutes, topicCount,
+                joinUrl == null ? "<p>We will send joining details before the meeting.</p>"
+                        : "<p style=\"margin:24px 0\"><a href=\"" + esc(joinUrl) + "\" "
+                                + "style=\"background:#16181d;color:#fcfcfd;text-decoration:none;"
+                                + "padding:11px 20px;border-radius:2px;display:inline-block\">"
+                                + "Join the video call</a></p><p style=\"color:#595f6b;font-size:13px\">"
+                                + "The room opens 15 minutes before the start. This link is "
+                                + "personal to you; please do not forward it.</p>"));
+
+        mail.send(email, subject, plain, html);
     }
 
     /* -------------------------------------------------------- inquiries */

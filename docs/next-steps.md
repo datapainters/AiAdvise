@@ -675,3 +675,37 @@ editing a meeting's length, and the sign-in audit.
   returned; another client's invoice reads as 404.
 - An admin previewing `/portal` does not call the client billing endpoint:
   the API client treats 403 as an expired session and would sign them out.
+
+## Video meetings on Daily (2026-11-21)
+
+- **Rooms.** Confirming a meeting creates a private Daily room
+  (`dp-m<id>-<random>`) that expires two hours after the scheduled end.
+  Rescheduling moves the expiry; cancelling (by the firm or the client)
+  deletes the room. Daily being unreachable never blocks confirming or
+  cancelling: the Meeting Manager shows "No video room" with a *Create
+  video room* button.
+- **Joining.** Links are issued per person on click, never stored. Clients
+  get a non-owner token that works from 15 minutes before the start until
+  the room closes, and only for their own confirmed meetings; the firm gets
+  an owner token at any time (*Join as host*).
+- **Email.** Clients with portal logins are pointed at the portal to join.
+  A client with no logins — a website inquiry — gets a direct, personal
+  join link at the client's primary email when the meeting is confirmed.
+- **Billing.** *Import call time* in the time tracker replaces the meeting's
+  single `video` time entry with the measured length of finished calls that
+  had **two or more participants** (a host waiting alone is not billed).
+  Completing a meeting with no time recorded imports it automatically.
+- **Configuration.** The API reads the key from Secrets Manager
+  (`advisory/daily-api-key`, `DAILY_API_KEY_SECRET_ARN`), or `DAILY_API_KEY`
+  locally. Terraform creates the secret but never its value. Without a
+  value, video is simply off, and the API re-checks every five minutes, so
+  setting the key needs no redeploy:
+
+  ```
+  aws secretsmanager put-secret-value --secret-id advisory/daily-api-key \
+    --secret-string '{"key":"<Daily API key>"}'
+  ```
+
+- Not verifiable from the build sandbox: a real two-person call (the
+  browser cannot reach `*.daily.co` from there). The call-time rule is
+  covered by `CallTimeTest` against the documented `/meetings` fields.

@@ -141,7 +141,10 @@ locals {
   # so it is merged in here instead of being threaded through var.environment.
   container_environment = merge(
     var.environment,
-    { JWT_SECRET_ARN = aws_secretsmanager_secret.jwt.arn },
+    {
+      JWT_SECRET_ARN           = aws_secretsmanager_secret.jwt.arn
+      DAILY_API_KEY_SECRET_ARN = aws_secretsmanager_secret.daily.arn
+    },
     var.bootstrap_admin_email == null ? {} : {
       BOOTSTRAP_ADMIN_SECRET_ARN = aws_secretsmanager_secret.bootstrap_admin[0].arn
     },
@@ -150,7 +153,7 @@ locals {
   # Secrets the task role may read. The bootstrap entry disappears from the
   # policy once bootstrap_admin_email is cleared.
   readable_secret_arns = concat(
-    [var.db_secret_arn, aws_secretsmanager_secret.jwt.arn],
+    [var.db_secret_arn, aws_secretsmanager_secret.jwt.arn, aws_secretsmanager_secret.daily.arn],
     var.bootstrap_admin_email == null ? [] : [aws_secretsmanager_secret.bootstrap_admin[0].arn],
   )
 }
@@ -182,6 +185,23 @@ resource "aws_secretsmanager_secret" "jwt" {
 resource "aws_secretsmanager_secret_version" "jwt" {
   secret_id     = aws_secretsmanager_secret.jwt.id
   secret_string = jsonencode({ key = random_password.jwt.result })
+}
+
+###############################################################################
+# Daily (video meetings) API key
+#
+# Terraform creates the secret but never its value: the key is issued by
+# Daily and set by hand, so it does not end up in Terraform state. Until a
+# value exists the API runs with video switched off, and it re-reads the
+# secret every few minutes, so setting it needs no redeploy:
+#
+#   aws secretsmanager put-secret-value --secret-id <project>/daily-api-key \
+#     --secret-string '{"key":"<your Daily API key>"}'
+###############################################################################
+
+resource "aws_secretsmanager_secret" "daily" {
+  name        = "${var.project}/daily-api-key"
+  description = "Daily.co REST API key for ${local.name} video meetings"
 }
 
 ###############################################################################

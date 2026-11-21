@@ -38,11 +38,13 @@ public class AppointmentController {
     private final SchedulingService scheduling;
     private final Notifications notifications;
     private final ClientRepository clients;
+    private final com.advisory.api.video.VideoService video;
 
     public AppointmentController(AppointmentRepository appointments,
             EngagementRepository engagements, TopicRepository topics,
             SchedulingService scheduling, Notifications notifications,
-            ClientRepository clients) {
+            ClientRepository clients, com.advisory.api.video.VideoService video) {
+        this.video = video;
         this.appointments = appointments;
         this.engagements = engagements;
         this.topics = topics;
@@ -60,7 +62,8 @@ public class AppointmentController {
             Instant endsAt,
             int durationMinutes,
             String status,
-            int topicCount) {}
+            int topicCount,
+            boolean video) {}
 
     public record BookRequest(
             @NotNull Long engagementId,
@@ -131,7 +134,9 @@ public class AppointmentController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
 
-        return decorate(List.of(scheduling.cancel(id))).get(0);
+        Appointment cancelled = scheduling.cancel(id);
+        video.removeRoom(cancelled);
+        return decorate(List.of(cancelled)).get(0);
     }
 
     /**
@@ -165,7 +170,8 @@ public class AppointmentController {
                 a.getEndsAt(),
                 a.getDurationMinutes(),
                 a.getStatus(),
-                counts.getOrDefault(a.getId(), 0L).intValue());
+                counts.getOrDefault(a.getId(), 0L).intValue(),
+                a.hasVideo());
 
         return found.stream().map(toView).toList();
     }

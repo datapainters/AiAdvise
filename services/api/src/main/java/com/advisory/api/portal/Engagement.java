@@ -32,11 +32,15 @@ public class Engagement {
     @Column(nullable = false)
     private String status = "active";
 
-    @Column(name = "started_on", nullable = false, insertable = false, updatable = false)
-    private LocalDate startedOn;
+    // UTC, matching the database default this replaces on RDS.
+    @Column(name = "started_on", nullable = false, updatable = false)
+    private LocalDate startedOn = LocalDate.now(java.time.ZoneOffset.UTC);
 
-    @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
-    private Instant createdAt;
+    // Set here rather than left to the column default, so the entity
+    // returned from save() -- and the create response built from it --
+    // carries the timestamp instead of null.
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt = Instant.now();
 
     public Long getId() {
         return id;

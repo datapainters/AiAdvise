@@ -43,8 +43,11 @@ public class LoginEvent {
     @Column(name = "user_agent")
     private String userAgent;
 
-    @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
-    private Instant createdAt;
+    // Set here rather than left to the column default, so the entity
+    // returned from save() -- and the create response built from it --
+    // carries the timestamp instead of null.
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt = Instant.now();
 
     public Long getId() {
         return id;

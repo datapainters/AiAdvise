@@ -71,8 +71,11 @@ public class AppUser {
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
 
-    @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
-    private Instant createdAt;
+    // Set here rather than left to the column default, so the entity
+    // returned from save() -- and the create response built from it --
+    // carries the timestamp instead of null.
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt = Instant.now();
 
     public boolean isAdmin() {
         return ROLE_ADMIN.equals(role);

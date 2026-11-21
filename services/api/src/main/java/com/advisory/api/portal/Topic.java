@@ -75,8 +75,11 @@ public class Topic {
     @Column(nullable = false)
     private String status = PROPOSED;
 
-    @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
-    private Instant createdAt;
+    // Set here rather than left to the column default, so the entity
+    // returned from save() -- and the create response built from it --
+    // carries the timestamp instead of null.
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt = Instant.now();
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();

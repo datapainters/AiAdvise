@@ -542,3 +542,56 @@ notification emails.
 7. Dates render `11/20/2026` in Clients and `2026-11-20` in Engagements.
 8. Sortable headers are plain `generic` elements, so sorting is not
    reachable from the keyboard.
+
+## Browser test sweep and UI pass (2026-11-21)
+
+Two halves. The **client portal** was driven in headless Chromium against
+the live site as `client3@schiesz.com` (QA Tester, client 1), after
+redeeming its invite. The **admin console** was driven against a local
+stack (Postgres 16 + the API jar on the `local` profile + Vite), because
+the invite issues a CLIENT account and admin screens need an ADMIN one.
+
+Records left on the live site by the test: topic 3 *QA: Data warehouse
+readiness* (now scheduled), topic 4 *QA: Topic to drop* (dropped), and
+appointment 2 on 2026-12-01 10:00 UTC (requested), which will also have
+sent the admin a meeting-request email.
+
+### Confirmed working
+
+Invite redemption and the 12-character rule, sign-in, add topic, drop
+topic, the booking flow end to end, the admin redirect for a client
+account, forced password change for the bootstrap admin, client and
+engagement create/edit, duplicate-email rejection (409), HTML5 email
+validation, filtering, sorting, paging, the client detail popup and all
+its tabs, portal login invites, the Meeting Manager's notes and confirm,
+editing a meeting's length, and the sign-in audit.
+
+### Fixed in this pass (web only, no API changes)
+
+| Was | Now |
+| --- | --- |
+| Admin was the marketing page with tabs | Full-screen console: sidebar navigation, page header, an **Overview** dashboard (client count, active engagements, meetings awaiting confirmation, upcoming meetings, and both lists clickable into the Meeting Manager), view kept in the URL (`/admin?view=clients`) |
+| No confirmation after a save | Toasts on create and edit |
+| Errors rendered `409 Conflict: {"timestamp":…}` | `friendlyError` in `api.ts` maps status to a sentence; a server `message`/`detail` still wins |
+| Admins landed on the empty client portal after sign-in and after the forced password change | They land on `/admin` |
+| Open item 5: 48 slots, midnight included, weekends open | Weekdays, 8:00 AM–5:30 PM local start times (`OPEN_HOUR`/`CLOSE_HOUR` in `scheduling.tsx`). The API still accepts any boundary, so admins can override |
+| Clients could book against a paused or closed engagement | Booking lists active engagements only, and preselects the one chosen on the topics tab |
+| Open item 6: stale notices across tab switches | Cleared on every view change; notices are dismissible |
+| Open item 7: `11/20/2026` vs `2026-11-20` | One format, `Nov 20, 2026`, with bare dates read as calendar days |
+| Open item 8: sort headers unreachable by keyboard | Each sortable header is a `<button>` |
+| `1 topics` | `plural()` helper |
+| Drop topic and cancel meeting had no confirmation | `confirm()` before both |
+| Native, mismatched selects and inputs | One control style: height, radius, chevron, focus ring; sentence-case labels; primary/secondary buttons |
+
+### Still open
+
+1. **`POST /api/topics` returns `createdAt: null`.** The row has a value
+   (the next GET shows it); the response is built before the insert
+   default comes back. Harmless today, wrong the moment the UI shows it.
+2. **Client names are not unique.** Two clients called *Northwind
+   Traders* with different emails are accepted. Either a unique index on
+   `lower(name)` or a "did you mean" warning in the form.
+3. **The server does not enforce business hours or active engagements**
+   for bookings — the UI does. Worth a check in the booking endpoint so
+   the rule holds for any caller.
+4. Items 1–4 of the 2026-11-20 list are untouched.

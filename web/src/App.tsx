@@ -16,6 +16,7 @@ import {
   useLocation,
   useNavigate,
   useParams,
+  useSearchParams,
 } from 'react-router-dom';
 import {
   appointmentColumns,
@@ -66,6 +67,7 @@ import {
   formatLength,
   formatRange,
   LENGTH_OPTIONS,
+  plural,
   statusLabel,
 } from './scheduling';
 import { ClientDetailModal, MeetingManager, Modal } from './admin-meetings';
@@ -424,8 +426,11 @@ function Login() {
     setBusy(true);
     setError(null);
     try {
-      setUser(await apiLogin(email, password));
-      navigate('/portal', { replace: true });
+      const signedIn = await apiLogin(email, password);
+      setUser(signedIn);
+      // Admins work from the console; sending them to an empty client
+      // portal first was a wasted click on every sign-in.
+      navigate(signedIn.role === 'ADMIN' ? '/admin' : '/portal', { replace: true });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -472,7 +477,7 @@ function Login() {
 }
 
 function Portal() {
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
 
   const [tab, setTab] = useState<'topics' | 'meetings'>('topics');
   const [engagements, setEngagements] = useState<Engagement[]>([]);
@@ -572,10 +577,26 @@ function Portal() {
   }
 
   const openTopics = topics.filter((t) => t.status === 'proposed');
+  // Paused and closed engagements stay visible for their history, but new
+  // meetings only go on live ones.
+  const bookable = engagements.filter((e) => e.status === 'active');
+  const upcoming = appointments.filter(
+    (a) => a.status !== 'cancelled' && a.status !== 'completed' && new Date(a.endsAt) > new Date(),
+  );
+  const firstName = user?.name.split(/\s+/)[0];
 
   return (
-    <main className="page">
-      <h1>Client portal</h1>
+    <main className="page portal">
+      <header className="screen-head">
+        <p className="eyebrow">Client portal</p>
+        <h1>{firstName ? `Welcome, ${firstName}` : 'Client portal'}</h1>
+        <p className="muted">
+          {openTopics.length > 0
+            ? `${plural(openTopics.length, 'open topic')} ready for a meeting`
+            : 'Add the topics you want covered, then request a meeting.'}
+          {upcoming.length > 0 && ` · ${plural(upcoming.length, 'upcoming meeting')}`}
+        </p>
+      </header>
 
       <div className="tabs" role="tablist">
         <button
@@ -585,6 +606,7 @@ function Portal() {
           onClick={() => setTab('topics')}
         >
           Session topics
+          {openTopics.length > 0 && <span className="tab-count">{openTopics.length}</span>}
         </button>
         <button
           role="tab"
@@ -593,11 +615,26 @@ function Portal() {
           onClick={() => setTab('meetings')}
         >
           Meetings
+          {upcoming.length > 0 && <span className="tab-count">{upcoming.length}</span>}
         </button>
       </div>
 
-      {error && <div className="error">{error}</div>}
-      {notice && <div className="notice">{notice}</div>}
+      {error && (
+        <div className="error" role="alert">
+          <span>{error}</span>
+          <button className="dismiss" aria-label="Dismiss" onClick={() => setError(null)}>
+            &times;
+          </button>
+        </div>
+      )}
+      {notice && (
+        <div className="notice" role="status">
+          <span>{notice}</span>
+          <button className="dismiss" aria-label="Dismiss" onClick={() => setNotice(null)}>
+            &times;
+          </button>
+        </div>
+      )}
 
       {engagements.length === 0 ? (
         <div className="notice">
@@ -627,23 +664,27 @@ function Portal() {
             </label>
           )}
 
-          <div className="tool-toolbar">
-            <button onClick={() => setAdding((v) => !v)}>
-              {adding ? 'Cancel' : 'Add topic'}
+          <div className="toolbar">
+            <button className="btn btn-primary" onClick={() => setAdding((v) => !v)}>
+              {adding ? 'Close form' : '+ Add topic'}
             </button>
             <button
+              className="btn"
               onClick={() => {
                 setBooking(true);
+                setNotice(null);
                 setTab('meetings');
               }}
-              disabled={openTopics.length === 0}
+              disabled={openTopics.length === 0 || bookable.length === 0}
+              title={openTopics.length === 0 ? 'Add a topic first' : undefined}
             >
               Schedule a meeting
             </button>
           </div>
 
           {adding && (
-            <form onSubmit={onAdd} className="stack-form inset">
+            <form onSubmit={onAdd} className="stack-form panel">
+              <h2 className="panel-title">New topic</h2>
               <label>
                 Title
                 <input
@@ -684,12 +725,27 @@ function Portal() {
                   <option value={5}>5 &mdash; whenever</option>
                 </select>
               </label>
-              <button type="submit">Add topic</button>
+              <div className="button-row">
+                <button type="submit" className="btn btn-primary">
+                  Add topic
+                </button>
+                <button type="button" className="btn" onClick={() => setAdding(false)}>
+                  Cancel
+                </button>
+              </div>
             </form>
           )}
 
           {topics.length === 0 ? (
-            <p className="empty">No topics yet.</p>
+            <div className="empty-state">
+              <p>
+                <strong>No topics yet.</strong>
+              </p>
+              <p className="muted">
+                Add the first thing you want covered. A clear desired outcome helps us
+                prepare before the call.
+              </p>
+            </div>
           ) : (
             <ul className="topics detailed">
               {topics.map((t) => (
@@ -702,7 +758,14 @@ function Portal() {
                         is on an agenda, removing it is a scheduling decision
                         and belongs with the meeting. */}
                     {t.status === 'proposed' && (
-                      <button className="linklike" onClick={() => onDropTopic(t)}>
+                      <button
+                        className="linklike"
+                        onClick={() => {
+                          if (window.confirm(`Drop “${t.title}”? It will not go on a meeting.`)) {
+                            onDropTopic(t);
+                          }
+                        }}
+                      >
                         Drop
                       </button>
                     )}
@@ -725,15 +788,25 @@ function Portal() {
             enough to cover them.
           </p>
 
-          <div className="tool-toolbar">
-            <button onClick={() => setBooking((v) => !v)}>
-              {booking ? 'Cancel' : 'Schedule a meeting'}
-            </button>
-          </div>
+          {!booking && (
+            <div className="toolbar">
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setBooking(true);
+                  setNotice(null);
+                }}
+                disabled={bookable.length === 0}
+              >
+                Schedule a meeting
+              </button>
+            </div>
+          )}
 
           {booking && (
             <BookingForm
-              engagements={engagements}
+              engagements={bookable}
+              initialEngagementId={selected}
               openTopics={topics.filter((t) => t.status === 'proposed')}
               onCancel={() => setBooking(false)}
               onError={onError}
@@ -747,7 +820,12 @@ function Portal() {
           )}
 
           {appointments.length === 0 ? (
-            <p className="empty">Nothing scheduled yet.</p>
+            <div className="empty-state">
+              <p>
+                <strong>Nothing scheduled yet.</strong>
+              </p>
+              <p className="muted">Request a meeting and we will confirm the time.</p>
+            </div>
           ) : (
             <div className="grid-wrap">
               <table className="grid">
@@ -767,7 +845,7 @@ function Portal() {
                       <td className="nowrap">{formatRange(a.startsAt, a.endsAt)}</td>
                       <td className="nowrap">{formatLength(a.durationMinutes)}</td>
                       <td>{a.engagementTitle}</td>
-                      <td>{a.topicCount} topics</td>
+                      <td>{plural(a.topicCount, 'topic')}</td>
                       <td>
                         <span className={`status status-ap-${a.status}`}>
                           {statusLabel(a.status)}
@@ -777,7 +855,11 @@ function Portal() {
                         {a.status !== 'cancelled' && a.status !== 'completed' && (
                           <button
                             className="linklike"
-                            onClick={() => onCancelMeeting(a.id)}
+                            onClick={() => {
+                              if (window.confirm('Cancel this meeting? Its topics go back to your list.')) {
+                                onCancelMeeting(a.id);
+                              }
+                            }}
                           >
                             Cancel
                           </button>
@@ -833,7 +915,7 @@ function ChangePassword({ forced }: { forced: boolean }) {
       setCurrent('');
       setNext('');
       setConfirm('');
-      if (forced) navigate('/portal', { replace: true });
+      if (forced) navigate(updated.role === 'ADMIN' ? '/admin' : '/portal', { replace: true });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -959,7 +1041,7 @@ function InviteIssued({
   );
 }
 
-type AdminTab = 'clients' | 'engagements' | 'appointments' | 'system';
+type AdminView = 'overview' | 'clients' | 'engagements' | 'appointments' | 'signins' | 'logins';
 type SystemTool = 'signins' | 'logins';
 
 /**
@@ -1247,6 +1329,278 @@ const SYSTEM_TOOLS: { id: SystemTool; title: string; blurb: string }[] = [
     blurb: 'Issue a login for a client contact, and see every account with its last sign-in.',
   },
 ];
+
+const ADMIN_VIEWS: {
+  id: AdminView;
+  label: string;
+  group: string;
+  icon: IconName;
+  blurb: string;
+}[] = [
+  {
+    id: 'overview',
+    label: 'Overview',
+    group: 'Workspace',
+    icon: 'home',
+    blurb: 'What needs you today: meetings awaiting confirmation and the week ahead.',
+  },
+  {
+    id: 'clients',
+    label: 'Clients',
+    group: 'Workspace',
+    icon: 'building',
+    blurb: 'Every client company. Click a row for its engagements, meetings, users and notes.',
+  },
+  {
+    id: 'engagements',
+    label: 'Engagements',
+    group: 'Workspace',
+    icon: 'briefcase',
+    blurb: 'Open, paused and closed engagements across all clients.',
+  },
+  {
+    id: 'appointments',
+    label: 'Meetings',
+    group: 'Workspace',
+    icon: 'calendar',
+    blurb: 'Requested and confirmed meetings. Click a row to run the meeting and take notes.',
+  },
+  {
+    id: 'logins',
+    label: 'Portal logins',
+    group: 'System',
+    icon: 'users',
+    blurb: SYSTEM_TOOLS[1].blurb,
+  },
+  {
+    id: 'signins',
+    label: 'Sign-in activity',
+    group: 'System',
+    icon: 'shield',
+    blurb: SYSTEM_TOOLS[0].blurb,
+  },
+];
+
+const ADMIN_NAV_GROUPS: { title: string; items: AdminView[] }[] = [
+  { title: 'Workspace', items: ['overview', 'clients', 'engagements', 'appointments'] },
+  { title: 'System', items: ['logins', 'signins'] },
+];
+
+type IconName = 'home' | 'building' | 'briefcase' | 'calendar' | 'users' | 'shield';
+
+/** Small stroke icons for the admin sidebar; inline so nothing is fetched. */
+function NavIcon({ name }: { name: IconName }) {
+  const paths: Record<IconName, ReactNode> = {
+    home: <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
+    building: (
+      <>
+        <rect x="4" y="3" width="16" height="18" rx="1" />
+        <path d="M9 7h1M14 7h1M9 11h1M14 11h1M9 15h1M14 15h1M10 21v-3h4v3" />
+      </>
+    ),
+    briefcase: (
+      <>
+        <rect x="3" y="7" width="18" height="13" rx="1.5" />
+        <path d="M8 7V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M3 12h18" />
+      </>
+    ),
+    calendar: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="1.5" />
+        <path d="M3 10h18M8 3v4M16 3v4" />
+      </>
+    ),
+    users: (
+      <>
+        <circle cx="9" cy="8" r="3.5" />
+        <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" />
+      </>
+    ),
+    shield: <path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6z M9 12l2 2 4-4" />,
+  };
+  return (
+    <svg
+      className="nav-icon"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {paths[name]}
+    </svg>
+  );
+}
+
+function initials(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]!.toUpperCase())
+      .join('') || '?'
+  );
+}
+
+/**
+ * One date style everywhere in the admin: "Nov 20, 2026". Accepts an ISO
+ * instant or a bare yyyy-mm-dd; a bare date is read as a calendar day, not
+ * as UTC midnight, so it never slips to the previous day west of Greenwich.
+ */
+function formatDay(value: string | null | undefined): string {
+  if (!value) return '—';
+  const bare = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const d = bare
+    ? new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, Number(value.slice(8, 10)))
+    : new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * The admin landing page. Four numbers worth knowing on arrival and the two
+ * lists that usually need action: requests to confirm, and what is coming up.
+ */
+function Overview({
+  refreshKey,
+  onError,
+  onGo,
+  onOpenMeeting,
+}: {
+  refreshKey: number;
+  onError: (e: unknown) => void;
+  onGo: (v: AdminView) => void;
+  onOpenMeeting: (id: number) => void;
+}) {
+  const [data, setData] = useState<{
+    clients: number;
+    active: number;
+    pending: GridPage<AdminAppointment>;
+    upcoming: GridPage<AdminAppointment>;
+  } | null>(null);
+
+  useEffect(() => {
+    const now = new Date().toISOString();
+    Promise.all([
+      listClients('size=1'),
+      listAllEngagements('filter=status:eq:active&size=1'),
+      listAdminAppointments('filter=status:eq:requested&sort=startsAt:asc&size=8'),
+      listAdminAppointments(
+        `filter=status:eq:confirmed&filter=startsAt:gte:${encodeURIComponent(now)}&sort=startsAt:asc&size=8`,
+      ),
+    ])
+      .then(([c, e, pending, upcoming]) =>
+        setData({ clients: c.total, active: e.total, pending, upcoming }),
+      )
+      .catch(onError);
+  }, [refreshKey, onError]);
+
+  if (!data) {
+    return (
+      <div className="kpis">
+        {[0, 1, 2, 3].map((i) => (
+          <div className="kpi skeleton" key={i} />
+        ))}
+      </div>
+    );
+  }
+
+  const kpis: { label: string; value: number; hint: string; view: AdminView; tone?: string }[] = [
+    { label: 'Clients', value: data.clients, hint: 'All client companies', view: 'clients' },
+    {
+      label: 'Active engagements',
+      value: data.active,
+      hint: 'Currently open',
+      view: 'engagements',
+    },
+    {
+      label: 'Awaiting confirmation',
+      value: data.pending.total,
+      hint: data.pending.total ? 'Needs your reply' : 'Nothing waiting',
+      view: 'appointments',
+      tone: data.pending.total ? 'warn' : undefined,
+    },
+    {
+      label: 'Upcoming meetings',
+      value: data.upcoming.total,
+      hint: 'Confirmed, from now on',
+      view: 'appointments',
+    },
+  ];
+
+  const list = (rows: AdminAppointment[], empty: string) =>
+    rows.length === 0 ? (
+      <p className="panel-empty">{empty}</p>
+    ) : (
+      <ul className="meeting-list">
+        {rows.map((a) => (
+          <li key={a.id}>
+            <button onClick={() => onOpenMeeting(a.id)}>
+              <span className="ml-date">
+                <b>{new Date(a.startsAt).toLocaleDateString(undefined, { day: 'numeric' })}</b>
+                <small>
+                  {new Date(a.startsAt).toLocaleDateString(undefined, { month: 'short' })}
+                </small>
+              </span>
+              <span className="ml-main">
+                <strong>{a.clientName}</strong>
+                <span className="muted">
+                  {a.engagementTitle} · {formatRange(a.startsAt, a.endsAt)}
+                </span>
+              </span>
+              <span className="ml-meta">
+                {plural(a.topicCount, 'topic')} · {formatLength(a.durationMinutes)}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+
+  return (
+    <>
+      <div className="kpis">
+        {kpis.map((k) => (
+          <button
+            key={k.label}
+            className={k.tone ? `kpi kpi-${k.tone}` : 'kpi'}
+            onClick={() => onGo(k.view)}
+          >
+            <span className="kpi-label">{k.label}</span>
+            <span className="kpi-value">{k.value}</span>
+            <span className="kpi-hint">{k.hint}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="panels">
+        <section className="panel-card">
+          <header>
+            <h2>Awaiting confirmation</h2>
+            <button className="linklike" onClick={() => onGo('appointments')}>
+              All meetings →
+            </button>
+          </header>
+          {list(data.pending.rows, 'No meeting requests waiting. You are all caught up.')}
+        </section>
+        <section className="panel-card">
+          <header>
+            <h2>Coming up</h2>
+            <button className="linklike" onClick={() => onGo('appointments')}>
+              All meetings →
+            </button>
+          </header>
+          {list(data.upcoming.rows, 'No confirmed meetings ahead.')}
+        </section>
+      </div>
+    </>
+  );
+}
 
 /**
  * One list tab: filter bar, sortable grid, pager.
@@ -1600,9 +1954,30 @@ function AppointmentForm({
 function Admin() {
   const { signOut } = useAuth();
 
-  const [tab, setTab] = useState<AdminTab>('clients');
-  const [tool, setTool] = useState<SystemTool | null>(null);
+  const { user } = useAuth();
+  // The view lives in the URL so a refresh, a bookmark or the back button
+  // lands on the same screen.
+  const [params, setParams] = useSearchParams();
+  const view: AdminView = ADMIN_VIEWS.some((v) => v.id === params.get('view'))
+    ? (params.get('view') as AdminView)
+    : 'overview';
+  const [navOpen, setNavOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 3500);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
+  function go(next: AdminView) {
+    setParams(next === 'overview' ? {} : { view: next });
+    // A notice about the last screen is noise on the next one.
+    setError(null);
+    setIssued(null);
+    setNavOpen(false);
+  }
   const [issued, setIssued] = useState<CreatedUser | null>(null);
 
   // Column metadata comes from the server so the dropdowns can never offer
@@ -1659,38 +2034,105 @@ function Admin() {
   const loadEngagements = useCallback((q: string) => listAllEngagements(q), []);
   const loadAppointments = useCallback((q: string) => listAdminAppointments(q), []);
 
-  const activeTool = SYSTEM_TOOLS.find((t) => t.id === tool);
-  const tabs: AdminTab[] = ['clients', 'engagements', 'appointments', 'system'];
-  const label = (t: AdminTab) => t[0].toUpperCase() + t.slice(1);
+  const current = ADMIN_VIEWS.find((v) => v.id === view)!;
 
   return (
-    <main className="page">
-      <header className="screen-head">
-        <h1>Admin</h1>
-        <p className="muted">Clients, engagements, meetings and system tools.</p>
-      </header>
+    <div className="admin-shell">
+      <aside className={navOpen ? 'admin-side open' : 'admin-side'}>
+        <div className="admin-brand">
+          <Link to="/" className="admin-brand-mark">
+            Data Painters
+          </Link>
+          <span className="admin-brand-sub">Admin console</span>
+        </div>
+        <button
+          className="admin-nav-toggle"
+          aria-expanded={navOpen}
+          onClick={() => setNavOpen((v) => !v)}
+        >
+          {current.label}
+          <span aria-hidden="true">▾</span>
+        </button>
+        <nav className="admin-nav" aria-label="Admin">
+          {ADMIN_NAV_GROUPS.map((g) => (
+            <div className="admin-nav-group" key={g.title}>
+              <span className="admin-nav-title">{g.title}</span>
+              {g.items.map((id) => {
+                const v = ADMIN_VIEWS.find((x) => x.id === id)!;
+                return (
+                  <button
+                    key={id}
+                    className={view === id ? 'admin-nav-item on' : 'admin-nav-item'}
+                    aria-current={view === id ? 'page' : undefined}
+                    onClick={() => go(id)}
+                  >
+                    <NavIcon name={v.icon} />
+                    {v.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+        <div className="admin-side-foot">
+          <Link to="/portal" className="admin-side-link">
+            Client portal view
+          </Link>
+          <Link to="/" className="admin-side-link">
+            Public site
+          </Link>
+          {user && (
+            <div className="admin-me">
+              <span className="avatar" aria-hidden="true">
+                {initials(user.name)}
+              </span>
+              <span className="admin-me-text">
+                <strong>{user.name}</strong>
+                <small>{user.email}</small>
+              </span>
+            </div>
+          )}
+          <div className="admin-me-actions">
+            <Link to="/account">Account</Link>
+            <button className="linklike" onClick={signOut}>
+              Sign out
+            </button>
+          </div>
+        </div>
+      </aside>
 
-      <div className="tabs" role="tablist">
-        {tabs.map((t) => (
-          <button
-            key={t}
-            role="tab"
-            aria-selected={tab === t}
-            className={tab === t ? 'tab tab-on' : 'tab'}
-            onClick={() => {
-              setTab(t);
-              setTool(null);
-            }}
-          >
-            {label(t)}
+      <main className="admin-main">
+        <header className="admin-top">
+          <div>
+            <p className="crumbs">
+              Admin <span aria-hidden="true">/</span> {current.group}
+            </p>
+            <h1>{current.label}</h1>
+            <p className="muted">{current.blurb}</p>
+          </div>
+        </header>
+
+        <div className="admin-content">
+      {error && (
+        <div className="error" role="alert">
+          <span>{error}</span>
+          <button className="dismiss" aria-label="Dismiss" onClick={() => setError(null)}>
+            &times;
           </button>
-        ))}
-      </div>
-
-      {error && <div className="error">{error}</div>}
+        </div>
+      )}
       {issued && <InviteIssued issued={issued} onDismiss={() => setIssued(null)} />}
 
-      {tab === 'clients' && (
+      {view === 'overview' && (
+        <Overview
+          refreshKey={refresh}
+          onError={onError}
+          onGo={go}
+          onOpenMeeting={(id) => setOpenMeeting(id)}
+        />
+      )}
+
+      {view === 'clients' && (
         <ListTab<Client>
           columns={cols.clients}
           load={loadClients}
@@ -1708,7 +2150,7 @@ function Admin() {
               label: 'Added',
               render: (c) => (
                 <span className="nowrap">
-                  {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '--'}
+                  {formatDay(c.createdAt)}
                 </span>
               ),
             },
@@ -1734,7 +2176,7 @@ function Admin() {
         />
       )}
 
-      {tab === 'engagements' && (
+      {view === 'engagements' && (
         <ListTab<AdminEngagement>
           columns={cols.engagements}
           load={loadEngagements}
@@ -1759,7 +2201,7 @@ function Admin() {
             {
               field: 'startedOn',
               label: 'Started',
-              render: (e) => <span className="nowrap">{e.startedOn ?? '--'}</span>,
+              render: (e) => <span className="nowrap">{formatDay(e.startedOn)}</span>,
             },
             {
               field: 'actions',
@@ -1781,7 +2223,7 @@ function Admin() {
         />
       )}
 
-      {tab === 'appointments' && (
+      {view === 'appointments' && (
         <ListTab<AdminAppointment>
           columns={cols.appointments}
           load={loadAppointments}
@@ -1789,7 +2231,7 @@ function Admin() {
           defaultSort="startsAt:desc"
           addLabel="Add New"
           onAdd={() =>
-            setError('Meetings are booked by clients from the portal, or from a client’s detail screen.')
+            setToast('Meetings are booked by clients from the portal.')
           }
           onRowClick={(a) => setOpenMeeting(a.id)}
           rowClassName={(a) => (a.status === 'cancelled' ? 'row-bad' : undefined)}
@@ -1816,7 +2258,7 @@ function Admin() {
               type: 'number',
               render: (a) => (
                 <span className="nowrap">
-                  {a.notedCount}/{a.topicCount} noted
+                  {a.notedCount}/{plural(a.topicCount, 'topic')} noted
                 </span>
               ),
             },
@@ -1847,39 +2289,17 @@ function Admin() {
         />
       )}
 
-      {tab === 'system' && (
-        <section>
-          {tool === null ? (
-            <div className="cards">
-              {SYSTEM_TOOLS.map((t) => (
-                <button key={t.id} className="card" onClick={() => setTool(t.id)}>
-                  <span className="card-title">{t.title}</span>
-                  <span className="card-blurb">{t.blurb}</span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <>
-              <button className="linklike back" onClick={() => setTool(null)}>
-                &larr; System
-              </button>
-              <h2 className="section-head">{activeTool?.title}</h2>
-
-              {tool === 'signins' && <SignInActivity onError={onError} />}
-              {tool === 'logins' && (
-                <PortalLogins
-                  clients={allClients}
-                  users={users}
-                  onError={onError}
-                  onCreated={(created) => {
-                    setIssued(created);
-                    bump();
-                  }}
-                />
-              )}
-            </>
-          )}
-        </section>
+      {view === 'signins' && <SignInActivity onError={onError} />}
+      {view === 'logins' && (
+        <PortalLogins
+          clients={allClients}
+          users={users}
+          onError={onError}
+          onCreated={(created) => {
+            setIssued(created);
+            bump();
+          }}
+        />
       )}
 
       {editClient && (
@@ -1887,7 +2307,8 @@ function Admin() {
           existing={editClient === 'new' ? undefined : editClient}
           onCancel={() => setEditClient(null)}
           onError={onError}
-          onDone={() => {
+          onDone={(c) => {
+            setToast(editClient === 'new' ? `Client “${c.name}” created` : `Saved “${c.name}”`);
             setEditClient(null);
             bump();
           }}
@@ -1900,7 +2321,10 @@ function Admin() {
           clients={allClients}
           onCancel={() => setEditEngagement(null)}
           onError={onError}
-          onDone={() => {
+          onDone={(e) => {
+            setToast(
+              editEngagement === 'new' ? `Engagement “${e.title}” opened` : `Saved “${e.title}”`,
+            );
             setEditEngagement(null);
             bump();
           }}
@@ -1913,6 +2337,7 @@ function Admin() {
           onCancel={() => setEditAppointment(null)}
           onError={onError}
           onDone={() => {
+            setToast('Meeting updated');
             setEditAppointment(null);
             bump();
           }}
@@ -1943,7 +2368,16 @@ function Admin() {
           onChanged={bump}
         />
       )}
-    </main>
+        </div>
+      </main>
+
+      {toast && (
+        <div className="toast" role="status">
+          <span className="toast-dot" aria-hidden="true" />
+          {toast}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2074,10 +2508,15 @@ function AcceptInvite() {
 /* ------------------------------------------------------------------ shell */
 
 export default function App() {
+  // The admin console is a full-screen application with its own navigation;
+  // the marketing header and footer would only take space from it.
+  const { pathname } = useLocation();
+  const isConsole = pathname.startsWith('/admin');
+
   return (
     <AuthProvider>
-      <div className="app">
-        <Nav />
+      <div className={isConsole ? 'app app-console' : 'app'}>
+        {!isConsole && <Nav />}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/approach" element={<Approach />} />
@@ -2107,9 +2546,15 @@ export default function App() {
           />
           <Route path="*" element={<main className="page"><h1>Not found</h1></main>} />
         </Routes>
-        <footer className="footer">
-          <span>&copy; {new Date().getFullYear()} Data Painters</span>
-        </footer>
+        {!isConsole && (
+          <footer className="footer">
+            <span>&copy; {new Date().getFullYear()} Data Painters</span>
+            <span className="footer-links">
+              <Link to="/approach">Approach</Link>
+              <Link to="/portal">Client portal</Link>
+            </span>
+          </footer>
+        )}
       </div>
     </AuthProvider>
   );

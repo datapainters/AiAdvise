@@ -17,6 +17,21 @@ import {
 
 export const BLOCK_MINUTES = 30;
 
+/**
+ * Bookable hours, in the client's local time. Start times run from the
+ * opening hour up to the last half hour before close; weekends are closed.
+ * The server still accepts any 30-minute boundary, so an admin editing a
+ * meeting can place it outside these hours deliberately.
+ */
+export const OPEN_HOUR = 8;
+export const CLOSE_HOUR = 18;
+
+export function isWeekend(dayIso: string): boolean {
+  const [y, m, d] = dayIso.split('-').map(Number);
+  const dow = new Date(y, m - 1, d).getDay();
+  return dow === 0 || dow === 6;
+}
+
 /** Offered meeting lengths. Whole blocks, up to half a day. */
 export const LENGTH_OPTIONS = [30, 60, 90, 120, 150, 180, 240];
 
@@ -86,6 +101,11 @@ export function todayIso(): string {
   return local.toISOString().slice(0, 10);
 }
 
+/** "1 topic", "3 topics". */
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
 export function statusLabel(status: string): string {
   return status === 'requested' ? 'awaiting confirmation' : status;
 }
@@ -103,16 +123,22 @@ export function BookingForm({
   onBooked,
   onError,
   onCancel,
+  initialEngagementId,
 }: {
+  initialEngagementId?: number | null;
   engagements: Engagement[];
   openTopics: Topic[];
   onBooked: (a: Appointment) => void;
   onError: (e: unknown) => void;
   onCancel: () => void;
 }) {
-  const [engagementId, setEngagementId] = useState<string>(
-    engagements.length === 1 ? String(engagements[0].id) : '',
-  );
+  const [engagementId, setEngagementId] = useState<string>(() => {
+    if (engagements.length === 1) return String(engagements[0].id);
+    if (initialEngagementId && engagements.some((e) => e.id === initialEngagementId)) {
+      return String(initialEngagementId);
+    }
+    return '';
+  });
   const [selected, setSelected] = useState<number[]>([]);
   const [day, setDay] = useState(todayIso());
   const [slot, setSlot] = useState('');
@@ -128,8 +154,13 @@ export function BookingForm({
     [engagementId, openTopics],
   );
 
+  const closed = isWeekend(day);
   const slots = useMemo(() => {
-    const all = slotsForDay(day);
+    if (isWeekend(day)) return [];
+    const all = slotsForDay(day).filter((s) => {
+      const h = new Date(s.value).getHours();
+      return h >= OPEN_HOUR && h < CLOSE_HOUR;
+    });
     // Hide times already gone, so today behaves like every other day.
     return day === todayIso() ? all.filter((s) => new Date(s.value) > new Date()) : all;
   }, [day]);
@@ -176,7 +207,7 @@ export function BookingForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="stack-form inset">
+    <form onSubmit={onSubmit} className="stack-form panel">
       <label>
         Engagement
         <select
@@ -259,20 +290,29 @@ export function BookingForm({
         </label>
       </div>
 
-      {slots.length === 0 && (
-        <p className="hint">No remaining start times today. Pick another date.</p>
+      {closed ? (
+        <p className="hint hint-warn">We meet Monday to Friday. Pick a weekday.</p>
+      ) : (
+        slots.length === 0 && (
+          <p className="hint hint-warn">No remaining start times today. Pick another date.</p>
+        )
       )}
 
       <p className="hint">
-        Meetings run in {BLOCK_MINUTES}-minute blocks. We will confirm the time; you
-        will see the status change here.
+        Start times are offered on weekdays from {OPEN_HOUR}:00 AM to{' '}
+        {CLOSE_HOUR - 13}:30 PM your time, in {BLOCK_MINUTES}-minute blocks. We will confirm the time; you will see the status
+        change here.
       </p>
 
       <div className="button-row">
-        <button type="submit" disabled={busy || !slot || !engagementId}>
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={busy || !slot || !engagementId}
+        >
           {busy ? 'Requesting...' : 'Request meeting'}
         </button>
-        <button type="button" className="linklike" onClick={onCancel}>
+        <button type="button" className="btn" onClick={onCancel}>
           Cancel
         </button>
       </div>

@@ -229,7 +229,11 @@ export function DataGrid<T>({
   }
 
   if (rows.length === 0) {
-    return <p className="empty">{empty}</p>;
+    return (
+      <div className="empty-state">
+        <p>{empty}</p>
+      </div>
+    );
   }
 
   return (
@@ -251,13 +255,17 @@ export function DataGrid<T>({
                     .filter(Boolean)
                     .join(' ')}
                   aria-sort={active ? (sortDir === 'desc' ? 'descending' : 'ascending') : 'none'}
-                  onClick={sortable ? () => toggle(c.field) : undefined}
                 >
-                  {c.label}
-                  {sortable && (
-                    <span className="sort-caret" aria-hidden="true">
-                      {active ? (sortDir === 'desc' ? '▼' : '▲') : '↕'}
-                    </span>
+                  {sortable ? (
+                    // A real button, so sorting is reachable from the keyboard.
+                    <button type="button" className="th-sort" onClick={() => toggle(c.field)}>
+                      {c.label}
+                      <span className="sort-caret" aria-hidden="true">
+                        {active ? (sortDir === 'desc' ? '▼' : '▲') : '↕'}
+                      </span>
+                    </button>
+                  ) : (
+                    c.label
                   )}
                 </th>
               );

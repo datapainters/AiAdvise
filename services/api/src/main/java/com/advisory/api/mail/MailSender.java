@@ -41,6 +41,7 @@ public class MailSender {
     private final String configurationSet;
     private final String adminRecipient;
     private final String baseUrl;
+    private final String redirectTo;
 
     /** Created lazily so a disabled service needs no credentials. */
     private volatile SesV2Client client;
@@ -51,7 +52,8 @@ public class MailSender {
             @Value("${MAIL_FROM_NAME:Data Painters}") String fromName,
             @Value("${MAIL_CONFIGURATION_SET:}") String configurationSet,
             @Value("${MAIL_ADMIN_RECIPIENT:}") String adminRecipient,
-            @Value("${APP_BASE_URL:https://ai.datapainters.com}") String baseUrl) {
+            @Value("${APP_BASE_URL:https://ai.datapainters.com}") String baseUrl,
+            @Value("${MAIL_REDIRECT_TO:}") String redirectTo) {
 
         this.enabled = enabled;
         this.from = from;
@@ -59,6 +61,11 @@ public class MailSender {
         this.configurationSet = configurationSet;
         this.adminRecipient = adminRecipient;
         this.baseUrl = baseUrl;
+        this.redirectTo = redirectTo == null ? "" : redirectTo.trim();
+        if (!this.redirectTo.isEmpty()) {
+            log.warn("All outbound mail is redirected to {} (non-production environment)",
+                    this.redirectTo);
+        }
 
         if (enabled && from.isBlank()) {
             // Fail at startup rather than at the first send. A service that
@@ -93,6 +100,13 @@ public class MailSender {
         if (to == null || to.isBlank()) {
             log.warn("Skipping '{}': no recipient", subject);
             return false;
+        }
+
+        if (!redirectTo.isEmpty()) {
+            // A development copy must never mail real clients. Everything goes
+            // to one address, with the intended recipient kept in the subject.
+            subject = "[DEV for " + to + "] " + subject;
+            to = redirectTo;
         }
 
         if (!enabled) {

@@ -125,6 +125,15 @@ variable "bootstrap_admin_email" {
   default     = null
 }
 
+variable "media_allowed_origins" {
+  type        = list(string)
+  description = <<-EOT
+    Origins (https://host) whose pages upload to and read from the media
+    bucket directly, through presigned URLs. The site's own hostnames.
+  EOT
+  default     = []
+}
+
 variable "environment" {
   type        = map(string)
   description = "Plain environment variables for the container."
@@ -144,6 +153,7 @@ locals {
     {
       JWT_SECRET_ARN           = aws_secretsmanager_secret.jwt.arn
       DAILY_API_KEY_SECRET_ARN = aws_secretsmanager_secret.daily.arn
+      MEDIA_BUCKET             = aws_s3_bucket.media.id
     },
     var.bootstrap_admin_email == null ? {} : {
       BOOTSTRAP_ADMIN_SECRET_ARN = aws_secretsmanager_secret.bootstrap_admin[0].arn
@@ -202,6 +212,78 @@ resource "aws_secretsmanager_secret_version" "jwt" {
 resource "aws_secretsmanager_secret" "daily" {
   name        = "${var.project}/daily-api-key"
   description = "Daily.co REST API key for ${local.name} video meetings"
+}
+
+###############################################################################
+# Media bucket
+#
+# Templates, pre-recorded videos and images for the media library, and the
+# screenshots people share in meetings. Private: nothing is public, every
+# read and write is a short-lived presigned URL issued by the API after it
+# has checked who is asking. CORS lets the site's own pages PUT uploads and
+# GET files directly.
+###############################################################################
+
+resource "aws_s3_bucket" "media" {
+  bucket = "${var.project}-media-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_s3_bucket_public_access_block" "media" {
+  bucket                  = aws_s3_bucket.media.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "media" {
+  bucket = aws_s3_bucket.media.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_cors_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+  cors_rule {
+    allowed_methods = ["GET", "PUT", "HEAD"]
+    allowed_origins = var.media_allowed_origins
+    allowed_headers = ["Content-Type"]
+    max_age_seconds = 3600
+  }
+}
+
+# Screenshots from meetings are working material, not records: they go
+# after a year. Library items are kept until removed by hand.
+resource "aws_s3_bucket_lifecycle_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+  rule {
+    id     = "expire-meeting-shares"
+    status = "Enabled"
+    filter {
+      prefix = "meetings/"
+    }
+    expiration {
+      days = 365
+    }
+  }
+  rule {
+    id     = "abort-incomplete-uploads"
+    status = "Enabled"
+    filter {}
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 2
+    }
+  }
 }
 
 ###############################################################################
@@ -322,6 +404,22 @@ data "aws_iam_policy_document" "task" {
       ]
       resources = var.ses_send_resource_arns
     }
+  }
+
+  # The media library and in-meeting shares. The API only presigns URLs and
+  # checks that uploads landed; browsers move the bytes.
+  statement {
+    sid       = "MediaObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.media.arn}/*"]
+  }
+
+  statement {
+    sid       = "MediaList"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.media.arn]
   }
 
   # ECS Exec, so you can get a shell in a running task without a bastion.
@@ -526,6 +624,10 @@ output "service_name" {
 
 output "security_group_id" {
   value = aws_security_group.api.id
+}
+
+output "media_bucket" {
+  value = aws_s3_bucket.media.id
 }
 
 output "log_group_name" {

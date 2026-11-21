@@ -124,6 +124,92 @@ public class CostService {
         return new CostReport(f, t, options.videoCostRate().toPlainString(), rows, totals);
     }
 
+    /* ---------------------------------------------------- video billing */
+
+    public record VideoBillingRow(Long clientId, String clientName, String month, int meetings,
+            int sessions, long callMinutes, long participantMinutes, long billedCents,
+            long videoCostCents) {}
+
+    public record VideoBillingReport(LocalDate from, LocalDate to, String videoRatePerMinute,
+            List<String> months, List<VideoBillingRow> rows, List<VideoBillingRow> clientTotals,
+            List<VideoBillingRow> monthTotals, VideoBillingRow total) {}
+
+    /**
+     * What each customer was billed per month for meetings held over video,
+     * with the call time and the video cost behind it. A meeting counts when
+     * its room recorded at least one call; the month is the meeting's month
+     * in the business's time zone. Billed is the live charge on that meeting.
+     */
+    public VideoBillingReport videoBilling(LocalDate from, LocalDate to) {
+        LocalDate f = from == null ? LocalDate.now(zone).withDayOfYear(1) : from;
+        LocalDate t = to == null ? LocalDate.now(zone).withMonth(12).withDayOfMonth(31) : to;
+        if (t.isBefore(f)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The end date is before the start date");
+        }
+        Instant fi = f.atStartOfDay(zone).toInstant();
+        Instant ti = t.plusDays(1).atStartOfDay(zone).toInstant();
+
+        List<VideoBillingRow> rows = jdbc.sql("""
+                WITH used AS (
+                  SELECT a.id, a.client_id,
+                         to_char(a.starts_at AT TIME ZONE :tz, 'YYYY-MM') AS month,
+                         count(v.id) AS sessions,
+                         COALESCE(SUM(v.duration_seconds) FILTER (WHERE v.max_participants >= 2), 0) AS call_seconds,
+                         COALESCE(SUM(v.participant_seconds), 0) AS p_seconds
+                  FROM appointment a JOIN video_session v ON v.appointment_id = a.id
+                  WHERE a.starts_at >= :fi AND a.starts_at < :ti
+                  GROUP BY a.id, a.client_id, month
+                )
+                SELECT u.client_id, c.name, u.month, count(*) AS meetings,
+                       SUM(u.sessions) AS sessions, SUM(u.call_seconds) AS call_seconds,
+                       SUM(u.p_seconds) AS p_seconds,
+                       COALESCE(SUM((SELECT SUM(ch.amount_cents) FROM charge ch
+                                     WHERE ch.appointment_id = u.id AND ch.voided_at IS NULL)), 0) AS billed
+                FROM used u JOIN client c ON c.id = u.client_id
+                GROUP BY u.client_id, c.name, u.month
+                ORDER BY c.name, u.month
+                """)
+                .param("tz", zone.getId())
+                .param("fi", java.sql.Timestamp.from(fi)).param("ti", java.sql.Timestamp.from(ti))
+                .query((rs, i) -> {
+                    long ps = rs.getLong("p_seconds");
+                    return new VideoBillingRow(rs.getLong("client_id"), rs.getString("name"),
+                            rs.getString("month"), rs.getInt("meetings"), rs.getInt("sessions"),
+                            (rs.getLong("call_seconds") + 59) / 60, (ps + 59) / 60,
+                            rs.getLong("billed"), videoCents(ps));
+                }).list();
+
+        List<String> months = new ArrayList<>();
+        for (LocalDate m = f.withDayOfMonth(1); !m.isAfter(t); m = m.plusMonths(1)) {
+            months.add(String.format("%d-%02d", m.getYear(), m.getMonthValue()));
+        }
+
+        java.util.Map<Long, VideoBillingRow> byClient = new java.util.LinkedHashMap<>();
+        java.util.Map<String, VideoBillingRow> byMonth = new java.util.TreeMap<>();
+        for (VideoBillingRow r : rows) {
+            byClient.merge(r.clientId(), new VideoBillingRow(r.clientId(), r.clientName(), null,
+                    r.meetings(), r.sessions(), r.callMinutes(), r.participantMinutes(),
+                    r.billedCents(), r.videoCostCents()), CostService::add);
+            byMonth.merge(r.month(), new VideoBillingRow(null, null, r.month(), r.meetings(),
+                    r.sessions(), r.callMinutes(), r.participantMinutes(), r.billedCents(),
+                    r.videoCostCents()), CostService::add);
+        }
+        VideoBillingRow total = rows.stream().reduce(
+                new VideoBillingRow(null, "Total", null, 0, 0, 0, 0, 0, 0), CostService::add);
+        List<VideoBillingRow> clientTotals = new ArrayList<>(byClient.values());
+        clientTotals.sort(Comparator.comparingLong(VideoBillingRow::billedCents).reversed());
+        return new VideoBillingReport(f, t, options.videoCostRate().toPlainString(), months, rows,
+                clientTotals, new ArrayList<>(byMonth.values()), total);
+    }
+
+    private static VideoBillingRow add(VideoBillingRow a, VideoBillingRow b) {
+        return new VideoBillingRow(a.clientId(), a.clientName(), a.month(),
+                a.meetings() + b.meetings(), a.sessions() + b.sessions(),
+                a.callMinutes() + b.callMinutes(), a.participantMinutes() + b.participantMinutes(),
+                a.billedCents() + b.billedCents(), a.videoCostCents() + b.videoCostCents());
+    }
+
     /* ------------------------------------------------------------- detail */
 
     public record VideoLine(String sessionId, Long appointmentId, Instant startedAt,

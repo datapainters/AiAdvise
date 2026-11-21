@@ -42,6 +42,15 @@ public class VideoService {
     private final AppointmentRepository appointments;
     private final JdbcClient jdbc;
 
+    private String roomPrefix = "dp";
+
+    /** Keeps a development copy's rooms apart from production's in one Daily account. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRoomPrefix(
+            @org.springframework.beans.factory.annotation.Value("${VIDEO_ROOM_PREFIX:dp}") String p) {
+        this.roomPrefix = p == null || p.isBlank() ? "dp" : p.trim();
+    }
+
     public VideoService(DailyClient daily, AppointmentRepository appointments, JdbcClient jdbc) {
         this.daily = daily;
         this.appointments = appointments;
@@ -209,8 +218,8 @@ public class VideoService {
         return new CallTime((int) ((seconds + 59) / 60), counted, ignored);
     }
 
-    private static String newName(Appointment a) {
-        StringBuilder sb = new StringBuilder("dp-m").append(a.getId()).append('-');
+    private String newName(Appointment a) {
+        StringBuilder sb = new StringBuilder(roomPrefix).append("-m").append(a.getId()).append('-');
         for (int i = 0; i < 8; i++) {
             sb.append(ALPHABET[RANDOM.nextInt(ALPHABET.length)]);
         }

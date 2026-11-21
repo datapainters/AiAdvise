@@ -1,0 +1,222 @@
+name: Deploy environment
+
+# Reusable: deploy one environment (dev or prod) from the commit checked out.
+# Called by deploy-dev.yml (every merge to main) and deploy.yml (production,
+# by hand). Order matters:
+#   1. build and push an immutable image
+#   2. terraform apply (brings the ECS service onto the new image, runs any
+#      infrastructure change, and only then is the API live)
+#   3. build the front end against the live API URL and sync it to S3
+#   4. invalidate CloudFront
+#
+# Step 3 depends on step 2's output, which is why the front end is built here
+# rather than in CI: the API base URL is not known until the infrastructure
+# exists.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Terraform environment directory under infra/envs (dev or prod).
+        type: string
+        required: true
+      github_environment:
+        description: GitHub environment, for its protection rules and the OIDC subject.
+        type: string
+        required: true
+      site_env:
+        description: Shown by the front end; anything but production gets a banner.
+        type: string
+        required: true
+      replace_api_service:
+        type: boolean
+        default: false
+
+# Never run two deploys at once; the second would fight the first for the
+# Terraform state lock and lose in a confusing way.
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-2
+  TF_VERSION: 1.14.3
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.github_environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ---------------------------------------------------------------- image
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Production promotes the image dev already built and tested for this
+      # commit. Tags are immutable in ECR, so pushing it again would fail.
+      - name: Check for an existing image
+        id: existing
+        run: |
+          if aws ecr describe-images --repository-name "${{ vars.PROJECT_NAME }}/api" \
+               --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Image ${{ github.sha }} already exists; reusing it."
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push API image
+        id: image
+        if: steps.existing.outputs.found != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: services/api
+          push: true
+          # Tagged by commit SHA, never :latest. The ECR repository is set to
+          # IMMUTABLE, so a tag always means exactly one image -- which is
+          # what makes a rollback a one-line variable change.
+          tags: ${{ steps.ecr.outputs.registry }}/${{ vars.PROJECT_NAME }}/api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      # ------------------------------------------------------------ terraform
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Init
+        working-directory: infra/envs/${{ inputs.environment }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
+
+      - name: Apply
+        working-directory: infra/envs/${{ inputs.environment }}
+        run: |
+          replace=""
+          if [ "${{ inputs.replace_api_service }}" = "true" ]; then
+            echo "Forcing replacement of the API service."
+            replace="-replace=module.api.aws_ecs_express_gateway_service.api"
+          fi
+          terraform apply -input=false -auto-approve $replace \
+            -var="api_image=${{ steps.ecr.outputs.registry }}/${{ vars.PROJECT_NAME }}/api:${{ github.sha }}"
+
+      - name: Read outputs
+        id: tf
+        working-directory: infra/envs/${{ inputs.environment }}
+        run: |
+          {
+            echo "api_url=$(terraform output -raw api_url)"
+            echo "web_bucket=$(terraform output -raw web_bucket)"
+            echo "distribution_id=$(terraform output -raw cloudfront_distribution_id)"
+            echo "site_url=$(terraform output -raw site_url)"
+          } >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------- frontend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      - name: Build front end
+        working-directory: web
+        env:
+          VITE_API_BASE_URL: ${{ steps.tf.outputs.api_url }}
+          VITE_SITE_ENV: ${{ inputs.site_env }}
+        run: npm run build
+
+      - name: Sync hashed assets
+        # Long cache: every asset filename contains a content hash, so a
+        # changed file is a new URL and can never be served stale.
+        working-directory: web
+        run: |
+          aws s3 sync dist/ "s3://${{ steps.tf.outputs.web_bucket }}/" \
+            --delete \
+            --exclude "index.html" \
+            --cache-control "public,max-age=31536000,immutable"
+
+      - name: Upload index.html
+        # Short cache: this is the file that points at the new asset URLs, so
+        # it must not be sticky. Uploaded last so the assets it references
+        # already exist.
+        working-directory: web
+        run: |
+          aws s3 cp dist/index.html "s3://${{ steps.tf.outputs.web_bucket }}/index.html" \
+            --cache-control "public,max-age=0,must-revalidate" \
+            --content-type "text/html; charset=utf-8"
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.tf.outputs.distribution_id }}" \
+            --paths "/index.html" "/"
+
+      - name: Smoke test
+        # --max-time is load-bearing, not tidiness. Without it, curl against
+        # an unroutable host hangs on TCP connect for ~2 minutes per attempt,
+        # so this loop took over an hour to report a failure it had
+        # established on the first try -- and blocked the queued deploy that
+        # carried the fix. Bounded attempts keep a failure fast.
+        timeout-minutes: 8
+        run: |
+          echo "Waiting for the API to answer its readiness probe..."
+          for attempt in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" \
+              --connect-timeout 5 --max-time 10 \
+              "${{ steps.tf.outputs.api_url }}/actuator/health/readiness" || true)
+            if [ "$code" = "200" ]; then
+              echo "API ready after ${attempt} attempt(s)."
+              exit 0
+            fi
+            echo "  attempt ${attempt}: HTTP ${code}"
+            last_code="$code"
+            sleep 5
+          done
+          if [ "$last_code" = "000" ]; then
+            echo "::error::Never connected to the API (every attempt returned 000)."
+            echo "000 means the TCP connection failed, not that the app is unhealthy."
+            echo "Most likely the Express service came up with an internal load"
+            echo "balancer. Check it with:"
+            echo "  aws ecs describe-express-gateway-service --service-arn <arn> \\"
+            echo "    --query 'service.activeConfigurations[0].ingressPaths'"
+            echo "accessType must be PUBLIC; PRIVATE means the subnets are private."
+          else
+            echo "::error::API reachable but never became ready (last status ${last_code})."
+          fi
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Deployed ${{ inputs.environment }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Site | ${{ steps.tf.outputs.site_url }} |"
+            echo "| API | ${{ steps.tf.outputs.api_url }} |"
+            echo "| Image tag | \`${{ github.sha }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

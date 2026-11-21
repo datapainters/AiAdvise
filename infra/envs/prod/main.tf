@@ -230,6 +230,8 @@ module "api" {
 
   bootstrap_admin_email = var.bootstrap_admin_email
 
+  media_allowed_origins = [for n in concat([var.domain_name], var.subject_alternative_names) : "https://${n}"]
+
   environment = {
     SPRING_PROFILES_ACTIVE = "prod"
 
@@ -253,6 +255,10 @@ module "api" {
     MAIL_CONFIGURATION_SET = module.email.configuration_set_name
     MAIL_ADMIN_RECIPIENT   = var.mail_admin_recipient
     APP_BASE_URL           = "https://${var.domain_name}"
+
+    # Daily rooms from every environment share one Daily account; the prefix
+    # keeps them apart.
+    VIDEO_ROOM_PREFIX = "dp"
   }
 
   # Both: SendEmail with a configuration set is authorised against the
@@ -309,6 +315,10 @@ output "ecs_cluster_name" {
 
 output "ecs_service_name" {
   value = module.api.service_name
+}
+
+output "media_bucket" {
+  value = module.api.media_bucket
 }
 
 output "database_endpoint" {

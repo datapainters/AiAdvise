@@ -49,6 +49,13 @@ public class CostController {
         return costs.report(from, to);
     }
 
+    @GetMapping("/reports/video-billing")
+    public CostService.VideoBillingReport videoBilling(
+            @RequestParam(required = false) LocalDate from,
+            @RequestParam(required = false) LocalDate to) {
+        return costs.videoBilling(from, to);
+    }
+
     @GetMapping("/engagements/{id}/costs")
     public CostDetail detail(@PathVariable Long id) {
         return costs.detail(id);

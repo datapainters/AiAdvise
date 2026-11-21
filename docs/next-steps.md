@@ -735,3 +735,57 @@ editing a meeting's length, and the sign-in audit.
   with a room is completed, before a room is deleted, and on demand with
   *Sync video usage*. Other costs (software, subcontractor, travel, other)
   are entered per engagement and voided rather than deleted.
+
+## Meeting room toolbar, video billing report, dev and production (2026-11-21)
+
+### Meeting room
+
+Joining a call now opens **our** page, `/meet/<id>`, with the Daily call
+embedded (daily-js `createFrame`) and a Data Painters toolbar under it:
+
+| | Host | Client / guest |
+| --- | --- | --- |
+| Share from library (templates as PDF or image, pre-recorded video, images) | yes | |
+| Share screen (Daily) | yes | yes |
+| Share a screenshot (one frame of a chosen window or tab) | yes | yes |
+| Share an image (upload) | yes | yes |
+| Shared items (history; hosts can show an item again) | yes | yes |
+
+Shared items appear on a **stage** beside the video for everyone. The
+stage is kept in step with Daily app messages; the host replays the
+current item to late joiners and drives video playback for everyone.
+Files live in a private S3 bucket per environment
+(`<project>-media-<account>`), reached only through presigned URLs the API
+issues after checking the caller. Meeting screenshots expire after a year.
+
+Access: `POST /api/meet/{id}/session` takes a login (client or admin) or a
+**guest key**. The link in a website inquiry's confirmation email now
+points at `/meet/<id>?k=…` rather than at Daily. The session returns the
+Daily URL and a meeting token (`X-Meet-Token`) for the share endpoints.
+Meeting tokens are signed with a key derived from, but different to, the
+login key, so neither can stand in for the other.
+
+The **Media library** (admin Workspace) manages what hosts can share.
+
+### System reporting → Video conference billing
+
+Per customer per month: meetings held over video (a room that recorded at
+least one call), calls, call minutes, participant-minutes, the amount
+billed for those meetings and the video cost. Pivot by month plus detail,
+CSV and print.
+
+### Environments
+
+| | Development | Production |
+| --- | --- | --- |
+| Site | https://dev-ai.datapainters.com | https://ai.datapainters.com (moving to www.datapainters.com) |
+| Terraform | `infra/envs/dev`, project `advisory-dev` | `infra/envs/prod`, project `advisory` |
+| Deploys | automatically on every merge to `main` (*Deploy development*) | **by hand**: Actions, *Deploy production*, Run workflow, on the commit tested in dev |
+| Database | its own, `db.t4g.micro`, test data | production data |
+| Email | every message redirected to `mail_redirect_to` (dev tfvars), intended recipient in the subject | real recipients |
+| Daily rooms | prefixed `dev-` | prefixed `dp-` |
+| Banner | yellow "Development site" ribbon | none |
+
+Production reuses the image dev built for the same commit, so it runs
+exactly what was tested. Each environment has its own secrets
+(`advisory-dev/...`), including its own Daily key secret.

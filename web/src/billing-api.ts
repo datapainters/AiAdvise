@@ -69,6 +69,7 @@ export interface TimeEntry {
   manual: boolean;
   note: string | null;
   userName: string | null;
+  source: 'timer' | 'manual' | 'video';
 }
 
 export interface Charge {
@@ -113,6 +114,8 @@ export const addTime = (id: number, minutes: number, note: string) =>
     method: 'POST',
     body: JSON.stringify({ minutes, note }),
   });
+export const importCallTime = (id: number) =>
+  request<TimeSheet>(`/api/admin/appointments/${id}/time/import-video`, { method: 'POST' });
 export const deleteTime = (entryId: number) =>
   request<TimeSheet>(`/api/admin/time/${entryId}`, { method: 'DELETE' });
 

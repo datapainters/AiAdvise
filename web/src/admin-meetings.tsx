@@ -21,6 +21,7 @@ import {
 } from './api';
 import { formatLength, formatRange, statusLabel } from './scheduling';
 import { AccountingTab, TimeTracker } from './billing';
+import { VideoPanel } from './video';
 
 /* --------------------------------------------------------------- modal shell */
 
@@ -283,7 +284,21 @@ export function MeetingManager({
             </div>
           </div>
 
-          <TimeTracker appointmentId={appointmentId} refreshKey={timeKey} onError={onError} />
+          <VideoPanel
+            appointment={a}
+            onError={onError}
+            onChanged={() => {
+              getMeeting(appointmentId).then(setMeeting).catch(onError);
+              onChanged();
+            }}
+          />
+
+          <TimeTracker
+            appointmentId={appointmentId}
+            refreshKey={timeKey}
+            onError={onError}
+            hasVideo={a.video}
+          />
 
           <h3 className="section-label">Agenda</h3>
 

@@ -24,6 +24,7 @@ import {
   getRevenue,
   getStatement,
   getTime,
+  importCallTime,
   getUnbilled,
   hours,
   listOptions,
@@ -192,11 +193,14 @@ export function TimeTracker({
   appointmentId,
   refreshKey,
   onError,
+  hasVideo = false,
 }: {
   appointmentId: number;
   /** Bumped by the parent after a status change, which may compile a charge. */
   refreshKey: number;
   onError: OnError;
+  /** Offers importing the Daily call's measured length. */
+  hasVideo?: boolean;
 }) {
   const [sheet, setSheet] = useState<TimeSheet | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -313,7 +317,9 @@ export function TimeTracker({
             {sheet.entries.map((e) => (
               <tr key={e.id}>
                 <td className="nowrap">
-                  {e.manual
+                  {e.source === 'video'
+                    ? 'Video call'
+                    : e.manual
                     ? 'Manual entry'
                     : `${new Date(e.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${
                         e.endedAt
@@ -386,6 +392,17 @@ export function TimeTracker({
         <button className="btn" type="submit" disabled={disabled}>
           Add
         </button>
+        {hasVideo && (
+          <button
+            type="button"
+            className="btn"
+            disabled={disabled}
+            title="Replace the video entry with the call's measured length (sessions with two or more people)"
+            onClick={() => act(() => importCallTime(appointmentId))}
+          >
+            {sheet.entries.some((e) => e.source === 'video') ? 'Re-import call time' : 'Import call time'}
+          </button>
+        )}
       </form>
     </section>
   );
@@ -1563,7 +1580,9 @@ export function PrintMeeting() {
                 {m.time.map((t) => (
                   <tr key={t.id}>
                     <td>
-                      {t.manual
+                      {t.source === 'video'
+                        ? 'Video call'
+                        : t.manual
                         ? 'Manual entry'
                         : `${new Date(t.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} – ${
                             t.endedAt ? new Date(t.endedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'running'

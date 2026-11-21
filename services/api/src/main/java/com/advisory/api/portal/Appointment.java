@@ -46,6 +46,12 @@ public class Appointment {
     @Column(name = "requested_by")
     private Long requestedBy;
 
+    @Column(name = "video_room_name")
+    private String videoRoomName;
+
+    @Column(name = "video_room_url")
+    private String videoRoomUrl;
+
     /** False for a complimentary consultation: its time is recorded at $0. */
     @Column(nullable = false)
     private boolean billable = true;
@@ -111,6 +117,26 @@ public class Appointment {
 
     public void setRequestedBy(Long requestedBy) {
         this.requestedBy = requestedBy;
+    }
+
+    public String getVideoRoomName() {
+        return videoRoomName;
+    }
+
+    public void setVideoRoomName(String videoRoomName) {
+        this.videoRoomName = videoRoomName;
+    }
+
+    public String getVideoRoomUrl() {
+        return videoRoomUrl;
+    }
+
+    public void setVideoRoomUrl(String videoRoomUrl) {
+        this.videoRoomUrl = videoRoomUrl;
+    }
+
+    public boolean hasVideo() {
+        return videoRoomName != null;
     }
 
     public boolean isBillable() {

@@ -3697,3 +3697,68 @@ button:disabled,
     padding: 0.6rem 0.75rem;
   }
 }
+
+/* ---------- video meetings ---------- */
+
+.btn-video,
+.btn-video:hover:not(:disabled) {
+  background: #1f6a3a;
+  border-color: #1f6a3a;
+  color: #fff;
+}
+
+.btn-video:hover:not(:disabled) {
+  background: #18552e;
+}
+
+.btn .video-icon {
+  vertical-align: -3px;
+  margin-right: 0.2rem;
+}
+
+.video-panel {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 0.85rem 1.1rem;
+  margin: 1.25rem 0 0;
+}
+
+.video-badge {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #e9f4ec;
+  color: #1f6a3a;
+  flex: none;
+}
+
+.video-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.875rem;
+  flex: 1;
+}
+
+.video-text .muted {
+  font-size: 0.8rem;
+}
+
+.ml-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 600px) {
+  .video-panel {
+    flex-wrap: wrap;
+  }
+}

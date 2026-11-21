@@ -358,6 +358,8 @@ export interface Appointment {
   durationMinutes: number;
   status: 'requested' | 'confirmed' | 'completed' | 'cancelled';
   topicCount: number;
+  /** True once the meeting has a Daily video room. */
+  video: boolean;
 }
 
 export function listAppointments(): Promise<Appointment[]> {
@@ -565,3 +567,36 @@ export async function acceptInvite(token: string, password: string): Promise<Use
   setToken(body.token);
   return body.user;
 }
+
+/* ----------------------------------------------------------------- video */
+
+export interface JoinLink {
+  url: string;
+  opensAt: string;
+  closesAt: string;
+}
+
+export interface VideoStatus {
+  enabled: boolean;
+  hasRoom: boolean;
+  opensAt: string;
+  closesAt: string;
+}
+
+/** A personal, short-lived link into the meeting's video room. */
+export const joinMeeting = (id: number) =>
+  request<JoinLink>(`/api/appointments/${id}/join`, { method: 'POST' });
+
+export const adminJoinMeeting = (id: number) =>
+  request<JoinLink>(`/api/admin/appointments/${id}/join`, { method: 'POST' });
+
+export const getVideoStatus = (id: number) =>
+  request<VideoStatus>(`/api/admin/appointments/${id}/video`);
+
+export const createVideoRoom = (id: number) =>
+  request<VideoStatus>(`/api/admin/appointments/${id}/video`, { method: 'POST' });
+
+/** Minutes before the start that clients may enter the room. */
+export const JOIN_EARLY_MINUTES = 15;
+/** Minutes after the scheduled end that the room stays open. */
+export const ROOM_GRACE_MINUTES = 120;

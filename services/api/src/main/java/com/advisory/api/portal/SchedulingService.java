@@ -58,6 +58,15 @@ public class SchedulingService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
 
+        // Paused and closed engagements keep their history but take no new
+        // meetings. The portal only offers active ones; this holds the rule
+        // for any other caller, admins included -- reopen it first.
+        if (!"active".equals(engagement.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Engagement " + engagementId + " is " + engagement.getStatus()
+                            + " and not open for new meetings");
+        }
+
         Instant start = normaliseAndValidate(startsAt, durationMinutes);
 
         Appointment appointment = new Appointment();

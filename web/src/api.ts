@@ -50,11 +50,21 @@ async function friendlyError(response: Response): Promise<string> {
   let detail = '';
   try {
     const body = await response.json();
-    detail = (body?.message || body?.detail || '').toString();
+    // `detail` is a ProblemDetail reason from the API. `error` is the API's
+    // own {error} body -- but Spring's default body also has an `error`
+    // (just "Conflict"), so only take it when there is no `status` beside it.
+    detail = (
+      body?.detail ||
+      body?.message ||
+      (typeof body?.status === 'undefined' ? body?.error : '') ||
+      ''
+    ).toString();
   } catch {
     // Not JSON; fall back to the status wording.
   }
-  if (detail && detail !== 'No message available') return detail;
+  // Framework boilerplate says less than the status wording below.
+  const generic = /^(No message available|Invalid request content\.?|Failed to (convert|read))/i;
+  if (detail && !generic.test(detail)) return detail;
 
   switch (response.status) {
     case 400:
@@ -62,7 +72,7 @@ async function friendlyError(response: Response): Promise<string> {
     case 404:
       return 'That record no longer exists. Refresh and try again.';
     case 409:
-      return 'That already exists — a record with the same name or email is on file.';
+      return 'That conflicts with an existing record. Refresh and check before trying again.';
     case 413:
       return 'That is too large to save.';
     case 429:

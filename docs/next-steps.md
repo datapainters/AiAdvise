@@ -583,15 +583,20 @@ editing a meeting's length, and the sign-in audit.
 | Drop topic and cancel meeting had no confirmation | `confirm()` before both |
 | Native, mismatched selects and inputs | One control style: height, radius, chevron, focus ring; sentence-case labels; primary/secondary buttons |
 
+### API fixes in the same pass
+
+| Was | Now |
+| --- | --- |
+| Every create response had `createdAt: null` (and engagements `startedOn: null`) — the column default filled the row but the entity never read it back | Entities set `createdAt = Instant.now()` (and `startedOn` to today in UTC) before insert |
+| Bookings on a paused or closed engagement were accepted by the API | `SchedulingService.book` refuses them with 409 "Engagement n is paused and not open for new meetings", admins included |
+| Every `ResponseStatusException` reason was dropped; clients saw only `{"error":"Conflict"}` | `spring.mvc.problemdetails.enabled`: reasons arrive as `detail` and the web client shows them. Unhandled exceptions still go to the default error body with no message |
+
 ### Still open
 
-1. **`POST /api/topics` returns `createdAt: null`.** The row has a value
-   (the next GET shows it); the response is built before the insert
-   default comes back. Harmless today, wrong the moment the UI shows it.
-2. **Client names are not unique.** Two clients called *Northwind
+1. **Client names are not unique.** Two clients called *Northwind
    Traders* with different emails are accepted. Either a unique index on
-   `lower(name)` or a "did you mean" warning in the form.
-3. **The server does not enforce business hours or active engagements**
-   for bookings — the UI does. Worth a check in the booking endpoint so
-   the rule holds for any caller.
-4. Items 1–4 of the 2026-11-20 list are untouched.
+   `lower(name)` or a "did you mean" warning in the form — a product call.
+2. **Business hours are enforced in the browser only.** The server does
+   not know the client's time zone, so it cannot apply 8–5:30 local;
+   admins rely on that freedom when editing. Leave unless it is abused.
+3. Items 1–4 of the 2026-11-20 list are untouched.

@@ -1,0 +1,35 @@
+name: Deploy development
+
+# Every merge to main lands on the development site,
+# https://dev-ai.datapainters.com, for testing before it is promoted to
+# production with the "Deploy production" workflow.
+
+on:
+  push:
+    branches: [main]
+    # A documentation edit should not spend fifteen minutes applying
+    # infrastructure that has not changed. CI still runs on these.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      replace_api_service:
+        description: Force-replace the dev API service.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      environment: dev
+      github_environment: development
+      site_env: development
+      replace_api_service: ${{ inputs.replace_api_service || false }}
+    secrets: inherit

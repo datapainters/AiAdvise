@@ -62,12 +62,19 @@ public class MeetingController {
     private final CompanyRepository companies;
     private final BillingService billing;
     private final VideoService video;
+    private final com.advisory.api.media.MeetTokens meetTokens;
+    private final String mailBaseUrl;
 
     public MeetingController(AppointmentRepository appointments, ClientRepository clients,
             EngagementRepository engagements, TopicRepository topics,
             MeetingNoteRepository notes, AppUserRepository users,
             SchedulingService scheduling, Notifications notifications,
-            CompanyRepository companies, BillingService billing, VideoService video) {
+            CompanyRepository companies, BillingService billing, VideoService video,
+            com.advisory.api.media.MeetTokens meetTokens,
+            @org.springframework.beans.factory.annotation.Value("${APP_BASE_URL:https://ai.datapainters.com}")
+                    String mailBaseUrl) {
+        this.meetTokens = meetTokens;
+        this.mailBaseUrl = mailBaseUrl.replaceAll("/$", "");
         this.billing = billing;
         this.video = video;
         this.appointments = appointments;
@@ -462,12 +469,11 @@ public class MeetingController {
         String guest = client.getContactName() != null ? client.getContactName() : client.getName();
         String joinUrl = null;
         if (appointment.hasVideo()) {
-            try {
-                joinUrl = video.joinUrl(appointment, guest, false);
-            } catch (RuntimeException e) {
-                log.warn("No join link for the guest confirmation of appointment {}: {}",
-                        appointment.getId(), e.getMessage());
-            }
+            // Our meeting page, not Daily's: it carries the sharing toolbar.
+            // The key authorises this one meeting until its room closes.
+            joinUrl = mailBaseUrl + "/meet/" + appointment.getId() + "?k="
+                    + meetTokens.issue(appointment.getId(), "guest", guest, null,
+                            VideoService.roomExpiry(appointment));
         }
         notifications.meetingConfirmedGuest(client.getPrimaryEmail(), guest, row.engagementTitle(),
                 appointment.getStartsAt(), appointment.getDurationMinutes(), row.topicCount(),

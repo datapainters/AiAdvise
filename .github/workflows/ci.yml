@@ -125,6 +125,21 @@ jobs:
             -out=tfplan 2>&1 | tee plan.txt
           echo "exitcode=$?" >> "$GITHUB_OUTPUT"
 
+      # The development stack, planned the same way. pipefail so a failed
+      # plan fails the job instead of being hidden by tee.
+      - name: Init (dev)
+        working-directory: infra/envs/dev
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
+
+      - name: Plan (dev)
+        working-directory: infra/envs/dev
+        run: |
+          set -o pipefail
+          terraform plan -input=false -no-color -lock=false 2>&1 | tail -n 40
+
       - name: Comment plan on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7

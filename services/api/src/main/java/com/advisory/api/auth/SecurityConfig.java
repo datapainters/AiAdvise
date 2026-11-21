@@ -48,6 +48,13 @@ public class SecurityConfig {
                         // The marketing site: published rate, busy slots and
                         // consultation requests. Rate limited in the controller.
                         .requestMatchers("/api/public/**").permitAll()
+                        // The meeting room page. A guest from a confirmation
+                        // email has no login; MeetController authorises every
+                        // call itself (login, guest key or meeting token).
+                        .requestMatchers("/api/meet/**").permitAll()
+                        // Local development storage only; inert when media
+                        // is in S3. Requests carry their own signature.
+                        .requestMatchers("/api/media-local/**").permitAll()
                         // The load balancer polls these and cannot hold a token.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/**").hasAuthority("ROLE_ADMIN")
@@ -94,7 +101,7 @@ public class SecurityConfig {
         // verb and tests that call the API directly never catch it.
         config.setAllowedMethods(
                 List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Meet-Token"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 

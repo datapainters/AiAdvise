@@ -1,5 +1,7 @@
 import {
   createContext,
+  lazy,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -67,6 +69,7 @@ import {
 } from './datagrid';
 import { clearToken, getToken, type User } from './auth';
 import { ClientPortal } from './portal';
+import { MediaLibrary, VideoBillingReportView } from './media';
 import {
   Approach,
   BookConsultation,
@@ -504,6 +507,8 @@ type AdminView =
   | 'revenue'
   | 'unbilled'
   | 'costs'
+  | 'media'
+  | 'videobilling'
   | 'signins'
   | 'logins'
   | 'options';
@@ -817,6 +822,13 @@ const ADMIN_VIEWS: {
     blurb: 'Every client meeting by month or week, with business hours shaded. Click a meeting to open it.',
   },
   {
+    id: 'media',
+    label: 'Media library',
+    group: 'Workspace',
+    icon: 'film',
+    blurb: 'Templates, pre-recorded videos and images that hosts can share on screen during video meetings.',
+  },
+  {
     id: 'clients',
     label: 'Clients',
     group: 'Workspace',
@@ -880,6 +892,13 @@ const ADMIN_VIEWS: {
     blurb: 'What each engagement costs to deliver, including video calls, against what it billed.',
   },
   {
+    id: 'videobilling',
+    label: 'Video conference billing',
+    group: 'System reporting',
+    icon: 'video',
+    blurb: 'What each customer was billed per month for meetings held over video, with call time and video cost.',
+  },
+  {
     id: 'logins',
     label: 'Portal logins',
     group: 'System',
@@ -903,9 +922,10 @@ const ADMIN_VIEWS: {
 ];
 
 const ADMIN_NAV_GROUPS: { title: string; items: AdminView[] }[] = [
-  { title: 'Workspace', items: ['overview', 'calendar', 'clients', 'engagements', 'appointments'] },
+  { title: 'Workspace', items: ['overview', 'calendar', 'clients', 'engagements', 'appointments', 'media'] },
   { title: 'Billing', items: ['invoices', 'payments'] },
   { title: 'Reports', items: ['ar', 'revenue', 'unbilled', 'costs'] },
+  { title: 'System reporting', items: ['videobilling'] },
   { title: 'System', items: ['logins', 'signins', 'options'] },
 ];
 
@@ -923,7 +943,9 @@ type IconName =
   | 'clock'
   | 'sliders'
   | 'calgrid'
-  | 'coins';
+  | 'coins'
+  | 'film'
+  | 'video';
 
 /** Small stroke icons for the admin sidebar; inline so nothing is fetched. */
 function NavIcon({ name }: { name: IconName }) {
@@ -981,6 +1003,18 @@ function NavIcon({ name }: { name: IconName }) {
         <ellipse cx="9" cy="7" rx="6" ry="2.5" />
         <path d="M3 7v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V7M3 11v4c0 1.4 2.7 2.5 6 2.5 1 0 2-.1 2.8-.3" />
         <circle cx="17" cy="16" r="4" />
+      </>
+    ),
+    film: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="1.5" />
+        <path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4" />
+      </>
+    ),
+    video: (
+      <>
+        <rect x="2.5" y="6" width="13" height="12" rx="2" />
+        <path d="m15.5 10.5 6-3.5v10l-6-3.5z" />
       </>
     ),
     sliders: <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" />,
@@ -1963,6 +1997,8 @@ function Admin() {
       {view === 'calendar' && (
         <CalendarView refreshKey={refresh} onError={onError} onOpenMeeting={(id) => setOpenMeeting(id)} />
       )}
+      {view === 'media' && <MediaLibrary onError={onError} onToast={(m) => setToast(m)} />}
+      {view === 'videobilling' && <VideoBillingReportView onError={onError} />}
       {view === 'costs' && <EngagementCostsReport onError={onError} onToast={(m) => setToast(m)} />}
 
       {view === 'ar' && (
@@ -2222,15 +2258,30 @@ function AcceptInvite() {
 
 /* ------------------------------------------------------------------ shell */
 
+/**
+ * Which deployment this build is for. Set by the deploy workflow; a local
+ * build says "local".
+ */
+// The meeting room carries Daily's SDK; load it only when a meeting opens.
+const MeetingRoom = lazy(() => import('./meet').then((m) => ({ default: m.MeetingRoom })));
+
+const SITE_ENV: string = import.meta.env.VITE_SITE_ENV ?? (import.meta.env.DEV ? 'local' : 'production');
+
 export default function App() {
   // The admin console is a full-screen application with its own navigation;
   // the marketing header and footer would only take space from it.
   const { pathname } = useLocation();
-  const isConsole = pathname.startsWith('/admin') || pathname.startsWith('/portal');
+  const isConsole =
+    pathname.startsWith('/admin') || pathname.startsWith('/portal') || pathname.startsWith('/meet');
 
   return (
     <AuthProvider>
       <div className={isConsole ? 'app app-console' : 'app'}>
+        {SITE_ENV !== 'production' && (
+          <div className="env-ribbon" role="note">
+            {SITE_ENV === 'development' ? 'Development site' : SITE_ENV} · not the live site · email goes to the admin only
+          </div>
+        )}
         {!isConsole && <SiteHeader />}
         <Routes>
           <Route path="/" element={<Home />} />
@@ -2243,6 +2294,16 @@ export default function App() {
               their password before anything else. */}
           {/* Public: the token is the credential. */}
           <Route path="/invite/:token" element={<AcceptInvite />} />
+          {/* Public: signed-in users and email guests both open meetings here;
+              the page and the API work out which one it is. */}
+          <Route
+            path="/meet/:id"
+            element={
+              <Suspense fallback={<div className="meet-gate">Opening the meeting…</div>}>
+                <MeetingRoom />
+              </Suspense>
+            }
+          />
           <Route path="/change-password" element={<ChangePassword forced />} />
           <Route path="/account" element={<ChangePassword forced={false} />} />
           <Route

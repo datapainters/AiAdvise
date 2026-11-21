@@ -6,10 +6,8 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  adminJoinMeeting,
   createVideoRoom,
   getVideoStatus,
-  joinMeeting,
   JOIN_EARLY_MINUTES,
   ROOM_GRACE_MINUTES,
   type Appointment,
@@ -58,25 +56,15 @@ export function JoinCallButton({
     .filter(Boolean)
     .join(' ');
 
-  async function join() {
-    // Opened synchronously, inside the click, so pop-up blockers allow it;
-    // pointed at the room once the server has issued the link.
-    const w = window.open('about:blank', '_blank');
+  // Our meeting page (with the sharing toolbar), in a new tab. Opened
+  // without noopener on purpose: the tab inherits this one's sign-in.
+  function join() {
     setBusy(true);
-    try {
-      const link = admin ? await adminJoinMeeting(a.id) : await joinMeeting(a.id);
-      if (w) {
-        w.opener = null;
-        w.location.href = link.url;
-      } else {
-        window.location.href = link.url;
-      }
-    } catch (e) {
-      w?.close();
-      onError(e);
-    } finally {
-      setBusy(false);
+    const w = window.open(`/meet/${a.id}`, '_blank');
+    if (!w) {
+      onError(new Error('Your browser blocked the meeting window. Allow pop-ups for this site.'));
     }
+    window.setTimeout(() => setBusy(false), 800);
   }
 
   if (early) {

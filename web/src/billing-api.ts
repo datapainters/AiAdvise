@@ -549,3 +549,71 @@ export const COST_CATEGORIES = [
   { value: 'video', label: 'Video (other)' },
   { value: 'other', label: 'Other' },
 ];
+
+/* ---------------------------------------------------------- media library */
+
+export interface MediaItem {
+  id: number;
+  kind: 'template' | 'video' | 'image';
+  title: string;
+  description: string | null;
+  contentType: string;
+  sizeBytes: number | null;
+  status: 'pending' | 'ready';
+  createdAt: string;
+  createdBy: string | null;
+}
+
+export const listMedia = () => request<MediaItem[]>('/api/admin/media');
+
+export const createMedia = (body: {
+  kind: string;
+  title: string;
+  description?: string;
+  contentType: string;
+  sizeBytes: number;
+}) =>
+  request<{ item: MediaItem; uploadUrl: string; contentType: string }>('/api/admin/media', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const completeMedia = (id: number) =>
+  request<MediaItem>(`/api/admin/media/${id}/complete`, { method: 'POST' });
+
+export const mediaUrl = (id: number) => request<{ url: string }>(`/api/admin/media/${id}/url`);
+
+export const archiveMedia = (id: number) =>
+  request<void>(`/api/admin/media/${id}`, { method: 'DELETE' });
+
+/* --------------------------------------------------------- video billing */
+
+export interface VideoBillingRow {
+  clientId: number | null;
+  clientName: string | null;
+  month: string | null;
+  meetings: number;
+  sessions: number;
+  callMinutes: number;
+  participantMinutes: number;
+  billedCents: number;
+  videoCostCents: number;
+}
+
+export interface VideoBillingReport {
+  from: string;
+  to: string;
+  videoRatePerMinute: string;
+  months: string[];
+  rows: VideoBillingRow[];
+  clientTotals: VideoBillingRow[];
+  monthTotals: VideoBillingRow[];
+  total: VideoBillingRow;
+}
+
+export const getVideoBilling = (from?: string, to?: string) => {
+  const p = new URLSearchParams();
+  if (from) p.set('from', from);
+  if (to) p.set('to', to);
+  return request<VideoBillingReport>(`/api/admin/reports/video-billing?${p}`);
+};

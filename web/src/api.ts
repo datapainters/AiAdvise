@@ -40,6 +40,40 @@ export class Unauthorized extends Error {
   }
 }
 
+/**
+ * Turns a failed response into a sentence a person can act on. The API's
+ * default error body is Spring's {timestamp, status, error, path}, which
+ * says nothing useful to a user; a `message` or `detail`, when the server
+ * sends one, wins over the generic wording.
+ */
+async function friendlyError(response: Response): Promise<string> {
+  let detail = '';
+  try {
+    const body = await response.json();
+    detail = (body?.message || body?.detail || '').toString();
+  } catch {
+    // Not JSON; fall back to the status wording.
+  }
+  if (detail && detail !== 'No message available') return detail;
+
+  switch (response.status) {
+    case 400:
+      return 'Some of the details were not accepted. Check the fields and try again.';
+    case 404:
+      return 'That record no longer exists. Refresh and try again.';
+    case 409:
+      return 'That already exists — a record with the same name or email is on file.';
+    case 413:
+      return 'That is too large to save.';
+    case 429:
+      return 'Too many attempts. Wait a minute and try again.';
+    default:
+      return response.status >= 500
+        ? 'Something went wrong on our side. Try again in a moment.'
+        : `Request failed (${response.status}).`;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
 
@@ -59,8 +93,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`${response.status} ${response.statusText}: ${body.slice(0, 200)}`);
+    throw new Error(await friendlyError(response));
   }
 
   if (response.status === 204) {

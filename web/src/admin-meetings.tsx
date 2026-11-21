@@ -442,27 +442,6 @@ export function ClientDetailModal({
       }
       onClose={onClose}
       wide
-      toolbar={
-        detail && (
-          <>
-            <button className="btn btn-primary" onClick={() => setTab('users')}>
-              + User
-            </button>
-            <button className="btn" onClick={() => setTab('engagements')}>
-              Engagements
-            </button>
-            <button className="btn" onClick={() => setTab('appointments')}>
-              Meetings
-            </button>
-            <button className="btn" onClick={() => setTab('notes')}>
-              Notes
-            </button>
-            <button className="btn" onClick={() => setTab('accounting')}>
-              Accounting
-            </button>
-          </>
-        )
-      }
     >
       {loading || !detail ? (
         <p>Loading...</p>

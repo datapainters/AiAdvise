@@ -24,18 +24,13 @@ import {
   clientColumns,
   createClient,
   createEngagement,
-  createTopic,
   createUser,
-  cancelAppointment,
   engagementColumns,
   acceptInvite,
   listAdminAppointments,
   listAllEngagements,
-  listAppointments,
   listClients,
-  listEngagements,
   listLoginEvents,
-  listTopics,
   listUsers,
   login as apiLogin,
   me,
@@ -43,21 +38,16 @@ import {
   updateAppointment,
   updateClient,
   updateEngagement,
-  updateTopicStatus,
   Unauthorized,
   type AdminEngagement,
   type AdminUser,
   type Client,
   type CreatedUser,
   type AdminAppointment,
-  type Appointment,
-  type Engagement,
   type InviteView,
   type LoginEvent,
-  type Topic,
 } from './api';
 import {
-  BookingForm,
   formatLength,
   formatRange,
   LENGTH_OPTIONS,
@@ -76,6 +66,7 @@ import {
   type GridPage,
 } from './datagrid';
 import { clearToken, getToken, type User } from './auth';
+import { ClientPortal } from './portal';
 import {
   Approach,
   BookConsultation,
@@ -329,405 +320,10 @@ function Login() {
   );
 }
 
-function Portal() {
-  const { signOut, user } = useAuth();
-
-  const [tab, setTab] = useState<'topics' | 'meetings'>('topics');
-  const [engagements, setEngagements] = useState<Engagement[]>([]);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [topics, setTopics] = useState<Topic[]>([]);
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [booking, setBooking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // The topic form collects the four things the engineer needs before the
-  // call. Title alone produced agenda items nobody could prepare for.
-  const [title, setTitle] = useState('');
-  const [detail, setDetail] = useState('');
-  const [outcome, setOutcome] = useState('');
-  const [priority, setPriority] = useState(3);
-  const [adding, setAdding] = useState(false);
-
-  const onError = useCallback(
-    (e: unknown) => {
-      if (e instanceof Unauthorized) {
-        signOut();
-        return;
-      }
-      setError((e as Error).message);
-    },
-    [signOut],
-  );
-
-  useEffect(() => {
-    Promise.all([listEngagements(), listAppointments()])
-      .then(([list, appts]) => {
-        setEngagements(list);
-        setAppointments(appts);
-        setSelected(list.length > 0 ? list[0].id : null);
-      })
-      .catch(onError)
-      .finally(() => setLoading(false));
-  }, [onError]);
-
-  useEffect(() => {
-    if (selected === null) {
-      setTopics([]);
-      return;
-    }
-    listTopics(selected).then(setTopics).catch(onError);
-  }, [selected, onError]);
-
-  async function onAdd(e: FormEvent) {
-    e.preventDefault();
-    if (!title.trim() || selected === null) return;
-    try {
-      const created = await createTopic({
-        engagementId: selected,
-        title: title.trim(),
-        detail: detail.trim() || undefined,
-        desiredOutcome: outcome.trim() || undefined,
-        priority,
-      });
-      setTopics((prev) => [...prev, created]);
-      setTitle('');
-      setDetail('');
-      setOutcome('');
-      setPriority(3);
-      setAdding(false);
-      setError(null);
-    } catch (err) {
-      onError(err);
-    }
-  }
-
-  async function onDropTopic(topic: Topic) {
-    try {
-      const updated = await updateTopicStatus(topic.id, 'dropped');
-      setTopics((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    } catch (err) {
-      onError(err);
-    }
-  }
-
-  async function onCancelMeeting(id: number) {
-    try {
-      const updated = await cancelAppointment(id);
-      setAppointments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-      // Cancelling returns the agenda to the backlog, so the topic list is
-      // now stale.
-      if (selected !== null) setTopics(await listTopics(selected));
-      setNotice('Meeting cancelled. Its topics are back in your list.');
-    } catch (err) {
-      onError(err);
-    }
-  }
-
-  if (loading) {
-    return <main className="page"><p>Loading...</p></main>;
-  }
-
-  const openTopics = topics.filter((t) => t.status === 'proposed');
-  // Paused and closed engagements stay visible for their history, but new
-  // meetings only go on live ones.
-  const bookable = engagements.filter((e) => e.status === 'active');
-  const upcoming = appointments.filter(
-    (a) => a.status !== 'cancelled' && a.status !== 'completed' && new Date(a.endsAt) > new Date(),
-  );
-  const firstName = user?.name.split(/\s+/)[0];
-
-  return (
-    <main className="page portal">
-      <header className="screen-head">
-        <p className="eyebrow">Client portal</p>
-        <h1>{firstName ? `Welcome, ${firstName}` : 'Client portal'}</h1>
-        <p className="muted">
-          {openTopics.length > 0
-            ? `${plural(openTopics.length, 'open topic')} ready for a meeting`
-            : 'Add the topics you want covered, then request a meeting.'}
-          {upcoming.length > 0 && ` · ${plural(upcoming.length, 'upcoming meeting')}`}
-        </p>
-      </header>
-
-      <div className="tabs" role="tablist">
-        <button
-          role="tab"
-          aria-selected={tab === 'topics'}
-          className={tab === 'topics' ? 'tab tab-on' : 'tab'}
-          onClick={() => setTab('topics')}
-        >
-          Session topics
-          {openTopics.length > 0 && <span className="tab-count">{openTopics.length}</span>}
-        </button>
-        <button
-          role="tab"
-          aria-selected={tab === 'meetings'}
-          className={tab === 'meetings' ? 'tab tab-on' : 'tab'}
-          onClick={() => setTab('meetings')}
-        >
-          Meetings
-          {upcoming.length > 0 && <span className="tab-count">{upcoming.length}</span>}
-        </button>
-      </div>
-
-      {error && (
-        <div className="error" role="alert">
-          <span>{error}</span>
-          <button className="dismiss" aria-label="Dismiss" onClick={() => setError(null)}>
-            &times;
-          </button>
-        </div>
-      )}
-      {notice && (
-        <div className="notice" role="status">
-          <span>{notice}</span>
-          <button className="dismiss" aria-label="Dismiss" onClick={() => setNotice(null)}>
-            &times;
-          </button>
-        </div>
-      )}
-
-      {engagements.length === 0 ? (
-        <div className="notice">
-          No engagements are set up for your account yet. Once we open one, your topics
-          will appear here.
-        </div>
-      ) : tab === 'topics' ? (
-        <>
-          <p className="lede">
-            What you want covered next time. Say what a good answer looks like and we
-            can prepare before the call rather than during it.
-          </p>
-
-          {engagements.length > 1 && (
-            <label className="engagement-picker">
-              Engagement
-              <select
-                value={selected ?? ''}
-                onChange={(e) => setSelected(Number(e.target.value))}
-              >
-                {engagements.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          <div className="toolbar">
-            <button className="btn btn-primary" onClick={() => setAdding((v) => !v)}>
-              {adding ? 'Close form' : '+ Add topic'}
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setBooking(true);
-                setNotice(null);
-                setTab('meetings');
-              }}
-              disabled={openTopics.length === 0 || bookable.length === 0}
-              title={openTopics.length === 0 ? 'Add a topic first' : undefined}
-            >
-              Schedule a meeting
-            </button>
-          </div>
-
-          {adding && (
-            <form onSubmit={onAdd} className="stack-form panel">
-              <h2 className="panel-title">New topic</h2>
-              <label>
-                Title
-                <input
-                  value={title}
-                  required
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Short name for the topic"
-                />
-              </label>
-              <label>
-                Description
-                <textarea
-                  value={detail}
-                  rows={3}
-                  onChange={(e) => setDetail(e.target.value)}
-                  placeholder="Background, what you have tried, where it is stuck"
-                />
-              </label>
-              <label>
-                Desired outcome
-                <textarea
-                  value={outcome}
-                  rows={2}
-                  onChange={(e) => setOutcome(e.target.value)}
-                  placeholder="What should be true once we have discussed this?"
-                />
-              </label>
-              <label>
-                Priority
-                <select
-                  value={priority}
-                  onChange={(e) => setPriority(Number(e.target.value))}
-                >
-                  <option value={1}>1 &mdash; blocking</option>
-                  <option value={2}>2 &mdash; high</option>
-                  <option value={3}>3 &mdash; normal</option>
-                  <option value={4}>4 &mdash; low</option>
-                  <option value={5}>5 &mdash; whenever</option>
-                </select>
-              </label>
-              <div className="button-row">
-                <button type="submit" className="btn btn-primary">
-                  Add topic
-                </button>
-                <button type="button" className="btn" onClick={() => setAdding(false)}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-
-          {topics.length === 0 ? (
-            <div className="empty-state">
-              <p>
-                <strong>No topics yet.</strong>
-              </p>
-              <p className="muted">
-                Add the first thing you want covered. A clear desired outcome helps us
-                prepare before the call.
-              </p>
-            </div>
-          ) : (
-            <ul className="topics detailed">
-              {topics.map((t) => (
-                <li key={t.id}>
-                  <div className="topic-head">
-                    <span className={`status status-${t.status}`}>{t.status}</span>
-                    <span className="topic-title">{t.title}</span>
-                    <span className="priority">P{t.priority}</span>
-                    {/* Only an unscheduled topic can be dropped here. Once it
-                        is on an agenda, removing it is a scheduling decision
-                        and belongs with the meeting. */}
-                    {t.status === 'proposed' && (
-                      <button
-                        className="linklike"
-                        onClick={() => {
-                          if (window.confirm(`Drop “${t.title}”? It will not go on a meeting.`)) {
-                            onDropTopic(t);
-                          }
-                        }}
-                      >
-                        Drop
-                      </button>
-                    )}
-                  </div>
-                  {t.detail && <p className="topic-detail">{t.detail}</p>}
-                  {t.desiredOutcome && (
-                    <p className="topic-outcome">
-                      <strong>Wanted:</strong> {t.desiredOutcome}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
-      ) : (
-        <>
-          <p className="lede">
-            Meetings run in 30-minute blocks. Pick the topics first, then a time long
-            enough to cover them.
-          </p>
-
-          {!booking && (
-            <div className="toolbar">
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  setBooking(true);
-                  setNotice(null);
-                }}
-                disabled={bookable.length === 0}
-              >
-                Schedule a meeting
-              </button>
-            </div>
-          )}
-
-          {booking && (
-            <BookingForm
-              engagements={bookable}
-              initialEngagementId={selected}
-              openTopics={topics.filter((t) => t.status === 'proposed')}
-              onCancel={() => setBooking(false)}
-              onError={onError}
-              onBooked={async (a) => {
-                setAppointments((prev) => [a, ...prev]);
-                setBooking(false);
-                setNotice('Meeting requested. We will confirm the time.');
-                if (selected !== null) setTopics(await listTopics(selected));
-              }}
-            />
-          )}
-
-          {appointments.length === 0 ? (
-            <div className="empty-state">
-              <p>
-                <strong>Nothing scheduled yet.</strong>
-              </p>
-              <p className="muted">Request a meeting and we will confirm the time.</p>
-            </div>
-          ) : (
-            <div className="grid-wrap">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Length</th>
-                    <th>Engagement</th>
-                    <th>Agenda</th>
-                    <th>Status</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {appointments.map((a) => (
-                    <tr key={a.id} className={a.status === 'cancelled' ? 'row-bad' : undefined}>
-                      <td className="nowrap">{formatRange(a.startsAt, a.endsAt)}</td>
-                      <td className="nowrap">{formatLength(a.durationMinutes)}</td>
-                      <td>{a.engagementTitle}</td>
-                      <td>{plural(a.topicCount, 'topic')}</td>
-                      <td>
-                        <span className={`status status-ap-${a.status}`}>
-                          {statusLabel(a.status)}
-                        </span>
-                      </td>
-                      <td>
-                        {a.status !== 'cancelled' && a.status !== 'completed' && (
-                          <button
-                            className="linklike"
-                            onClick={() => {
-                              if (window.confirm('Cancel this meeting? Its topics go back to your list.')) {
-                                onCancelMeeting(a.id);
-                              }
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
-      )}
-    </main>
-  );
+/** The client portal, with the signed-in user and sign-out from context. */
+function PortalRoute() {
+  const { user, signOut } = useAuth();
+  return user ? <ClientPortal user={user} onSignOut={signOut} /> : null;
 }
 
 const MIN_PASSWORD_LENGTH = 12;
@@ -2592,7 +2188,7 @@ export default function App() {
   // The admin console is a full-screen application with its own navigation;
   // the marketing header and footer would only take space from it.
   const { pathname } = useLocation();
-  const isConsole = pathname.startsWith('/admin');
+  const isConsole = pathname.startsWith('/admin') || pathname.startsWith('/portal');
 
   return (
     <AuthProvider>
@@ -2615,7 +2211,23 @@ export default function App() {
             path="/portal"
             element={
               <RequireAuth>
-                <Portal />
+                <PortalRoute />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/portal/invoice/:id"
+            element={
+              <RequireAuth>
+                <PrintInvoice source="client" />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/portal/statement"
+            element={
+              <RequireAuth>
+                <PrintStatement source="client" />
               </RequireAuth>
             }
           />

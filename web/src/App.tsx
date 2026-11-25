@@ -158,8 +158,13 @@ function AuthProvider({ children }: { children: ReactNode }) {
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, ready } = useAuth();
+  const location = useLocation();
   if (!ready) return <main className="page"><p>Loading...</p></main>;
-  if (!user) return <Navigate to="/login" replace />;
+  // Remember where they were going. A link in an email points at one
+  // conversation; signing in should land there, not on the front page.
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  }
   // A one-time password gets you exactly one screen. This redirect is the
   // courtesy; the server's refusal to honour a reset-pending token anywhere
   // else is the enforcement.
@@ -269,6 +274,7 @@ function NavAccount() {
 function Login() {
   const { setUser } = useAuth();
   const navigate = useNavigate();
+  const asked = (useLocation().state as { from?: string } | null)?.from;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -284,7 +290,12 @@ function Login() {
       setUser(signedIn);
       // Admins work from the console; sending them to an empty client
       // portal first was a wasted click on every sign-in.
-      navigate(signedIn.role === 'ADMIN' ? '/admin' : '/portal', { replace: true });
+      const home = signedIn.role === 'ADMIN' ? '/admin' : '/portal';
+      // Honour the page they were sent to, but only within their own side:
+      // a client following a console link belongs in the portal.
+      const allowed =
+        asked && (asked.startsWith(home) || asked.startsWith('/meet/') || asked.startsWith('/account'));
+      navigate(allowed ? asked : home, { replace: true });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -2248,6 +2259,11 @@ function Admin() {
           clientId={openClient.id}
           initialTab={openClient.tab}
           showAccounting={showMoney}
+          onOpenEngagement={(id) => {
+            // One popup at a time: the engagement replaces the client record.
+            setOpenClient(null);
+            setOpenEngagement(id);
+          }}
           onToast={(m) => setToast(m)}
           onClose={() => {
             setOpenClient(null);

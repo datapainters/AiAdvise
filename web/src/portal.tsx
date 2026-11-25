@@ -16,6 +16,7 @@ import {
   listEngagements,
   listTopics,
   updateTopicStatus,
+  COMMUNICATION_LABELS,
   getClientTeam,
   listThreads,
   Unauthorized,
@@ -25,7 +26,7 @@ import {
   type Engagement,
   type Topic,
 } from './api';
-import { managesClient, type User } from './auth';
+import { CLIENT_ROLE_LABELS, managesClient, type User } from './auth';
 import { EngagementsView, NewEngagementModal, TeamMembersView } from './portal-team';
 import { MessagesPanel, ThreadView } from './threads';
 import { Modal } from './admin-meetings';
@@ -50,7 +51,7 @@ const VIEWS: { id: View; label: string; blurb: string; icon: ReactNode }[] = [
   {
     id: 'overview',
     label: 'Overview',
-    blurb: 'Your next meeting, open topics and account balance at a glance.',
+    blurb: 'Replies waiting for you, what is coming up, and the work in progress.',
     icon: <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
   },
   {
@@ -421,7 +422,7 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
             </div>
           ) : (
             <>
-              {engagements.length > 1 && PER_ENGAGEMENT.includes(view) && (
+              {engagements.length > 1 && (view === 'topics' || view === 'meetings') && (
                 <label className="engagement-switch">
                   Engagement
                   <select value={selected ?? ''} onChange={(e) => setSelected(Number(e.target.value))}>
@@ -438,13 +439,23 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
               {view === 'overview' && (
                 <Overview
                   onError={onError}
+                  engagements={engagements}
                   upcoming={upcoming}
+                  threads={threads}
+                  roster={roster}
                   openTopics={openTopics}
                   billing={billing}
                   engagementTitle={engagementTitle}
+                  canOpen={canOpen}
                   onGo={go}
                   onAddTopic={() => setAdding(true)}
                   onBook={startBooking}
+                  onOpenThread={(id) => setOpenThread(id)}
+                  onNewEngagement={() => setOpening(true)}
+                  onOpenEngagement={(id) => {
+                    setSelected(id);
+                    go('topics');
+                  }}
                 />
               )}
 
@@ -534,31 +545,78 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
 
 /* --------------------------------------------------------------- overview */
 
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join('');
+}
+
+/**
+ * The dashboard. It answers, in order: is anyone waiting on me, what is
+ * coming up, what work is open, who is involved, and what do I owe.
+ *
+ * Everything here spans the whole account. The Topics and Meetings screens
+ * are where one engagement is looked at on its own.
+ */
 function Overview({
   onError,
+  engagements,
   upcoming,
+  threads,
+  roster,
   openTopics,
   billing,
   engagementTitle,
+  canOpen,
   onGo,
   onAddTopic,
   onBook,
+  onOpenThread,
+  onNewEngagement,
+  onOpenEngagement,
 }: {
+  engagements: Engagement[];
   upcoming: Appointment[];
+  threads: ThreadSummary[];
+  /** The client's own people; null when it could not be loaded. */
+  roster: ClientTeamMember[] | null;
   openTopics: Topic[];
   billing: ClientBilling | null;
   engagementTitle?: string;
+  canOpen: boolean;
   onGo: (v: View) => void;
   onAddTopic: () => void;
   onBook: () => void;
+  onOpenThread: (topicId: number) => void;
+  onNewEngagement: () => void;
+  onOpenEngagement: (engagementId: number) => void;
   onError: (e: unknown) => void;
 }) {
   const next = upcoming[0];
   const s = billing?.summary;
+  const active = engagements.filter((e) => e.status === 'active' || e.status === 'inquiry');
+  const newReplies = threads.filter((t) => t.open && t.lastSide === 'team');
+  const openThreads = threads.filter((t) => t.open);
+  const people = (roster ?? []).filter((m) => m.enabled);
+  // Answers waiting to be read come first; then whatever moved most recently.
+  const recent = [...newReplies, ...threads.filter((t) => !newReplies.includes(t))].slice(0, 4);
 
   return (
     <>
       <div className="kpis">
+        <button className={newReplies.length > 0 ? 'kpi kpi-warn' : 'kpi'} onClick={() => onGo('messages')}>
+          <span className="kpi-label">New replies</span>
+          <span className="kpi-value">{newReplies.length}</span>
+          <span className="kpi-hint">
+            {newReplies.length > 0
+              ? 'From Data Painters, waiting for you'
+              : openThreads.length > 0
+                ? `${plural(openThreads.length, 'conversation')} open`
+                : 'No conversations yet'}
+          </span>
+        </button>
         <button className="kpi" onClick={() => onGo('meetings')}>
           <span className="kpi-label">Next meeting</span>
           <span className="kpi-value kpi-value-sm">
@@ -570,10 +628,17 @@ function Overview({
               : 'Nothing booked'}
           </span>
         </button>
+        <button className="kpi" onClick={() => onGo('engagements')}>
+          <span className="kpi-label">Active engagements</span>
+          <span className="kpi-value">{active.length}</span>
+          <span className="kpi-hint">
+            {engagements.length > active.length ? `${engagements.length - active.length} closed or paused` : 'All in progress'}
+          </span>
+        </button>
         <button className="kpi" onClick={() => onGo('topics')}>
           <span className="kpi-label">Open topics</span>
           <span className="kpi-value">{openTopics.length}</span>
-          <span className="kpi-hint">{openTopics.length ? 'Ready to go on a meeting' : 'Add what you want covered'}</span>
+          <span className="kpi-hint">{engagementTitle ? `In ${engagementTitle}` : 'Add what you want covered'}</span>
         </button>
         <button className={s && s.overdueCents > 0 ? 'kpi kpi-bad' : 'kpi'} onClick={() => onGo('billing')}>
           <span className="kpi-label">Amount due</span>
@@ -585,17 +650,54 @@ function Overview({
                 ? `${money(s.overdueCents)} past due`
                 : s.nextDueOn
                   ? `Next due ${day(s.nextDueOn)}`
-                  : 'Nothing outstanding'}
+                  : `${hours(s.billedBlocks * 30)} billed to date`}
           </span>
-        </button>
-        <button className="kpi" onClick={() => onGo('billing')}>
-          <span className="kpi-label">Time billed</span>
-          <span className="kpi-value kpi-value-sm">{s ? hours(s.billedBlocks * 30) : '—'}</span>
-          <span className="kpi-hint">{s ? `${s.billedBlocks} × 30-minute blocks` : ''}</span>
         </button>
       </div>
 
-      <div className="panels">
+      <div className="panels dash-panels">
+        <section className="panel-card">
+          <header>
+            <h2>Messages</h2>
+            <button className="linklike" onClick={() => onGo('messages')}>
+              All messages →
+            </button>
+          </header>
+          {recent.length === 0 ? (
+            <div className="panel-empty">
+              <p>
+                No conversations yet. Add a topic to an engagement run by message and we will answer it
+                in writing.
+              </p>
+              <button className="btn" onClick={onAddTopic}>
+                + Add topic
+              </button>
+            </div>
+          ) : (
+            <ul className="dash-list">
+              {recent.map((t) => (
+                <li key={t.topicId}>
+                  <button onClick={() => onOpenThread(t.topicId)}>
+                    <span className="dash-main">
+                      <strong>{t.title}</strong>
+                      <span className="muted dash-snippet">
+                        {t.lastSnippet ? `${t.lastAuthor ?? 'Someone'}: ${t.lastSnippet}` : 'No replies yet'}
+                      </span>
+                    </span>
+                    <span className="dash-side">
+                      {t.open && t.lastSide === 'team' ? (
+                        <span className="pill pill-warn">New reply</span>
+                      ) : (
+                        <span className="muted">{plural(t.messageCount, 'message')}</span>
+                      )}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         <section className="panel-card">
           <header>
             <h2>Coming up</h2>
@@ -605,7 +707,7 @@ function Overview({
           </header>
           {upcoming.length === 0 ? (
             <div className="panel-empty">
-              <p>No meetings booked{engagementTitle ? ` for ${engagementTitle}` : ''}.</p>
+              <p>No meetings booked.</p>
               <button className="btn btn-primary" onClick={onBook}>
                 Schedule a meeting
               </button>
@@ -638,6 +740,85 @@ function Overview({
 
         <section className="panel-card">
           <header>
+            <h2>Engagements</h2>
+            <button className="linklike" onClick={() => onGo('engagements')}>
+              All engagements →
+            </button>
+          </header>
+          {active.length === 0 ? (
+            <div className="panel-empty">
+              <p>Nothing in progress.</p>
+              {canOpen && (
+                <button className="btn btn-primary" onClick={onNewEngagement}>
+                  New engagement
+                </button>
+              )}
+            </div>
+          ) : (
+            <ul className="dash-list">
+              {active.slice(0, 4).map((e) => {
+                const waiting = threads.filter((t) => t.engagementId === e.id && t.open && t.lastSide === 'team').length;
+                const meetings = upcoming.filter((a) => a.engagementId === e.id).length;
+                return (
+                  <li key={e.id}>
+                    <button onClick={() => onOpenEngagement(e.id)}>
+                      <span className="dash-main">
+                        <strong>{e.title}</strong>
+                        <span className="muted dash-snippet">
+                          {COMMUNICATION_LABELS[e.communication]}
+                          {e.dueOn ? ` · target ${day(e.dueOn)}` : ''}
+                          {meetings > 0 ? ` · ${plural(meetings, 'meeting')} booked` : ''}
+                        </span>
+                      </span>
+                      <span className="dash-side">
+                        {waiting > 0 ? (
+                          <span className="pill pill-warn">{waiting === 1 ? '1 new reply' : `${waiting} new replies`}</span>
+                        ) : (
+                          <span className={`status status-${e.status}`}>
+                            {e.status === 'inquiry' ? 'consultation' : e.status}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        <section className="panel-card">
+          <header>
+            <h2>Your team</h2>
+            <button className="linklike" onClick={() => onGo('team')}>
+              Team members →
+            </button>
+          </header>
+          {people.length === 0 ? (
+            <p className="panel-empty">Your team will appear here.</p>
+          ) : (
+            <ul className="dash-people">
+              {people.slice(0, 6).map((m) => (
+                <li key={m.id}>
+                  <span className="avatar" aria-hidden="true">
+                    {initialsOf(m.displayName)}
+                  </span>
+                  <span className="dash-main">
+                    <strong>{m.displayName}</strong>
+                    <span className="muted">
+                      {CLIENT_ROLE_LABELS[m.clientRole]}
+                      {m.invitePending ? ' · invited, not yet signed in' : ''}
+                    </span>
+                  </span>
+                </li>
+              ))}
+              {people.length > 6 && <li className="muted dash-more">and {people.length - 6} more</li>}
+            </ul>
+          )}
+        </section>
+
+        <section className="panel-card">
+          <header>
             <h2>Open topics</h2>
             <button className="linklike" onClick={() => onGo('topics')}>
               All topics →
@@ -661,19 +842,19 @@ function Overview({
             </ul>
           )}
         </section>
-      </div>
 
-      {billing && billing.invoices.length > 0 && (
-        <section className="panel-card spaced">
-          <header>
-            <h2>Recent invoices</h2>
-            <button className="linklike" onClick={() => onGo('billing')}>
-              Billing →
-            </button>
-          </header>
-          <InvoiceTable invoices={billing.invoices.slice(0, 3)} />
-        </section>
-      )}
+        {billing && billing.invoices.length > 0 && (
+          <section className="panel-card">
+            <header>
+              <h2>Recent invoices</h2>
+              <button className="linklike" onClick={() => onGo('billing')}>
+                Billing →
+              </button>
+            </header>
+            <InvoiceTable invoices={billing.invoices.slice(0, 3)} />
+          </section>
+        )}
+      </div>
     </>
   );
 }

@@ -24,75 +24,98 @@ const ACCENT = 'var(--accent)';
 export function SourcesToOutput() {
   // Deliberately uneven: real source systems are not a tidy column.
   const sources = [
-    { y: 24, w: 74 },
-    { y: 56, w: 52 },
-    { y: 88, w: 86 },
-    { y: 120, w: 44 },
-    { y: 152, w: 68 },
-    { y: 184, w: 58 },
+    { y: 10, w: 52, label: 'ERP' },
+    { y: 46, w: 96, label: 'CRM exports' },
+    { y: 82, w: 108, label: 'Finance ledger' },
+    { y: 118, w: 94, label: 'Spreadsheets' },
+    { y: 154, w: 112, label: 'Support tickets' },
+    { y: 190, w: 76, label: 'Data lake' },
   ];
+  const MID = 112;
 
   return (
     <svg
-      viewBox="0 0 440 240"
-      className="figure"
+      viewBox="0 0 460 250"
+      className="figure figure-sources"
       role="img"
-      aria-label="Mismatched source systems converging through a governance layer into a single consistent output"
+      aria-label="Six mismatched source systems, from an ERP to a data lake, converging through a governed layer into a single trusted output"
     >
-      {sources.map((s) => (
-        <g key={s.y}>
-          <rect
-            x={0}
-            y={s.y}
-            width={s.w}
-            height={16}
-            rx={2}
+      {sources.map((s, i) => (
+        <g key={s.label}>
+          <path
+            className="fig-flow"
+            style={{ ['--i' as string]: i }}
+            pathLength={1}
+            d={`M ${s.w} ${s.y + 12} C 172 ${s.y + 12}, 168 ${MID}, 214 ${MID}`}
             fill="none"
-            stroke={RULE}
+            stroke="var(--rule-strong)"
             strokeWidth={1.5}
           />
-          <path
-            d={`M ${s.w} ${s.y + 8} C 150 ${s.y + 8}, 150 120, 196 120`}
-            fill="none"
-            stroke={RULE}
-            strokeWidth={1.25}
+          <rect
+            x={0.75}
+            y={s.y}
+            width={s.w}
+            height={24}
+            rx={3}
+            fill="var(--surface)"
+            stroke="var(--rule-strong)"
+            strokeWidth={1.5}
           />
+          <text x={s.w / 2 + 0.75} y={s.y + 16} textAnchor="middle" className="fig-source">
+            {s.label}
+          </text>
         </g>
       ))}
 
       {/* The governed layer: the part nobody budgets for. */}
-      <rect
-        x={196}
-        y={40}
-        width={34}
-        height={160}
-        rx={4}
-        fill="none"
-        stroke={ACCENT}
-        strokeWidth={2}
-      />
-      {[72, 104, 136, 168].map((y) => (
-        <line key={y} x1={204} y1={y} x2={222} y2={y} stroke={ACCENT} strokeWidth={1.5} />
-      ))}
+      <g className="fig-layer">
+        <rect
+          x={214}
+          y={22}
+          width={40}
+          height={180}
+          rx={5}
+          fill="var(--accent-soft)"
+          stroke={ACCENT}
+          strokeWidth={2}
+        />
+        {[58, 94, 130, 166].map((y) => (
+          <line key={y} x1={224} y1={y} x2={244} y2={y} stroke={ACCENT} strokeWidth={2} />
+        ))}
+      </g>
 
-      <path d="M 230 120 L 300 120" fill="none" stroke={SOFT} strokeWidth={1.5} />
-      <path d="M 294 115 L 301 120 L 294 125 Z" fill={SOFT} />
+      <g className="fig-output">
+        <path d={`M 254 ${MID} L 318 ${MID}`} fill="none" stroke={INK} strokeWidth={1.5} />
+        <path d={`M 312 ${MID - 5} L 320 ${MID} L 312 ${MID + 5} Z`} fill={INK} />
 
-      {/* One output, consistent, with an owner. */}
-      <rect
-        x={310}
-        y={64}
-        width={128}
-        height={112}
-        rx={3}
-        fill="none"
-        stroke={INK}
-        strokeWidth={2}
-      />
-      {[88, 110, 132].map((y) => (
-        <line key={y} x1={326} y1={y} x2={422} y2={y} stroke={RULE} strokeWidth={6} />
-      ))}
-      <line x1={326} y1={154} x2={382} y2={154} stroke={ACCENT} strokeWidth={6} />
+        {/* One output, consistent, with an owner. */}
+        <rect
+          x={328}
+          y={54}
+          width={130}
+          height={116}
+          rx={4}
+          fill="var(--surface)"
+          stroke={INK}
+          strokeWidth={2}
+        />
+        {[80, 102, 124].map((y) => (
+          <line key={y} x1={344} y1={y} x2={442} y2={y} stroke={RULE} strokeWidth={6} />
+        ))}
+        <line x1={344} y1={148} x2={400} y2={148} stroke={ACCENT} strokeWidth={6} />
+      </g>
+
+      <g className="fig-captions">
+        <text x={0.75} y={242}>
+          Your sources
+        </text>
+        <text x={234} y={242} textAnchor="middle">
+          Governed layer
+        </text>
+        <text x={393} y={242} textAnchor="middle">
+          One trusted output
+        </text>
+      </g>
     </svg>
   );
 }

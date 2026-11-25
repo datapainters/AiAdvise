@@ -19,18 +19,29 @@ export interface Topic {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    credentials: 'include',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+      credentials: 'include',
+    });
+  } catch {
+    // fetch rejects only when no response arrived at all (offline, DNS, CORS).
+    throw new Error('The portal server did not respond. Check your connection and try again.');
+  }
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`${response.status} ${response.statusText}: ${body.slice(0, 200)}`);
+    console.error(`${response.status} ${response.statusText}: ${body.slice(0, 200)}`);
+    throw new Error(
+      response.status >= 500
+        ? 'The portal server hit a problem. Try again in a moment.'
+        : `The server rejected that request (${response.status}).`,
+    );
   }
 
   if (response.status === 204) {

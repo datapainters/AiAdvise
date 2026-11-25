@@ -246,6 +246,49 @@
   padding-top: 0.75rem;
 }
 
+/* Hero figure. Labels are part of the drawing, so they scale with it. */
+.figure-sources .fig-source {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+
+.figure-sources .fig-captions text {
+  font-size: 10.5px;
+  font-weight: 600;
+  fill: var(--ink-soft);
+}
+
+/* The page's one piece of unprompted motion: sources flow in, the governed
+   layer settles, the output appears. It plays once and never loops. */
+@media (prefers-reduced-motion: no-preference) {
+  .figure-sources .fig-flow {
+    stroke-dasharray: 1;
+    animation: mk-fig-draw 700ms cubic-bezier(0.6, 0, 0.3, 1) both;
+    animation-delay: calc(250ms + var(--i) * 90ms);
+  }
+
+  .figure-sources .fig-layer {
+    animation: mk-fig-appear 450ms ease both 1100ms;
+  }
+
+  .figure-sources .fig-output {
+    animation: mk-fig-appear 500ms ease both 1500ms;
+  }
+}
+
+@keyframes mk-fig-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@keyframes mk-fig-appear {
+  from {
+    opacity: 0;
+  }
+}
+
 .mk-hero-points {
   list-style: none;
   padding: 0;

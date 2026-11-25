@@ -136,6 +136,17 @@ function usePublicInfo(): PublicInfo | null {
   return info;
 }
 
+/** Tab title for a marketing page; the home page passes nothing. */
+function usePageTitle(title?: string) {
+  useEffect(() => {
+    document.title = title ? `${title} · Data Painters` : 'Data Painters · Enterprise AI advisory';
+    // Signed-in screens do not set a title, so hand back the plain one.
+    return () => {
+      document.title = 'Data Painters';
+    };
+  }, [title]);
+}
+
 /** React Router does not scroll to #fragments; this does, and to top otherwise. */
 function useScrollToHash() {
   const { pathname, hash } = useLocation();
@@ -318,6 +329,7 @@ function RateLine({ info }: { info: PublicInfo | null }) {
 /* ------------------------------------------------------------------ home */
 
 export function Home() {
+  usePageTitle();
   useScrollToHash();
   const info = usePublicInfo();
   const rate = formatRate(info);
@@ -359,7 +371,6 @@ export function Home() {
       <section className="mk-section" aria-labelledby="segments-h">
         <div className="mk-wrap">
           <div className="mk-section-head">
-            <p className="mk-eyebrow">What we do</p>
             <h2 id="segments-h">Three practices, one standard of delivery</h2>
             <p>
               Each practice is sold the same way: hourly consulting in 30-minute
@@ -392,7 +403,6 @@ export function Home() {
       <section className="mk-section mk-alt" aria-labelledby="how-h">
         <div className="mk-wrap">
           <div className="mk-section-head">
-            <p className="mk-eyebrow">How it works</p>
             <h2 id="how-h">Start with a conversation, not a contract</h2>
           </div>
           <ol className="mk-steps">
@@ -427,7 +437,6 @@ export function Home() {
       <section className="mk-section" aria-labelledby="why-h">
         <div className="mk-wrap mk-split">
           <div>
-            <p className="mk-eyebrow">Why us</p>
             <h2 id="why-h">Why the scaling problem is the familiar one</h2>
             <p>
               Most AI pilots work. Most AI programmes stall anyway, and they stall on
@@ -470,7 +479,6 @@ export function Home() {
       <section className="mk-section mk-alt" id="pricing" aria-labelledby="pricing-h">
         <div className="mk-wrap">
           <div className="mk-section-head">
-            <p className="mk-eyebrow">Pricing</p>
             <h2 id="pricing-h">Simple, transparent, hourly</h2>
             <p>One rate across all three practices. No retainers and no minimum commitment.</p>
           </div>
@@ -512,7 +520,6 @@ export function Home() {
       <section className="mk-section" aria-labelledby="clients-h">
         <div className="mk-wrap">
           <div className="mk-section-head">
-            <p className="mk-eyebrow">Experience</p>
             <h2 id="clients-h">Where our team has worked</h2>
             <p>
               Data Painters is a small group of engineers. Between us, our work has been
@@ -534,7 +541,6 @@ export function Home() {
       <section className="mk-section mk-alt" aria-labelledby="faq-h">
         <div className="mk-wrap mk-faq-wrap">
           <div className="mk-section-head">
-            <p className="mk-eyebrow">FAQ</p>
             <h2 id="faq-h">Common questions</h2>
           </div>
           <Faq info={info} />
@@ -593,6 +599,7 @@ function Faq({ info }: { info: PublicInfo | null }) {
 /* -------------------------------------------------------------- services */
 
 export function Services() {
+  usePageTitle('Services');
   useScrollToHash();
   const info = usePublicInfo();
 
@@ -665,6 +672,7 @@ export function Services() {
 /* -------------------------------------------------------------- approach */
 
 export function Approach() {
+  usePageTitle('Approach');
   useScrollToHash();
   return (
     <main className="mk">
@@ -813,6 +821,7 @@ interface TopicDraft {
 }
 
 export function BookConsultation() {
+  usePageTitle('Book a free consultation');
   useScrollToHash();
   const info = usePublicInfo();
   const rate = formatRate(info);

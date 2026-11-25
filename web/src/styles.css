@@ -1525,92 +1525,15 @@ textarea:focus {
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #e8e9ec;
-    --ink-soft: #9ca3af;
-    --rule: #2a2d34;
-    --bg: #15171b;
-    --accent: #d0a070;
-    --accent-soft: #2e2720;
-    --warn-bg: #2b2616;
-    --warn-ink: #d8c48a;
-    --err-bg: #2d1b1b;
-    --err-ink: #e8a0a0;
-  }
-
-  input,
-  button {
-    background: #1d2025;
-    color: var(--ink);
-  }
-
-  .cta {
-    color: #15171b;
-  }
-
-  .status-discussed,
-  .status-ev-success {
-    background: #1e2a1e;
-    color: #9cc49c;
-  }
-
-  .user-menu-panel {
-    background: #1d2025;
-  }
-
-  .grid tbody tr:hover {
-    background: #1d2025;
-  }
-
-  .inset,
-  .aside {
-    background: #1b1e23;
-  }
-
-  .modal {
-    background: #15171b;
-  }
-
-  .modal-head {
-    background: #15171b;
-  }
-
-  .grid-rich tbody tr:nth-child(even) {
-    background: #1a1d22;
-  }
-
-  .btn {
-    background: #15171b;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #15171b;
-  }
-
-  .statgroup {
-    background: #15171b;
-  }
-
-  .pill-good {
-    background: #1e2a1e;
-    color: #9cc49c;
-  }
-
-  .tab-on .tab-count {
-    color: #15171b;
-  }
-
-  .status-ap-completed {
-    background: #1e2a1e;
-    color: #9cc49c;
-  }
-
-  .figure-wrap figcaption {
-    border-left-color: #2b2f36;
-  }
+/*
+ * No dark theme. An earlier, partial one overrode the ink and rule tokens
+ * but none of the surfaces added since, which left pale text on white cards
+ * for anyone whose device is in dark mode. Until every surface has a dark
+ * value, the site is light for everyone; `color-scheme` keeps native form
+ * controls and scrollbars light to match.
+ */
+:root {
+  color-scheme: light;
 }
 
 /* =====================================================================

@@ -37,8 +37,12 @@ public class Engagement {
     private String goal;
 
     // UTC, matching the database default this replaces on RDS.
-    @Column(name = "started_on", nullable = false, updatable = false)
+    @Column(name = "started_on", nullable = false)
     private LocalDate startedOn = LocalDate.now(java.time.ZoneOffset.UTC);
+
+    /** When the engagement is meant to reach its goal; null if open-ended. */
+    @Column(name = "due_on")
+    private LocalDate dueOn;
 
     // Set here rather than left to the column default, so the entity
     // returned from save() -- and the create response built from it --
@@ -84,6 +88,18 @@ public class Engagement {
 
     public LocalDate getStartedOn() {
         return startedOn;
+    }
+
+    public void setStartedOn(LocalDate startedOn) {
+        this.startedOn = startedOn;
+    }
+
+    public LocalDate getDueOn() {
+        return dueOn;
+    }
+
+    public void setDueOn(LocalDate dueOn) {
+        this.dueOn = dueOn;
     }
 
     public Instant getCreatedAt() {

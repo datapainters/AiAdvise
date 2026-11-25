@@ -7,8 +7,15 @@
  * progress towards the goal can be read without visiting five screens.
  */
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
+  addEngagementNote,
+  attachLibraryItem,
+  deleteEngagementNote,
+  editEngagementNote,
+  removeEngagementFile,
+  saveMeetingNote,
+  uploadEngagementFile,
   getEngagementDetail,
   inviteTeamMember,
   invoiceEngagement,
@@ -19,8 +26,11 @@ import {
   type CreatedUser,
   type EngagementAgendaLine,
   type EngagementDetail,
+  type EngagementNote,
   type TeamMember,
 } from './api';
+import { listMedia, type MediaItem } from './billing-api';
+import { NewMeetingForm } from './meeting-form';
 import { Modal } from './admin-meetings';
 import { TEAM_ROLE_LABELS, type TeamRole, type User } from './auth';
 import { money } from './billing-api';
@@ -36,18 +46,28 @@ function hours(minutes: number): string {
   return h === 0 ? `${m} min` : m === 0 ? `${h} h` : `${h} h ${m} min`;
 }
 
+/** Today as YYYY-MM-DD in the browser's zone, for comparing with date fields. */
+function today(): string {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
 function day(iso: string): string {
-  return new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+  // A bare date has no zone; parsed as-is it is read as UTC midnight and
+  // shows as the day before anywhere west of Greenwich.
+  const value = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00` : iso;
+  return new Date(value).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 /* -------------------------------------------------------- engagement manager */
 
-type Tab = 'overview' | 'meetings' | 'agenda' | 'media' | 'team' | 'billing';
+type Tab = 'overview' | 'meetings' | 'notes' | 'agenda' | 'media' | 'team' | 'billing';
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
   meetings: 'Meetings',
-  agenda: 'Agenda & notes',
+  notes: 'Notes',
+  agenda: 'Meeting notes',
   media: 'Media',
   team: 'Team',
   billing: 'Billing',
@@ -81,6 +101,7 @@ export function EngagementManager({
   const [detail, setDetail] = useState<EngagementDetail | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
+  const [addingMeeting, setAddingMeeting] = useState(false);
 
   const reload = useCallback(
     () => getEngagementDetail(engagementId).then(setDetail).catch(onError),
@@ -91,15 +112,16 @@ export function EngagementManager({
     reload().finally(() => setLoading(false));
   }, [reload]);
 
-  const tabs: Tab[] = ['overview', 'meetings', 'agenda', 'media', 'team'];
+  const tabs: Tab[] = ['overview', 'meetings', 'notes', 'agenda', 'media', 'team'];
   if (detail?.billing) tabs.push('billing');
 
   const noted = detail?.agenda.filter((a) => a.note).length ?? 0;
   const counts: Record<Tab, number | null> = {
     overview: null,
     meetings: detail?.meetings.length ?? 0,
+    notes: detail?.notes.length ?? 0,
     agenda: detail?.agenda.length ?? 0,
-    media: detail?.media.length ?? 0,
+    media: (detail?.files.length ?? 0) + (detail?.media.length ?? 0),
     team: detail?.team.length ?? 0,
     billing: null,
   };
@@ -109,6 +131,26 @@ export function EngagementManager({
     detail?.meetings.filter(
       (m) => new Date(m.startsAt) > new Date() && m.status !== 'cancelled' && m.status !== 'completed',
     ).length ?? 0;
+
+  // Shown in place of the manager, not on top of it: two stacked popups
+  // would both answer Escape.
+  if (addingMeeting && detail) {
+    return (
+      <NewMeetingForm
+        clients={[]}
+        engagement={{ id: detail.id, title: detail.title, clientName: detail.clientName }}
+        onCancel={() => setAddingMeeting(false)}
+        onError={onError}
+        onDone={() => {
+          setAddingMeeting(false);
+          setTab('meetings');
+          onToast('Meeting created');
+          onChanged();
+          reload();
+        }}
+      />
+    );
+  }
 
   return (
     <Modal
@@ -130,6 +172,15 @@ export function EngagementManager({
             <div className="stat">
               <span className="stat-label">Started</span>
               <span className="stat-value">{day(detail.startedOn)}</span>
+            </div>
+            <div className="stat">
+              <span className="stat-label">Target date</span>
+              <span className="stat-value">
+                {detail.dueOn ? day(detail.dueOn) : <span className="muted">Not set</span>}
+                {detail.dueOn && detail.status !== 'closed' && detail.dueOn < today() && (
+                  <span className="pill pill-warn stat-flag">Past due</span>
+                )}
+              </span>
             </div>
             <div className="statgroup">
               <span className="statgroup-title">Meetings</span>
@@ -197,16 +248,24 @@ export function EngagementManager({
             />
           )}
 
+          {tab === 'meetings' && (
+            <div className="tool-toolbar">
+              <button onClick={() => setAddingMeeting(true)} disabled={detail.status === 'closed'}>
+                Add meeting
+              </button>
+            </div>
+          )}
           {tab === 'meetings' &&
             (detail.meetings.length === 0 ? (
               <p className="empty">
-                No meetings yet. The client books meetings for this engagement from their portal.
+                No meetings yet. Add one here, or the client can book one from their portal.
               </p>
             ) : (
               <div className="grid-wrap">
                 <table className="grid">
                   <thead>
                     <tr>
+                      <th>Meeting</th>
                       <th>When</th>
                       <th>Length</th>
                       <th>Agenda</th>
@@ -217,6 +276,9 @@ export function EngagementManager({
                   <tbody>
                     {detail.meetings.map((m) => (
                       <tr key={m.id} className="clickable" onClick={() => onOpenMeeting(m.id)}>
+                        <td>
+                          {m.title ? <strong>{m.title}</strong> : <span className="muted">Booked by client</span>}
+                        </td>
                         <td className="nowrap">{formatRange(m.startsAt, m.endsAt)}</td>
                         <td className="nowrap">{formatLength(m.durationMinutes)}</td>
                         <td>
@@ -233,8 +295,34 @@ export function EngagementManager({
               </div>
             ))}
 
-          {tab === 'agenda' && <AgendaTab lines={detail.agenda} onOpenMeeting={onOpenMeeting} />}
+          {tab === 'notes' && (
+            <NotesTab
+              engagementId={engagementId}
+              notes={detail.notes}
+              onError={onError}
+              onChange={(notes) => setDetail((d) => (d ? { ...d, notes } : d))}
+            />
+          )}
 
+          {tab === 'agenda' && (
+            <AgendaTab
+              lines={detail.agenda}
+              onOpenMeeting={onOpenMeeting}
+              onError={onError}
+              onSaved={reload}
+            />
+          )}
+
+          {tab === 'media' && (
+            <FilesSection
+              detail={detail}
+              onError={onError}
+              onToast={onToast}
+              onChange={(files) => setDetail((d) => (d ? { ...d, files } : d))}
+            />
+          )}
+
+          {tab === 'media' && <h4 className="people-side-title section-gap">Shared in meetings</h4>}
           {tab === 'media' &&
             (detail.media.length === 0 ? (
               <p className="empty">
@@ -321,15 +409,28 @@ function OverviewTab({
   const [title, setTitle] = useState(detail.title);
   const [goal, setGoal] = useState(detail.goal ?? '');
   const [status, setStatus] = useState(detail.status);
+  const [startedOn, setStartedOn] = useState(detail.startedOn);
+  const [dueOn, setDueOn] = useState(detail.dueOn ?? '');
   const [busy, setBusy] = useState(false);
 
-  const dirty = title !== detail.title || goal !== (detail.goal ?? '') || status !== detail.status;
+  const dirty =
+    title !== detail.title ||
+    goal !== (detail.goal ?? '') ||
+    status !== detail.status ||
+    startedOn !== detail.startedOn ||
+    dueOn !== (detail.dueOn ?? '');
 
   async function save(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      await updateEngagement(detail.id, { title: title.trim(), status, goal: goal.trim() || null });
+      await updateEngagement(detail.id, {
+        title: title.trim(),
+        status,
+        goal: goal.trim() || null,
+        startedOn,
+        dueOn: dueOn || null,
+      });
       onSaved(`Saved “${title.trim()}”`);
     } catch (err) {
       onError(err);
@@ -367,6 +468,17 @@ function OverviewTab({
           </select>
         </label>
       </div>
+      <div className="field-row">
+        <label>
+          Start date
+          <input type="date" value={startedOn} required onChange={(e) => setStartedOn(e.target.value)} />
+        </label>
+        <label>
+          Target date
+          <input type="date" value={dueOn} min={startedOn} onChange={(e) => setDueOn(e.target.value)} />
+        </label>
+      </div>
+      <p className="hint">The target date is when the goal should be met. Leave it empty for open-ended work.</p>
       <div className="button-row">
         <button className="btn btn-primary" type="submit" disabled={!dirty || busy}>
           {busy ? 'Saving...' : 'Save changes'}
@@ -392,12 +504,85 @@ function OverviewTab({
   );
 }
 
+/** A meeting note shown with an Edit button that turns it into a field. */
+function MeetingNote({
+  line,
+  onSaved,
+  onError,
+}: {
+  line: EngagementAgendaLine;
+  onSaved: () => void;
+  onError: OnError;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(line.note ?? '');
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    if (line.appointmentId === null) return;
+    setBusy(true);
+    try {
+      await saveMeetingNote(line.appointmentId, line.topicId, draft);
+      setEditing(false);
+      onSaved();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="note-edit">
+        <textarea
+          rows={4}
+          value={draft}
+          autoFocus
+          aria-label={`Note for ${line.title}`}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <div className="button-row">
+          <button className="btn btn-primary" onClick={save} disabled={busy}>
+            {busy ? 'Saving...' : 'Save note'}
+          </button>
+          <button
+            className="linklike"
+            onClick={() => {
+              setDraft(line.note ?? '');
+              setEditing(false);
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {line.note ? <p>{line.note}</p> : <p className="muted">No notes recorded.</p>}
+      {/* A topic still waiting for a meeting has nowhere to hang a note. */}
+      {line.appointmentId !== null && (
+        <button className="linklike" onClick={() => setEditing(true)}>
+          {line.note ? 'Edit note' : 'Add note'}
+        </button>
+      )}
+    </>
+  );
+}
+
 function AgendaTab({
   lines,
   onOpenMeeting,
+  onSaved,
+  onError,
 }: {
   lines: EngagementAgendaLine[];
   onOpenMeeting: (appointmentId: number) => void;
+  onSaved: () => void;
+  onError: OnError;
 }) {
   if (lines.length === 0) {
     return (
@@ -443,12 +628,327 @@ function AgendaTab({
                     <strong>Wanted:</strong> {l.desiredOutcome}
                   </p>
                 )}
-                {l.note ? <p>{l.note}</p> : <p className="muted">No notes recorded.</p>}
+                <MeetingNote line={l} onSaved={onSaved} onError={onError} />
               </article>
             ))}
           </div>
         </section>
       ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------- engagement notes */
+
+function when(iso: string): string {
+  return new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function NotesTab({
+  engagementId,
+  notes,
+  onChange,
+  onError,
+}: {
+  engagementId: number;
+  notes: EngagementNote[];
+  onChange: (next: EngagementNote[]) => void;
+  onError: OnError;
+}) {
+  const [draft, setDraft] = useState('');
+  const [editing, setEditing] = useState<{ id: number; body: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function run(work: () => Promise<EngagementNote[]>, after: () => void) {
+    setBusy(true);
+    try {
+      onChange(await work());
+      after();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function add(e: FormEvent) {
+    e.preventDefault();
+    if (!draft.trim()) return;
+    run(
+      () => addEngagementNote(engagementId, draft),
+      () => setDraft(''),
+    );
+  }
+
+  return (
+    <div className="engagement-notes">
+      <form onSubmit={add} className="stack-form inset">
+        <label>
+          New note
+          <textarea
+            rows={3}
+            value={draft}
+            placeholder="A call, a decision, a change of scope: anything about this engagement worth keeping."
+            onChange={(e) => setDraft(e.target.value)}
+          />
+        </label>
+        <div className="button-row">
+          <button className="btn btn-primary" type="submit" disabled={busy || !draft.trim()}>
+            Add note
+          </button>
+        </div>
+      </form>
+
+      {notes.length === 0 ? (
+        <p className="empty">
+          No notes yet. Notes taken against a meeting&rsquo;s agenda are under Meeting notes.
+        </p>
+      ) : (
+        <div className="notes-list">
+          {notes.map((n) => (
+            <article key={n.id} className="note-entry">
+              <header>
+                <strong>{n.authorName ?? 'Former team member'}</strong>
+                <span className="muted">
+                  {when(n.createdAt)}
+                  {n.updatedAt !== n.createdAt && `, edited ${when(n.updatedAt)}`}
+                </span>
+              </header>
+              {editing?.id === n.id ? (
+                <div className="note-edit">
+                  <textarea
+                    rows={4}
+                    value={editing.body}
+                    autoFocus
+                    aria-label="Edit note"
+                    onChange={(e) => setEditing({ id: n.id, body: e.target.value })}
+                  />
+                  <div className="button-row">
+                    <button
+                      className="btn btn-primary"
+                      disabled={busy || !editing.body.trim()}
+                      onClick={() =>
+                        run(
+                          () => editEngagementNote(engagementId, n.id, editing.body),
+                          () => setEditing(null),
+                        )
+                      }
+                    >
+                      Save note
+                    </button>
+                    <button className="linklike" onClick={() => setEditing(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p>{n.body}</p>
+                  <div className="button-row">
+                    <button className="linklike" onClick={() => setEditing({ id: n.id, body: n.body })}>
+                      Edit
+                    </button>
+                    <button
+                      className="linklike"
+                      disabled={busy}
+                      onClick={() => {
+                        if (window.confirm('Delete this note? This cannot be undone.')) {
+                          run(
+                            () => deleteEngagementNote(engagementId, n.id),
+                            () => undefined,
+                          );
+                        }
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------- engagement files */
+
+const KIND_LABEL = { pdf: 'PDF', video: 'Video', image: 'Image' } as const;
+
+function FilesSection({
+  detail,
+  onChange,
+  onError,
+  onToast,
+}: {
+  detail: EngagementDetail;
+  onChange: (next: EngagementDetail['files']) => void;
+  onError: OnError;
+  onToast: (message: string) => void;
+}) {
+  const [mode, setMode] = useState<'closed' | 'upload' | 'library'>('closed');
+  const [file, setFile] = useState<File | null>(null);
+  const [title, setTitle] = useState('');
+  const [library, setLibrary] = useState<MediaItem[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+
+  function pickFile(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] ?? null;
+    setFile(f);
+    // The file name without its extension is usually a fair first title.
+    if (f && !title.trim()) setTitle(f.name.replace(/\.[^.]+$/, ''));
+  }
+
+  async function run(work: () => Promise<EngagementDetail['files']>, done: string) {
+    setBusy(true);
+    try {
+      onChange(await work());
+      onToast(done);
+      setMode('closed');
+      setFile(null);
+      setTitle('');
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openLibrary() {
+    setMode('library');
+    if (!library) {
+      listMedia()
+        .then((items) => setLibrary(items.filter((i) => i.status === 'ready')))
+        .catch(onError);
+    }
+  }
+
+  function upload(e: FormEvent) {
+    e.preventDefault();
+    if (!file) return;
+    run(() => uploadEngagementFile(detail.id, file, title.trim()), `Added “${title.trim()}”`);
+  }
+
+  return (
+    <div className="engagement-files">
+      <div className="tool-toolbar">
+        <button onClick={() => setMode(mode === 'upload' ? 'closed' : 'upload')}>Upload a file</button>
+        <button onClick={() => (mode === 'library' ? setMode('closed') : openLibrary())}>
+          Add from the media library
+        </button>
+      </div>
+
+      {mode === 'upload' && (
+        <form onSubmit={upload} className="stack-form inset">
+          <label>
+            File
+            <input
+              ref={input}
+              type="file"
+              required
+              accept="application/pdf,image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm"
+              onChange={pickFile}
+            />
+          </label>
+          <label>
+            Title
+            <input value={title} required maxLength={200} onChange={(e) => setTitle(e.target.value)} />
+          </label>
+          <p className="hint">
+            PDFs up to 50 MB, images up to 15 MB, MP4 or WebM video up to 500 MB.
+          </p>
+          <div className="button-row">
+            <button className="btn btn-primary" type="submit" disabled={busy || !file}>
+              {busy ? 'Uploading...' : 'Upload and add'}
+            </button>
+            <button type="button" className="linklike" onClick={() => setMode('closed')}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {mode === 'library' && (
+        <div className="inset">
+          {!library ? (
+            <p className="muted">Loading...</p>
+          ) : library.length === 0 ? (
+            <p className="muted">The media library is empty. Add items under Media library first.</p>
+          ) : (
+            <ul className="library-pick">
+              {library.map((item) => {
+                const already = detail.files.some((f) => f.fromLibrary && f.title === item.title);
+                return (
+                  <li key={item.id}>
+                    <span>
+                      <strong>{item.title}</strong>
+                      <small className="muted"> {item.kind}</small>
+                    </span>
+                    <button
+                      className="btn"
+                      disabled={busy || already}
+                      onClick={() => run(() => attachLibraryItem(detail.id, item.id), `Added “${item.title}”`)}
+                    >
+                      {already ? 'Added' : 'Add'}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <h4 className="people-side-title">Engagement files</h4>
+      {detail.files.length === 0 ? (
+        <p className="empty">No files attached to this engagement yet.</p>
+      ) : (
+        <div className="grid-wrap">
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Type</th>
+                <th>Added by</th>
+                <th>Added</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {detail.files.map((f) => (
+                <tr key={f.id}>
+                  <td>
+                    <strong>{f.title}</strong>
+                    {f.fromLibrary && <span className="muted"> (media library)</span>}
+                  </td>
+                  <td>{KIND_LABEL[f.kind]}</td>
+                  <td>{f.addedBy ?? <span className="muted">&mdash;</span>}</td>
+                  <td className="nowrap">{day(f.addedAt)}</td>
+                  <td className="nowrap">
+                    <a className="linklike" href={f.url} target="_blank" rel="noreferrer">
+                      Open
+                    </a>{' '}
+                    <button
+                      className="linklike"
+                      disabled={busy}
+                      onClick={() => {
+                        if (window.confirm(`Remove “${f.title}” from this engagement?`)) {
+                          run(() => removeEngagementFile(detail.id, f.id), `Removed “${f.title}”`);
+                        }
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -46,6 +46,10 @@ public class Appointment {
     @Column(name = "requested_by")
     private Long requestedBy;
 
+    /** Set on meetings the firm creates; client-booked meetings have none. */
+    @Column
+    private String title;
+
     @Column(name = "video_room_name")
     private String videoRoomName;
 
@@ -117,6 +121,14 @@ public class Appointment {
 
     public void setRequestedBy(Long requestedBy) {
         this.requestedBy = requestedBy;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title == null || title.isBlank() ? null : title.trim();
     }
 
     public String getVideoRoomName() {

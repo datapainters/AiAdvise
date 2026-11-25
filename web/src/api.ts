@@ -257,6 +257,8 @@ export interface AdminEngagement {
   startedOn: string;
   /** The need this engagement exists to meet. */
   goal: string | null;
+  /** When it is meant to reach that goal; null if open-ended. */
+  dueOn: string | null;
 }
 
 export interface LoginEvent {
@@ -303,6 +305,8 @@ export function createEngagement(input: {
   clientId: number;
   title: string;
   goal?: string;
+  startedOn?: string;
+  dueOn?: string | null;
 }): Promise<AdminEngagement> {
   return request<AdminEngagement>('/api/admin/engagements', {
     method: 'POST',
@@ -322,7 +326,14 @@ export function engagementColumns(): Promise<GridColumn[]> {
 
 export function updateEngagement(
   id: number,
-  input: { title: string; status: string; goal?: string | null },
+  input: {
+    title: string;
+    status: string;
+    goal?: string | null;
+    startedOn?: string;
+    /** Sent on every save: null clears the target date. */
+    dueOn: string | null;
+  },
 ): Promise<AdminEngagement> {
   return request<AdminEngagement>(`/api/admin/engagements/${id}`, {
     method: 'PUT',
@@ -389,6 +400,8 @@ export function cancelAppointment(id: number): Promise<Appointment> {
 
 export interface AdminAppointment extends Appointment {
   clientName: string;
+  /** Set on meetings the firm created; client-booked meetings have none. */
+  title: string | null;
   /** How many agenda items already have a note written against them. */
   notedCount: number;
 }
@@ -421,10 +434,35 @@ export function appointmentColumns(): Promise<GridColumn[]> {
 
 export function updateAppointment(
   id: number,
-  input: { startsAt: string; durationMinutes: number; status: string },
+  input: { startsAt: string; durationMinutes: number; status: string; title?: string },
 ): Promise<AdminAppointment> {
   return request<AdminAppointment>(`/api/admin/appointments/${id}`, {
     method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+/** A meeting the firm sets up itself, on a chosen engagement. */
+export function createAdminAppointment(input: {
+  engagementId: number;
+  title: string;
+  startsAt: string;
+  durationMinutes: number;
+  status: 'requested' | 'confirmed';
+  billable: boolean;
+}): Promise<AdminAppointment> {
+  return request<AdminAppointment>('/api/admin/appointments', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function addAgendaItem(
+  appointmentId: number,
+  input: { title: string; desiredOutcome?: string },
+): Promise<AgendaItem> {
+  return request<AgendaItem>(`/api/admin/appointments/${appointmentId}/topics`, {
+    method: 'POST',
     body: JSON.stringify(input),
   });
 }
@@ -751,6 +789,7 @@ export function addEngagementTeamToMeeting(appointmentId: number): Promise<Perso
 
 export interface EngagementMeeting {
   id: number;
+  title: string | null;
   startsAt: string;
   endsAt: string;
   durationMinutes: number;
@@ -816,13 +855,84 @@ export interface EngagementDetail {
   goal: string | null;
   status: string;
   startedOn: string;
+  dueOn: string | null;
   recordedMinutes: number;
   meetings: EngagementMeeting[];
+  /** Notes about the engagement as a whole, newest first. */
+  notes: EngagementNote[];
   agenda: EngagementAgendaLine[];
+  /** Files attached to the engagement directly. */
+  files: EngagementFile[];
+  /** Things put on screen during its meetings. */
   media: SharedItem[];
   team: Person[];
   /** Null for roles that do not handle billing. */
   billing: EngagementBilling | null;
+}
+
+export interface EngagementNote {
+  id: number;
+  body: string;
+  authorName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EngagementFile {
+  id: number;
+  title: string;
+  kind: 'image' | 'pdf' | 'video';
+  url: string;
+  fromLibrary: boolean;
+  addedBy: string | null;
+  addedAt: string;
+}
+
+export function addEngagementNote(id: number, body: string): Promise<EngagementNote[]> {
+  return request(`/api/admin/engagements/${id}/notes`, { method: 'POST', body: JSON.stringify({ body }) });
+}
+
+export function editEngagementNote(id: number, noteId: number, body: string): Promise<EngagementNote[]> {
+  return request(`/api/admin/engagements/${id}/notes/${noteId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function deleteEngagementNote(id: number, noteId: number): Promise<EngagementNote[]> {
+  return request(`/api/admin/engagements/${id}/notes/${noteId}`, { method: 'DELETE' });
+}
+
+export function attachLibraryItem(id: number, mediaItemId: number): Promise<EngagementFile[]> {
+  return request(`/api/admin/engagements/${id}/files`, {
+    method: 'POST',
+    body: JSON.stringify({ mediaItemId }),
+  });
+}
+
+/** Uploads a file straight to storage, then attaches it to the engagement. */
+export async function uploadEngagementFile(id: number, file: File, title: string): Promise<EngagementFile[]> {
+  const slot = await request<{ uploadUrl: string; contentType: string; uploadKey: string }>(
+    `/api/admin/engagements/${id}/files/uploads`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ fileName: file.name, contentType: file.type, sizeBytes: file.size }),
+    },
+  );
+  const put = await fetch(slot.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': slot.contentType },
+    body: file,
+  });
+  if (!put.ok) throw new Error(`The upload failed (${put.status}). Try again.`);
+  return request(`/api/admin/engagements/${id}/files`, {
+    method: 'POST',
+    body: JSON.stringify({ uploadKey: slot.uploadKey, title }),
+  });
+}
+
+export function removeEngagementFile(id: number, fileId: number): Promise<EngagementFile[]> {
+  return request(`/api/admin/engagements/${id}/files/${fileId}`, { method: 'DELETE' });
 }
 
 export function getEngagementDetail(id: number): Promise<EngagementDetail> {

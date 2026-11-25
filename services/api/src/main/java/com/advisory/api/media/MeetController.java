@@ -51,10 +51,16 @@ public class MeetController {
     private final MediaService media;
     private final MediaStore store;
     private final JdbcClient jdbc;
+    private final com.advisory.api.admin.AgendaService agenda;
+    private final com.advisory.api.billing.BillingService billing;
 
     public MeetController(AppointmentRepository appointments, ClientRepository clients,
             EngagementRepository engagements, AppUserRepository users, VideoService video,
-            MeetTokens tokens, MediaService media, MediaStore store, JdbcClient jdbc) {
+            MeetTokens tokens, MediaService media, MediaStore store, JdbcClient jdbc,
+            com.advisory.api.admin.AgendaService agenda,
+            com.advisory.api.billing.BillingService billing) {
+        this.agenda = agenda;
+        this.billing = billing;
         this.appointments = appointments;
         this.clients = clients;
         this.engagements = engagements;
@@ -134,6 +140,91 @@ public class MeetController {
                 .orElse("");
         return new MeetingInfo(a.getId(), client, engagement, a.getStartsAt(), a.getEndsAt(),
                 a.getStatus());
+    }
+
+    /* ------------------------------------------------- host: agenda & timer */
+
+    /*
+     * The host runs the meeting from inside the call window, so the agenda,
+     * the notes and the clock are reachable with the room's host token --
+     * the same credential that already lets them share from the library.
+     * Clients and guests hold tokens too, and every method here refuses them.
+     */
+
+    public record NoteRequest(String body) {}
+
+    public record StatusRequest(String status) {}
+
+    /** The meeting clock as the call window shows it. No rates or amounts. */
+    public record Timer(boolean running, Instant runningSince, int totalMinutes,
+            boolean locked) {}
+
+    @GetMapping("/agenda")
+    public List<com.advisory.api.admin.MeetingController.AgendaItem> agenda(
+            @PathVariable Long id,
+            @RequestHeader(name = "X-Meet-Token", required = false) String token) {
+        requireHost(tokens.verify(token, id));
+        return agenda.agenda(id);
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/agenda/{topicId}/note")
+    public com.advisory.api.admin.MeetingController.AgendaItem saveNote(@PathVariable Long id,
+            @PathVariable Long topicId,
+            @RequestHeader(name = "X-Meet-Token", required = false) String token,
+            @RequestBody NoteRequest r) {
+        MeetTokens.Claims c = tokens.verify(token, id);
+        requireHost(c);
+        return agenda.saveNote(id, topicId, r.body(), c.userId());
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/agenda/{topicId}/status")
+    public com.advisory.api.admin.MeetingController.AgendaItem setStatus(@PathVariable Long id,
+            @PathVariable Long topicId,
+            @RequestHeader(name = "X-Meet-Token", required = false) String token,
+            @RequestBody StatusRequest r) {
+        requireHost(tokens.verify(token, id));
+        return agenda.setStatus(id, topicId, r.status());
+    }
+
+    @GetMapping("/timer")
+    public Timer timer(@PathVariable Long id,
+            @RequestHeader(name = "X-Meet-Token", required = false) String token) {
+        requireHost(tokens.verify(token, id));
+        return timerOf(billing.timeSheet(id));
+    }
+
+    /**
+     * Starts the clock. Called by the call window when the host joins, so it
+     * is safe to call when a timer is already running: a second host joining,
+     * or the same host rejoining, changes nothing.
+     */
+    @PostMapping("/timer/start")
+    public Timer startTimer(@PathVariable Long id,
+            @RequestHeader(name = "X-Meet-Token", required = false) String token) {
+        MeetTokens.Claims c = tokens.verify(token, id);
+        requireHost(c);
+        com.advisory.api.billing.BillingService.TimeSheet sheet = billing.timeSheet(id);
+        boolean running = sheet.entries().stream().anyMatch(e -> e.running());
+        if (running || sheet.locked()) {
+            return timerOf(sheet);
+        }
+        return timerOf(billing.startTimer(id, c.userId()));
+    }
+
+    /** Stops the clock. Called when the host leaves; harmless if nothing is running. */
+    @PostMapping("/timer/stop")
+    public Timer stopTimer(@PathVariable Long id,
+            @RequestHeader(name = "X-Meet-Token", required = false) String token) {
+        requireHost(tokens.verify(token, id));
+        return timerOf(billing.stopTimer(id));
+    }
+
+    private static Timer timerOf(com.advisory.api.billing.BillingService.TimeSheet sheet) {
+        Instant since = sheet.entries().stream()
+                .filter(e -> e.running())
+                .map(e -> e.startedAt())
+                .findFirst().orElse(null);
+        return new Timer(since != null, since, sheet.totalMinutes(), sheet.locked());
     }
 
     /* -------------------------------------------------------------- library */
@@ -265,7 +356,7 @@ public class MeetController {
     private static void requireHost(MeetTokens.Claims c) {
         if (!c.isHost()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Only the host can share from the library");
+                    "Only the host can do that");
         }
     }
 }

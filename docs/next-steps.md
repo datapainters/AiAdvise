@@ -789,3 +789,78 @@ CSV and print.
 Production reuses the image dev built for the same commit, so it runs
 exactly what was tested. Each environment has its own secrets
 (`advisory-dev/...`), including its own Daily key secret.
+
+## Team roles, engagement manager and in-call tools (V13, 2026-11-25)
+
+**Team members.** Staff accounts are still `role = ADMIN` ("is staff") and
+now carry a `team_role`: `admin`, `billing`, `relations` or `engineer`.
+Admin → System → **Team** invites people with the same single-use link
+clients get, changes roles and disables accounts. Existing admins were
+migrated to `admin`.
+
+What each role reaches is enforced by path in `SecurityConfig` and mirrored
+in the console's navigation:
+
+| | admin | billing | relations | engineer |
+|---|---|---|---|---|
+| Clients, engagements, meetings, media, calendar | yes | yes | yes | yes |
+| Invoices, payments, charges, financial reports | yes | yes | no | no |
+| Client portal logins screen | yes | no | yes | no |
+| Team, sign-in activity, changing system options | yes | no | no | no |
+
+Authorities are read from the account row on every request rather than from
+the token (`SecurityConfig.jwtAuthenticationConverter`). One primary-key
+lookup per request buys immediate effect: disabling someone locks them out
+on their next call, and a role change does not wait for their 12-hour token
+to expire. The same change closes the old gap for disabled client logins.
+
+Guard rails in `TeamController`: nobody changes their own role or disables
+themselves; the last enabled administrator cannot be demoted or disabled;
+only an administrator can send a reset link for a staff account (otherwise a
+link to an administrator's account would be a way to become one).
+
+**Engagements.** An engagement has a `goal`. Clicking a row in the
+Engagements list opens the Engagement Manager: Overview (goal, title,
+status), Meetings, Agenda & notes (every topic, grouped by the meeting it was
+discussed in), Media (everything put on screen in its meetings), Team, and
+Billing. Billing shows what the engagement has been charged, invoiced and
+has unbilled, and can raise an invoice for just this engagement's unbilled
+charges. The billing figures are omitted from the response for roles that
+do not handle money.
+
+**People.** `engagement_member` and `appointment_participant` hold people
+from both sides with the part they play. A client contact must belong to the
+engagement's client and take a client-side role; staff take a Data Painters
+role. A meeting adds two flags per person: on the call, and sent the summary.
+"Add the engagement team" copies the engagement's team onto a meeting.
+
+**Meeting summary email.** Marking a meeting complete mails the agenda, the
+notes and the recorded time to participants flagged "sent the summary". It
+goes once per meeting (`appointment.summary_sent_at`), and a mail failure
+never fails the completion.
+
+**Meeting Manager** now has tabs: Agenda & notes, Users, Time & billing,
+Media.
+
+**In the call window.** The host sees an Agenda and notes panel beside the
+video with a note field per topic, and the meeting timer. The timer starts
+when a host joins the call and stops when the last host leaves or closes the
+tab; Start and Stop are there for anything the automatic rule gets wrong.
+These endpoints live under `/api/meet/{id}` and accept only the room's host
+token, so clients and guests cannot read notes or touch the clock.
+
+Left open:
+
+- **The automatic timer has not been watched in a live call.** The start and
+  stop endpoints were exercised directly and the panel was checked in a
+  browser, but the test environment could not join a Daily call, so the
+  join/leave wiring needs one real call on dev to confirm.
+- A host whose browser crashes leaves the timer running until someone stops
+  it or the meeting is completed. Completing a meeting with a running timer
+  bills up to that moment.
+- Roles are fixed in code. If the split above turns out wrong for how the
+  team actually works, change the matchers in `SecurityConfig` and `canSee`
+  in `web/src/App.tsx` together.
+- Payments are recorded against invoices, not engagements, so "paid" is not
+  shown per engagement; an invoice raised from an engagement carries the
+  engagement's title in its notes.

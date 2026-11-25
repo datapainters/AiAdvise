@@ -38,11 +38,13 @@ public class AuthController {
     public record LoginResponse(String token, Instant expiresAt, UserView user) {}
 
     public record UserView(Long id, String email, String name, String role, Long clientId,
-            boolean mustChangePassword) {
+            boolean mustChangePassword, String teamRole) {
 
         public static UserView of(AppUser u) {
             return new UserView(u.getId(), u.getEmail(), u.getDisplayName(),
-                    u.getRole(), u.getClientId(), u.isMustChangePassword());
+                    u.getRole(), u.getClientId(), u.isMustChangePassword(),
+                    u.isAdmin() && u.getTeamRole() == null
+                            ? AppUser.TEAM_ADMIN : u.getTeamRole());
         }
     }
 

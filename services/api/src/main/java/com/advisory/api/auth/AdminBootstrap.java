@@ -88,6 +88,7 @@ public class AdminBootstrap implements ApplicationRunner {
         admin.setEmail(email);
         admin.setDisplayName("Administrator");
         admin.setRole(AppUser.ROLE_ADMIN);
+        admin.setTeamRole(AppUser.TEAM_ADMIN);
         admin.setClientId(null);
         admin.setPasswordHash(passwordEncoder.encode(password));
         admin.setEnabled(true);

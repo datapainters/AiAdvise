@@ -64,6 +64,8 @@ public class MeetingController {
     private final VideoService video;
     private final com.advisory.api.media.MeetTokens meetTokens;
     private final String mailBaseUrl;
+    private final AgendaService agenda;
+    private final PeopleService people;
 
     public MeetingController(AppointmentRepository appointments, ClientRepository clients,
             EngagementRepository engagements, TopicRepository topics,
@@ -71,9 +73,12 @@ public class MeetingController {
             SchedulingService scheduling, Notifications notifications,
             CompanyRepository companies, BillingService billing, VideoService video,
             com.advisory.api.media.MeetTokens meetTokens,
+            AgendaService agenda, PeopleService people,
             @org.springframework.beans.factory.annotation.Value("${APP_BASE_URL:https://ai.datapainters.com}")
                     String mailBaseUrl) {
         this.meetTokens = meetTokens;
+        this.agenda = agenda;
+        this.people = people;
         this.mailBaseUrl = mailBaseUrl.replaceAll("/$", "");
         this.billing = billing;
         this.video = video;
@@ -186,6 +191,7 @@ public class MeetingController {
             // date reaches the charge too. An invoiced charge is left alone.
             importCallTimeIfEmpty(appointment, CurrentUser.from(jwt).id());
             billing.compile(id, CurrentUser.from(jwt).id());
+            sendSummary(appointment);
         }
         if (Appointment.CONFIRMED.equals(request.status())
                 && !Appointment.CONFIRMED.equals(previous)) {
@@ -212,102 +218,25 @@ public class MeetingController {
     public MeetingDetail meeting(@PathVariable Long id) {
         Appointment appointment = appointments.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-
-        Map<Long, MeetingNote> byTopic = notes.findAllByAppointmentId(id).stream()
-                .collect(Collectors.toMap(MeetingNote::getTopicId, n -> n, (a, b) -> a));
-
-        List<AgendaItem> agenda = topics
-                .findByAppointmentIdOrderByPriorityAscCreatedAtAsc(id).stream()
-                .map(t -> {
-                    MeetingNote n = byTopic.get(t.getId());
-                    return new AgendaItem(
-                            t.getId(), t.getTitle(), t.getDetail(), t.getDesiredOutcome(),
-                            t.getPriority(), t.getStatus(),
-                            n == null ? null : n.getBody(),
-                            n == null ? null : n.getUpdatedAt());
-                })
-                .toList();
-
-        return new MeetingDetail(rows(List.of(appointment)).get(0), agenda);
+        return new MeetingDetail(rows(List.of(appointment)).get(0), agenda.agenda(id));
     }
 
-    /**
-     * Saves the engineer's note for one agenda item.
-     *
-     * <p>An upsert against the (appointment, topic) unique constraint, so
-     * repeated saves during a call edit one row instead of appending
-     * fragments. An empty body deletes the note rather than storing a blank,
-     * which keeps "no note yet" and "deliberately cleared" from looking
-     * different in the data.
-     */
     @PutMapping("/appointments/{id}/topics/{topicId}/note")
     public AgendaItem saveNote(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id,
             @PathVariable Long topicId,
             @Valid @RequestBody SaveNote request) {
-
-        Topic topic = topics.findById(topicId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-
-        if (!id.equals(topic.getAppointmentId())) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST, "That topic is not on this meeting's agenda");
-        }
-
-        String body = request.body() == null ? "" : request.body().trim();
-        MeetingNote existing = notes.findByAppointmentIdAndTopicId(id, topicId).orElse(null);
-
-        if (body.isEmpty()) {
-            if (existing != null) {
-                notes.delete(existing);
-            }
-            return new AgendaItem(topic.getId(), topic.getTitle(), topic.getDetail(),
-                    topic.getDesiredOutcome(), topic.getPriority(), topic.getStatus(),
-                    null, null);
-        }
-
-        MeetingNote note = existing == null ? new MeetingNote() : existing;
-        note.setAppointmentId(id);
-        note.setTopicId(topicId);
-        note.setBody(body);
-        note.setAuthorUserId(CurrentUser.from(jwt).id());
-        note.setUpdatedAt(Instant.now());
-
-        MeetingNote saved = notes.save(note);
-        return new AgendaItem(topic.getId(), topic.getTitle(), topic.getDetail(),
-                topic.getDesiredOutcome(), topic.getPriority(), topic.getStatus(),
-                saved.getBody(), saved.getUpdatedAt());
+        return agenda.saveNote(id, topicId, request.body(), CurrentUser.from(jwt).id());
     }
 
-    /** Marks one agenda item discussed or dropped from inside the meeting. */
     @PutMapping("/appointments/{id}/topics/{topicId}/status")
     public AgendaItem setTopicStatus(
             @PathVariable Long id, @PathVariable Long topicId,
             @Valid @RequestBody UpdateStatus request) {
-
-        if (!List.of(Topic.SCHEDULED, Topic.DISCUSSED, Topic.DROPPED)
-                .contains(request.status())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "status must be scheduled, discussed or dropped");
-        }
-
-        Topic topic = topics.findById(topicId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        if (!id.equals(topic.getAppointmentId())) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST, "That topic is not on this meeting's agenda");
-        }
-
-        topic.setStatus(request.status());
-        topic.setUpdatedAt(Instant.now());
-        topics.save(topic);
-
-        MeetingNote n = notes.findByAppointmentIdAndTopicId(id, topicId).orElse(null);
-        return new AgendaItem(topic.getId(), topic.getTitle(), topic.getDetail(),
-                topic.getDesiredOutcome(), topic.getPriority(), topic.getStatus(),
-                n == null ? null : n.getBody(), n == null ? null : n.getUpdatedAt());
+        return agenda.setStatus(id, topicId, request.status());
     }
+
 
     @PutMapping("/appointments/{id}/status")
     @Transactional
@@ -343,6 +272,7 @@ public class MeetingController {
                 && !Appointment.COMPLETED.equals(previous)) {
             importCallTimeIfEmpty(appointment, CurrentUser.from(jwt).id());
             billing.compile(id, CurrentUser.from(jwt).id());
+            sendSummary(appointment);
         }
 
         // Only on the transition into confirmed. Re-saving an already
@@ -478,6 +408,35 @@ public class MeetingController {
         notifications.meetingConfirmedGuest(client.getPrimaryEmail(), guest, row.engagementTitle(),
                 appointment.getStartsAt(), appointment.getDurationMinutes(), row.topicCount(),
                 joinUrl);
+    }
+
+    /**
+     * Mails the write-up to the participants who asked for it, once.
+     *
+     * <p>Never allowed to fail the completion it follows: the meeting is
+     * done and its time compiled whether or not the mail goes out, and the
+     * summary can always be printed and sent by hand.
+     */
+    private void sendSummary(Appointment appointment) {
+        try {
+            List<String> recipients = people.summaryRecipients(appointment.getId());
+            if (recipients.isEmpty() || !people.claimSummary(appointment.getId())) {
+                return;
+            }
+            AppointmentRow row = rows(List.of(appointment)).get(0);
+            notifications.meetingSummary(recipients, row.clientName(), row.engagementTitle(),
+                    appointment.getStartsAt(),
+                    billing.timeSheet(appointment.getId()).totalMinutes(),
+                    agenda.agenda(appointment.getId()).stream()
+                            .map(i -> new Notifications.SummaryLine(
+                                    i.title(), i.status(), i.note()))
+                            .toList());
+            log.info("Sent the summary of appointment {} to {} participant(s)",
+                    appointment.getId(), recipients.size());
+        } catch (RuntimeException e) {
+            log.warn("Could not send the summary of appointment {}: {}",
+                    appointment.getId(), e.getMessage());
+        }
     }
 
     private void importCallTimeIfEmpty(Appointment appointment, Long userId) {

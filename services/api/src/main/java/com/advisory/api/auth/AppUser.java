@@ -23,6 +23,17 @@ public class AppUser {
     public static final String ROLE_CLIENT = "CLIENT";
     public static final String ROLE_ADMIN = "ADMIN";
 
+    /**
+     * What a staff account works on. Only meaningful when role is ADMIN,
+     * which now reads as "is staff"; see V13.
+     */
+    public static final String TEAM_ADMIN = "admin";
+    public static final String TEAM_BILLING = "billing";
+    public static final String TEAM_RELATIONS = "relations";
+    public static final String TEAM_ENGINEER = "engineer";
+    public static final java.util.List<String> TEAM_ROLES =
+            java.util.List.of(TEAM_ADMIN, TEAM_BILLING, TEAM_RELATIONS, TEAM_ENGINEER);
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -62,6 +73,9 @@ public class AppUser {
     @Column(nullable = false)
     private String role = ROLE_CLIENT;
 
+    @Column(name = "team_role")
+    private String teamRole;
+
     @Column(nullable = false)
     private boolean enabled = true;
 
@@ -79,6 +93,14 @@ public class AppUser {
 
     public boolean isAdmin() {
         return ROLE_ADMIN.equals(role);
+    }
+
+    public String getTeamRole() {
+        return teamRole;
+    }
+
+    public void setTeamRole(String teamRole) {
+        this.teamRole = teamRole;
     }
 
     public Long getId() {

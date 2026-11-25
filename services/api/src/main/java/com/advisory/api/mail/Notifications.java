@@ -102,6 +102,111 @@ Set your password</a>
         return mail.send(email, "Your Data Painters portal invitation", plain, html);
     }
 
+    /**
+     * Invites someone to the firm's own console. Worded separately from the
+     * client invitation: a colleague is not joining "the client portal for"
+     * anyone.
+     */
+    public boolean teamInvitation(String email, String displayName, String roleLabel,
+            String inviteUrl, Instant expiresAt) {
+
+        String expires = when(expiresAt);
+
+        String plain = """
+                Hello %s,
+
+                You have been added to the Data Painters team console as %s.
+
+                Set your password and sign in:
+                %s
+
+                The link works once and expires on %s (%s). If it has already
+                expired, ask an administrator to send another.
+
+                Data Painters
+                """.formatted(displayName, roleLabel, inviteUrl, expires, displayZone.getId());
+
+        String html = wrap("""
+                <p>Hello %s,</p>
+                <p>You have been added to the Data Painters team console as
+                <strong>%s</strong>.</p>
+                <p style="margin:24px 0">
+                  <a href="%s" style="background:#16181d;color:#fcfcfd;\
+text-decoration:none;padding:11px 20px;border-radius:2px;display:inline-block">\
+Set your password</a>
+                </p>
+                <p style="color:#595f6b;font-size:13px">The link works once and
+                expires on %s (%s). If it has already expired, ask an
+                administrator to send another.</p>
+                """.formatted(esc(displayName), esc(roleLabel), esc(inviteUrl),
+                esc(expires), esc(displayZone.getId())));
+
+        return mail.send(email, "Your Data Painters team invitation", plain, html);
+    }
+
+    /** One agenda line of a meeting write-up: what it was, where it ended up, the note. */
+    public record SummaryLine(String title, String status, String note) {}
+
+    /**
+     * The write-up that goes out when a meeting is marked complete, to the
+     * participants who asked for it.
+     */
+    public void meetingSummary(List<String> recipients, String clientName,
+            String engagementTitle, Instant startsAt, int recordedMinutes,
+            List<SummaryLine> items) {
+
+        if (recipients.isEmpty()) {
+            return;
+        }
+        String when = when(startsAt);
+        String subject = "Meeting summary: %s on %s".formatted(engagementTitle, when);
+
+        StringBuilder plainItems = new StringBuilder();
+        StringBuilder htmlItems = new StringBuilder();
+        if (items.isEmpty()) {
+            plainItems.append("No agenda items were recorded for this meeting.\n");
+            htmlItems.append("<p>No agenda items were recorded for this meeting.</p>");
+        }
+        for (SummaryLine item : items) {
+            String note = item.note() == null || item.note().isBlank()
+                    ? "No notes recorded." : item.note();
+            plainItems.append("- ").append(item.title()).append(" (").append(item.status())
+                    .append(")\n  ").append(note.replace("\n", "\n  ")).append("\n\n");
+            htmlItems.append("<h3 style=\"font-size:15px;margin:20px 0 4px\">")
+                    .append(esc(item.title()))
+                    .append(" <span style=\"color:#595f6b;font-weight:normal;font-size:13px\">")
+                    .append(esc(item.status())).append("</span></h3><p style=\"margin:0;")
+                    .append("white-space:pre-wrap\">").append(esc(note)).append("</p>");
+        }
+
+        String plain = """
+                Summary of your meeting with Data Painters.
+
+                Client:      %s
+                Engagement:  %s
+                When:        %s (%s)
+                Time:        %d minutes recorded
+
+                %s
+                Data Painters
+                """.formatted(clientName, engagementTitle, when, displayZone.getId(),
+                recordedMinutes, plainItems);
+
+        String html = wrap("""
+                <p>Summary of your meeting with Data Painters.</p>
+                <table cellpadding="4" style="border-collapse:collapse;font-size:14px">
+                  <tr><td style="color:#595f6b">Client</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">Engagement</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">When</td><td>%s (%s)</td></tr>
+                  <tr><td style="color:#595f6b">Time</td><td>%d minutes recorded</td></tr>
+                </table>
+                %s
+                """.formatted(esc(clientName), esc(engagementTitle), esc(when),
+                esc(displayZone.getId()), recordedMinutes, htmlItems));
+
+        mail.sendAll(recipients, subject, plain, html);
+    }
+
     /* ----------------------------------------------------------- meetings */
 
     /** Tells the firm a client has asked for time. */

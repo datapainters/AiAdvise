@@ -190,14 +190,16 @@ public class AdminController {
 
     public record CreateEngagement(
             @NotNull Long clientId,
-            @NotBlank String title) {}
+            @NotBlank String title,
+            String goal) {}
 
     public record EngagementView(
-            Long id, Long clientId, String title, String status, LocalDate startedOn) {
+            Long id, Long clientId, String title, String status, LocalDate startedOn,
+            String goal) {
 
         static EngagementView of(Engagement e) {
             return new EngagementView(e.getId(), e.getClientId(), e.getTitle(),
-                    e.getStatus(), e.getStartedOn());
+                    e.getStatus(), e.getStartedOn(), e.getGoal());
         }
     }
 
@@ -234,7 +236,8 @@ public class AdminController {
 
     public record UpdateEngagement(
             @NotBlank String title,
-            @NotBlank String status) {}
+            @NotBlank String status,
+            String goal) {}
 
     @PutMapping("/engagements/{id}")
     @Transactional
@@ -251,6 +254,7 @@ public class AdminController {
 
         engagement.setTitle(request.title().trim());
         engagement.setStatus(request.status());
+        engagement.setGoal(request.goal());
         log.info("Updated engagement {}", id);
         return EngagementView.of(engagements.save(engagement));
     }
@@ -264,6 +268,7 @@ public class AdminController {
         Engagement engagement = new Engagement();
         engagement.setClientId(request.clientId());
         engagement.setTitle(request.title().trim());
+        engagement.setGoal(request.goal());
 
         Engagement saved = engagements.save(engagement);
         em.flush();
@@ -382,9 +387,24 @@ public class AdminController {
      * could not reach the recipient.
      */
     @PostMapping("/users/{id}/invite")
-    public CreatedUser reinvite(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+    public CreatedUser reinvite(@AuthenticationPrincipal Jwt jwt,
+            org.springframework.security.core.Authentication auth, @PathVariable Long id) {
         AppUser user = users.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+
+        // A fresh link is a way into the account it is for. Anyone on the
+        // team may send one to a client; only an administrator may send one
+        // for a team member, or a link to an administrator's account would
+        // be a way to become one.
+        if (user.isAdmin()) {
+            com.advisory.api.auth.Staff.requireAdmin(auth);
+            if (!user.isEnabled()) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT, "That account is disabled");
+            }
+            return TeamController.invite(invites, notifications, appBaseUrl, user,
+                    CurrentUser.from(jwt).id());
+        }
 
         if (!user.isEnabled()) {
             throw new ResponseStatusException(

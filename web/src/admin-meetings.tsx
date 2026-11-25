@@ -14,7 +14,11 @@ import {
   saveMeetingNote,
   setAgendaItemStatus,
   setAppointmentStatus,
+  listMeetingParticipants,
+  listMeetingShares,
   type AgendaItem,
+  type Person,
+  type SharedItem,
   type ClientDetail,
   type CreatedUser,
   type MeetingDetail,
@@ -22,6 +26,7 @@ import {
 import { formatLength, formatRange, statusLabel } from './scheduling';
 import { AccountingTab, TimeTracker } from './billing';
 import { VideoPanel } from './video';
+import { PeopleList } from './people';
 
 /* --------------------------------------------------------------- modal shell */
 
@@ -201,20 +206,40 @@ function AgendaRow({
   );
 }
 
+type MeetingTab = 'agenda' | 'users' | 'time' | 'media';
+
+const MEETING_TAB_LABELS: Record<MeetingTab, string> = {
+  agenda: 'Agenda & notes',
+  users: 'Users',
+  time: 'Time & billing',
+  media: 'Media',
+};
+
 export function MeetingManager({
   appointmentId,
   onClose,
   onChanged,
   onError,
+  onOpenEngagement,
 }: {
   appointmentId: number;
   onClose: () => void;
   /** Signals the parent to reload; the row itself comes from the server. */
   onChanged: () => void;
   onError: (e: unknown) => void;
+  /** Opens the engagement this meeting belongs to. */
+  onOpenEngagement?: (engagementId: number) => void;
 }) {
   const [meeting, setMeeting] = useState<MeetingDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<MeetingTab>('agenda');
+  const [people, setPeople] = useState<Person[]>([]);
+  const [shares, setShares] = useState<SharedItem[]>([]);
+
+  useEffect(() => {
+    listMeetingParticipants(appointmentId).then(setPeople).catch(onError);
+    listMeetingShares(appointmentId).then(setShares).catch(onError);
+  }, [appointmentId, onError]);
   // Completing a meeting compiles its time into a charge; the tracker
   // reloads on this key to show the result.
   const [timeKey, setTimeKey] = useState(0);
@@ -250,7 +275,14 @@ export function MeetingManager({
             <div>
               <h3>{a.clientName}</h3>
               <p className="muted">
-                {a.engagementTitle} &middot; {formatRange(a.startsAt, a.endsAt)} &middot;{' '}
+                {onOpenEngagement ? (
+                  <button className="linklike" onClick={() => onOpenEngagement(a.engagementId)}>
+                    {a.engagementTitle}
+                  </button>
+                ) : (
+                  a.engagementTitle
+                )}{' '}
+                &middot; {formatRange(a.startsAt, a.endsAt)} &middot;{' '}
                 {formatLength(a.durationMinutes)}
               </p>
             </div>
@@ -293,43 +325,123 @@ export function MeetingManager({
             }}
           />
 
-          <TimeTracker
-            appointmentId={appointmentId}
-            refreshKey={timeKey}
-            onError={onError}
-            hasVideo={a.video}
-          />
+          <div className="tabs" role="tablist">
+            {(['agenda', 'users', 'time', 'media'] as MeetingTab[]).map((t) => {
+              const count =
+                t === 'agenda'
+                  ? meeting.agenda.length
+                  : t === 'users'
+                    ? people.length
+                    : t === 'media'
+                      ? shares.length
+                      : null;
+              return (
+                <button
+                  key={t}
+                  role="tab"
+                  aria-selected={tab === t}
+                  className={tab === t ? 'tab tab-on' : 'tab'}
+                  onClick={() => setTab(t)}
+                >
+                  {MEETING_TAB_LABELS[t]}
+                  {count !== null && <span className="tab-count">{count}</span>}
+                </button>
+              );
+            })}
+          </div>
 
-          <h3 className="section-label">Agenda</h3>
-
-          {meeting.agenda.length === 0 ? (
-            <p className="empty">
-              No agenda items. The client booked this without selecting topics.
-            </p>
-          ) : (
-            <div className="agenda">
-              {meeting.agenda.map((item) => (
-                <AgendaRow
-                  key={item.topicId}
-                  appointmentId={appointmentId}
-                  item={item}
-                  onError={onError}
-                  onChanged={(updated) =>
-                    setMeeting((m) =>
-                      m
-                        ? {
-                            ...m,
-                            agenda: m.agenda.map((x) =>
-                              x.topicId === updated.topicId ? updated : x,
-                            ),
-                          }
-                        : m,
-                    )
-                  }
-                />
-              ))}
-            </div>
+          {tab === 'time' && (
+            <TimeTracker
+              appointmentId={appointmentId}
+              refreshKey={timeKey}
+              onError={onError}
+              hasVideo={a.video}
+            />
           )}
+
+          {tab === 'users' && (
+            <PeopleList
+              scope={{ kind: 'meeting', id: appointmentId }}
+              people={people}
+              clientName={a.clientName}
+              onError={onError}
+              onChange={setPeople}
+            />
+          )}
+
+          {tab === 'media' &&
+            (shares.length === 0 ? (
+              <p className="empty">
+                Nothing has been shared in this meeting. Templates, videos and screenshots put on
+                screen during the call are listed here afterwards.
+              </p>
+            ) : (
+              <div className="grid-wrap">
+                <table className="grid">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Type</th>
+                      <th>Shared by</th>
+                      <th>At</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shares.map((s) => (
+                      <tr key={s.id}>
+                        <td>
+                          <strong>{s.title}</strong>
+                        </td>
+                        <td>{s.kind === 'pdf' ? 'PDF' : s.kind === 'video' ? 'Video' : 'Image'}</td>
+                        <td>{s.sharedByName}</td>
+                        <td className="nowrap">
+                          {new Date(s.sharedAt).toLocaleTimeString([], {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })}
+                        </td>
+                        <td>
+                          <a className="linklike" href={s.url} target="_blank" rel="noreferrer">
+                            Open
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+
+          {tab === 'agenda' &&
+            (meeting.agenda.length === 0 ? (
+              <p className="empty">
+                No agenda items. The client booked this without selecting topics.
+              </p>
+            ) : (
+              <div className="agenda">
+                {meeting.agenda.map((item) => (
+                  <AgendaRow
+                    key={item.topicId}
+                    appointmentId={appointmentId}
+                    item={item}
+                    onError={onError}
+                    onChanged={(updated) =>
+                      setMeeting((m) =>
+                        m
+                          ? {
+                              ...m,
+                              agenda: m.agenda.map((x) =>
+                                x.topicId === updated.topicId ? updated : x,
+                              ),
+                            }
+                          : m,
+                      )
+                    }
+                  />
+                ))}
+              </div>
+            ))}
         </>
       )}
     </Modal>
@@ -348,7 +460,10 @@ export function ClientDetailModal({
   onOpenMeeting,
   onToast,
   initialTab,
+  showAccounting = true,
 }: {
+  /** False for team roles that do not handle billing. */
+  showAccounting?: boolean;
   clientId: number;
   onClose: () => void;
   onIssued: (created: CreatedUser) => void;
@@ -404,7 +519,8 @@ export function ClientDetailModal({
     }
   }
 
-  const tabs: DetailTab[] = ['overview', 'engagements', 'appointments', 'users', 'notes', 'accounting'];
+  const tabs: DetailTab[] = ['overview', 'engagements', 'appointments', 'users', 'notes'];
+  if (showAccounting) tabs.push('accounting');
 
   const counts: Record<DetailTab, number | null> = {
     overview: null,
@@ -743,7 +859,7 @@ export function ClientDetailModal({
             </>
           )}
 
-          {tab === 'accounting' && (
+          {tab === 'accounting' && showAccounting && (
             <AccountingTab
               clientId={clientId}
               onError={onError}

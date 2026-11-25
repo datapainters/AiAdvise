@@ -15,6 +15,7 @@ import {
   editEngagementNote,
   removeEngagementFile,
   chargeMessageTime,
+  COMMUNICATION_LABELS,
   closeEngagement,
   type Communication,
   saveMeetingNote,
@@ -35,7 +36,7 @@ import {
 import { listMedia, type MediaItem } from './billing-api';
 import { NewMeetingForm } from './meeting-form';
 import { MessagesPanel } from './threads';
-import { Modal } from './admin-meetings';
+import { Modal, Summary } from './admin-meetings';
 import { TEAM_ROLE_LABELS, type TeamRole, type User } from './auth';
 import { money } from './billing-api';
 import { PeopleList } from './people';
@@ -48,6 +49,18 @@ function hours(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h === 0 ? `${m} min` : m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
+/** How far off the target date is, in words. */
+function dueHint(detail: EngagementDetail): string {
+  if (!detail.dueOn) return 'open-ended';
+  if (detail.status === 'closed') return 'engagement closed';
+  const days = Math.round(
+    (new Date(`${detail.dueOn}T00:00`).getTime() - new Date(`${today()}T00:00`).getTime()) / 86_400_000,
+  );
+  if (days < 0) return `${-days} ${days === -1 ? 'day' : 'days'} past due`;
+  if (days === 0) return 'due today';
+  return `${days} ${days === 1 ? 'day' : 'days'} left`;
 }
 
 /** Today as YYYY-MM-DD in the browser's zone, for comparing with date fields. */
@@ -72,7 +85,7 @@ const TAB_LABELS: Record<Tab, string> = {
   meetings: 'Meetings',
   messages: 'Messages',
   notes: 'Notes',
-  agenda: 'Meeting notes',
+  agenda: 'Topics',
   media: 'Media',
   team: 'Team',
   billing: 'Billing',
@@ -132,6 +145,11 @@ export function EngagementManager({
     billing: null,
   };
 
+  const openTopics =
+    detail?.agenda.filter((a) => a.status === 'proposed' || a.status === 'scheduled').length ?? 0;
+  const pastDue = Boolean(
+    detail?.dueOn && detail.status !== 'closed' && detail.dueOn < today(),
+  );
   const held = detail?.meetings.filter((m) => m.status === 'completed').length ?? 0;
   const upcoming =
     detail?.meetings.filter(
@@ -170,61 +188,60 @@ export function EngagementManager({
         <p>Loading...</p>
       ) : (
         <>
-          <div className="statband">
-            <div className="stat">
-              <span className="stat-label">Client</span>
-              <span className="stat-value">{detail.clientName}</span>
-            </div>
-            <div className="stat">
-              <span className="stat-label">Started</span>
-              <span className="stat-value">{day(detail.startedOn)}</span>
-            </div>
-            <div className="stat">
-              <span className="stat-label">Target date</span>
-              <span className="stat-value">
-                {detail.dueOn ? day(detail.dueOn) : <span className="muted">Not set</span>}
-                {detail.dueOn && detail.status !== 'closed' && detail.dueOn < today() && (
-                  <span className="pill pill-warn stat-flag">Past due</span>
-                )}
-              </span>
-            </div>
-            <div className="statgroup">
-              <span className="statgroup-title">Meetings</span>
-              <div className="statgroup-items">
-                <span>
-                  <b>{held}</b>
-                  <small>Held</small>
-                </span>
-                <span>
-                  <b>{upcoming}</b>
-                  <small>Upcoming</small>
-                </span>
-                <span>
-                  <b>{hours(detail.recordedMinutes)}</b>
-                  <small>Time recorded</small>
-                </span>
-              </div>
-            </div>
-            {detail.billing && (
-              <div className="statgroup">
-                <span className="statgroup-title">Billing</span>
-                <div className="statgroup-items">
-                  <span>
-                    <b>{money(detail.billing.chargedCents)}</b>
-                    <small>Charged</small>
-                  </span>
-                  <span>
-                    <b>{money(detail.billing.invoicedCents)}</b>
-                    <small>Invoiced</small>
-                  </span>
-                  <span>
-                    <b>{money(detail.billing.unbilledCents)}</b>
-                    <small>Unbilled</small>
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
+          <Summary
+            figures={[
+              {
+                label: 'Target date',
+                value: detail.dueOn ? day(detail.dueOn) : 'Not set',
+                hint: dueHint(detail),
+                tone: pastDue ? 'warn' : undefined,
+              },
+              {
+                label: 'Open topics',
+                value: openTopics,
+                hint: `${detail.agenda.length - openTopics} closed`,
+              },
+              {
+                label: 'Meetings',
+                value: held,
+                hint: upcoming > 0 ? `held, ${upcoming} upcoming` : 'held, none upcoming',
+              },
+              { label: 'Time recorded', value: hours(detail.recordedMinutes), hint: 'in meetings' },
+              ...(detail.billing
+                ? [
+                    {
+                      label: 'Unbilled',
+                      value: money(detail.billing.unbilledCents),
+                      hint:
+                        detail.billing.unchargedMessageMinutes > 0
+                          ? `plus ${hours(detail.billing.unchargedMessageMinutes)} of replies`
+                          : 'ready to invoice',
+                      tone: detail.billing.unbilledCents > 0 ? ('warn' as const) : undefined,
+                    },
+                    {
+                      label: 'Invoiced',
+                      value: money(detail.billing.invoicedCents),
+                      hint: `of ${money(detail.billing.chargedCents)} charged`,
+                    },
+                  ]
+                : []),
+            ]}
+            facts={[
+              <>
+                Client <strong>{detail.clientName}</strong>
+              </>,
+              <>
+                Run by <strong>{COMMUNICATION_LABELS[detail.communication].toLowerCase()}</strong>
+              </>,
+              <>
+                Started <strong>{day(detail.startedOn)}</strong>
+              </>,
+              <>
+                <strong>{detail.team.length}</strong> {detail.team.length === 1 ? 'person' : 'people'} on
+                the team
+              </>,
+            ]}
+          />
 
           <div className="tabs" role="tablist">
             {tabs.map((t) => (
@@ -796,7 +813,7 @@ function NotesTab({
 
       {notes.length === 0 ? (
         <p className="empty">
-          No notes yet. Notes taken against a meeting&rsquo;s agenda are under Meeting notes.
+          No notes yet. Notes taken against a meeting&rsquo;s agenda are under Topics.
         </p>
       ) : (
         <div className="notes-list">

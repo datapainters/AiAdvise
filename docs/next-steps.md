@@ -953,3 +953,30 @@ Left open:
   compiled into a charge; it shows on the engagement's Billing tab.
 - A client member who is on an engagement can see a colleague's topics there
   but still cannot drop them; the button answers "not found".
+
+## Portal dashboard, summary headers and email deep links (2026-11-25)
+
+Front end only; no migration.
+
+- **Portal dashboard.** The Overview is now account-wide rather than about
+  one engagement. Figures in order: new replies, next meeting, active
+  engagements, open topics, amount due. Panels: Messages (answers waiting to
+  be read first), Coming up, Engagements, Your team, Open topics, Recent
+  invoices.
+- **Summary header** (`Summary` in `admin-meetings.tsx`) replaces the old
+  stat band on the client and engagement popups: one grid of figures in
+  order of importance and a line of reference facts. Client: balance due and
+  unbilled (billing roles only), awaiting reply, next meeting, active
+  engagements, open topics. Engagement: target date with days left, open
+  topics, meetings, time recorded, then unbilled and invoiced.
+- **Client record → Engagements** rows open the Engagement Manager, which
+  replaces the client popup rather than stacking on it.
+- The Engagement Manager's "Meeting notes" tab is now "Topics".
+- **Email links survive sign-in.** `RequireAuth` remembers the page that was
+  asked for and `Login` returns to it, within the person's own side of the
+  app. Before this, a signed-out client following "Reply in the thread" was
+  sent to the portal's front page after signing in.
+
+The thread notification itself was already sending to the topic's owner and
+the engagement's team (and anyone who has posted), with the post followed by
+the reply button; nothing changed there.

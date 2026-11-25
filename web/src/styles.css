@@ -5311,3 +5311,192 @@ button:disabled,
 .eng-team .hint {
   margin: 0.75rem 0 0;
 }
+
+/* =====================================================================
+   Summary header on the client and engagement popups
+   ===================================================================== */
+
+.summary {
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+/* One row of equal figures divided by hairlines, not a set of boxed cards:
+   the eye should run along the numbers, not around the borders. */
+.summary-figures {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+  margin: 0;
+  /* The 1px gap shows the rule colour through as the dividers, which stay
+     correct however the tiles wrap. */
+  gap: 1px;
+  background: var(--rule);
+}
+
+.summary-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.9rem 1.1rem 0.95rem;
+  background: var(--surface);
+  min-width: 0;
+}
+
+.summary-figure dt {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.summary-figure dd {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.summary-figure small {
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+
+.summary-figure.is-warn dd {
+  color: var(--warn-ink);
+}
+
+.summary-figure.is-bad dd {
+  color: var(--err-ink);
+}
+
+.summary-figure.is-good dd {
+  color: var(--good-ink);
+}
+
+.summary-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.75rem;
+  margin: 0;
+  padding: 0.65rem 1.1rem;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+  background: var(--canvas);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+.summary-facts strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* =====================================================================
+   Portal dashboard lists
+   ===================================================================== */
+
+.dash-list,
+.dash-people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dash-list li + li,
+.dash-people li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.dash-list button,
+.dash-list button:hover:not(:disabled) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.8rem 1.25rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dash-list button:hover:not(:disabled) {
+  background: var(--canvas);
+}
+
+.dash-main {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.dash-snippet {
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dash-side {
+  flex: none;
+  font-size: 0.78rem;
+}
+
+.dash-people li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1.25rem;
+  font-size: 0.9rem;
+}
+
+.dash-people .dash-main .muted {
+  font-size: 0.8rem;
+}
+
+.dash-people .dash-more {
+  font-size: 0.82rem;
+}
+
+.kpi.kpi-warn .kpi-value {
+  color: var(--warn-ink);
+}
+
+@media (max-width: 640px) {
+  .summary-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* The dashboard's panels hold sentences and tables, so two columns at most. */
+.dash-panels {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  .dash-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.dash-panels .panel-card {
+  min-width: 0;
+}
+
+.dash-panels .grid-wrap,
+.dash-panels table {
+  max-width: 100%;
+}

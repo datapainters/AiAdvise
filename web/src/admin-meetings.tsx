@@ -17,6 +17,7 @@ import {
   addAgendaItem,
   listMeetingParticipants,
   listMeetingShares,
+  listThreads,
   type AgendaItem,
   type Person,
   type SharedItem,
@@ -26,6 +27,7 @@ import {
 } from './api';
 import { formatLength, formatRange, statusLabel } from './scheduling';
 import { AccountingTab, TimeTracker } from './billing';
+import { getAccount, money, type AccountSummary } from './billing-api';
 import { VideoPanel } from './video';
 import { PeopleList } from './people';
 import { MessagesPanel } from './threads';
@@ -91,6 +93,44 @@ export function Modal({
         {toolbar && <div className="modal-toolbar">{toolbar}</div>}
         <div className="modal-body">{children}</div>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ summary */
+
+export interface SummaryFigure {
+  label: string;
+  value: React.ReactNode;
+  /** One short line under the figure: what it is made of or why it matters. */
+  hint?: React.ReactNode;
+  tone?: 'warn' | 'bad' | 'good';
+}
+
+/**
+ * The band at the top of the client and engagement popups: a row of figures
+ * in order of importance, and a line of plain facts beneath. Figures first
+ * because they are what changes; the facts are for reference.
+ */
+export function Summary({ figures, facts }: { figures: SummaryFigure[]; facts: React.ReactNode[] }) {
+  return (
+    <div className="summary">
+      {/* Up to four sit in one row; more are set three across so the rows
+          stay full and nothing is left as an empty cell. */}
+      <dl className="summary-figures" style={{ ['--cols' as string]: figures.length > 4 ? 3 : figures.length }}>
+        {figures.map((f) => (
+          <div key={f.label} className={f.tone ? `summary-figure is-${f.tone}` : 'summary-figure'}>
+            <dt>{f.label}</dt>
+            <dd>{f.value}</dd>
+            {f.hint && <small>{f.hint}</small>}
+          </div>
+        ))}
+      </dl>
+      <ul className="summary-facts">
+        {facts.filter(Boolean).map((fact, i) => (
+          <li key={i}>{fact}</li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -539,7 +579,10 @@ export function ClientDetailModal({
   onToast,
   initialTab,
   showAccounting = true,
+  onOpenEngagement,
 }: {
+  /** Opens the Engagement Manager for a row on the Engagements tab. */
+  onOpenEngagement?: (engagementId: number) => void;
   /** False for team roles that do not handle billing. */
   showAccounting?: boolean;
   clientId: number;
@@ -554,6 +597,22 @@ export function ClientDetailModal({
   const [companies, setCompanies] = useState<string[]>([]);
   const [tab, setTab] = useState<DetailTab>(initialTab ?? 'overview');
   const [loading, setLoading] = useState(true);
+
+  const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [awaitingReply, setAwaitingReply] = useState(0);
+
+  // The two figures that live outside the client record. Both are extras:
+  // the popup still opens if either is unavailable.
+  useEffect(() => {
+    if (showAccounting) {
+      getAccount(clientId)
+        .then((a) => setAccount(a.summary))
+        .catch(() => setAccount(null));
+    }
+    listThreads({ clientId })
+      .then((threads) => setAwaitingReply(threads.filter((t) => t.open && t.lastSide !== 'team').length))
+      .catch(() => setAwaitingReply(0));
+  }, [clientId, showAccounting]);
 
   const [inviting, setInviting] = useState(false);
   const [firstName, setFirstName] = useState('');
@@ -611,10 +670,14 @@ export function ClientDetailModal({
   };
 
   const active = detail?.engagements.filter((e) => e.status === 'active').length ?? 0;
-  const upcoming =
-    detail?.appointments.filter(
-      (a) => new Date(a.startsAt) > new Date() && a.status !== 'cancelled',
-    ).length ?? 0;
+  const ahead = (detail?.appointments ?? [])
+    .filter(
+      (a) => new Date(a.endsAt) > new Date() && a.status !== 'cancelled' && a.status !== 'completed',
+    )
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  const upcoming = ahead.length;
+  const next = ahead[0];
+  const toConfirm = ahead.filter((a) => a.status === 'requested').length;
   const openTopics =
     detail?.engagements.reduce((sum, e) => sum + e.openTopics, 0) ?? 0;
 
@@ -642,57 +705,66 @@ export function ClientDetailModal({
         <p>Loading...</p>
       ) : (
         <>
-          {/* Summary band: the numbers worth seeing before picking a tab. */}
-          <div className="statband">
-            <div className="stat">
-              <span className="stat-label">Primary contact</span>
-              <span className="stat-value">{detail.primaryEmail}</span>
-            </div>
-            <div className="stat">
-              <span className="stat-label">Client since</span>
-              <span className="stat-value">
-                {new Date(detail.createdAt).toLocaleDateString()}
-              </span>
-            </div>
-            <div className="statgroup">
-              <span className="statgroup-title">Engagements</span>
-              <div className="statgroup-items">
-                <span>
-                  <b>{active}</b>
-                  <small>Active</small>
-                </span>
-                <span>
-                  <b>{detail.engagements.length}</b>
-                  <small>Total</small>
-                </span>
-                <span>
-                  <b>{openTopics}</b>
-                  <small>Open topics</small>
-                </span>
-              </div>
-            </div>
-            <div className="statgroup">
-              <span className="statgroup-title">Meetings</span>
-              <div className="statgroup-items">
-                <span>
-                  <b>{upcoming}</b>
-                  <small>Upcoming</small>
-                </span>
-                <span>
-                  <b>{detail.appointments.length}</b>
-                  <small>All time</small>
-                </span>
-                <span>
-                  <b>{detail.users.length}</b>
-                  {/* The count of portal accounts, not of sign-ins. It was
-                      labelled "Logins", which read as activity: a client who
-                      had never signed in still showed 1, and adding a user
-                      made it 2. */}
-                  <small>Users</small>
-                </span>
-              </div>
-            </div>
-          </div>
+          {/* Money first where the reader handles it, then what needs doing,
+              then what is simply true about the client. */}
+          <Summary
+            figures={[
+              ...(account
+                ? [
+                    {
+                      label: 'Balance due',
+                      value: money(account.balanceCents),
+                      hint:
+                        account.overdueCents > 0
+                          ? `${money(account.overdueCents)} past due`
+                          : account.balanceCents > 0
+                            ? 'nothing past due'
+                            : 'all paid',
+                      tone: account.overdueCents > 0 ? ('bad' as const) : undefined,
+                    },
+                    {
+                      label: 'Unbilled',
+                      value: money(account.unbilledCents),
+                      hint: account.unbilledCents > 0 ? 'ready to invoice' : 'nothing waiting',
+                      tone: account.unbilledCents > 0 ? ('warn' as const) : undefined,
+                    },
+                  ]
+                : []),
+              {
+                label: 'Awaiting reply',
+                value: awaitingReply,
+                hint: awaitingReply === 1 ? 'conversation' : 'conversations',
+                tone: awaitingReply > 0 ? ('warn' as const) : undefined,
+              },
+              {
+                label: 'Next meeting',
+                value: next
+                  ? new Date(next.startsAt).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                  : 'None',
+                hint: next
+                  ? `${upcoming} upcoming${toConfirm > 0 ? `, ${toConfirm} to confirm` : ''}`
+                  : 'nothing booked',
+                tone: toConfirm > 0 ? ('warn' as const) : undefined,
+              },
+              {
+                label: 'Active engagements',
+                value: active,
+                hint: `of ${detail.engagements.length} in total`,
+              },
+              { label: 'Open topics', value: openTopics, hint: 'not yet on a meeting' },
+            ]}
+            facts={[
+              <>
+                Primary contact <strong>{detail.primaryEmail}</strong>
+              </>,
+              <>
+                Client since <strong>{new Date(detail.createdAt).toLocaleDateString()}</strong>
+              </>,
+              <>
+                <strong>{detail.users.length}</strong> portal {detail.users.length === 1 ? 'user' : 'users'}
+              </>,
+            ]}
+          />
 
           <div className="tabs" role="tablist">
             {tabs.map((t) => (
@@ -742,8 +814,14 @@ export function ClientDetailModal({
                   </thead>
                   <tbody>
                     {detail.engagements.map((e) => (
-                      <tr key={e.id}>
-                        <td>{e.title}</td>
+                      <tr
+                        key={e.id}
+                        className={onOpenEngagement ? 'clickable' : undefined}
+                        onClick={onOpenEngagement ? () => onOpenEngagement(e.id) : undefined}
+                      >
+                        <td>
+                          <strong>{e.title}</strong>
+                        </td>
                         <td>
                           <span className={`status status-${e.status}`}>{e.status}</span>
                         </td>

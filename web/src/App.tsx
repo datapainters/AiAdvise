@@ -69,6 +69,7 @@ import {
 } from './datagrid';
 import { clearToken, getToken, isTeamAdmin, seesMoney, type User } from './auth';
 import { EngagementManager, TeamAdmin } from './engagement-manager';
+import { NewMeetingForm } from './meeting-form';
 import { ClientPortal } from './portal';
 import { MediaLibrary, VideoBillingReportView } from './media';
 import {
@@ -1454,6 +1455,8 @@ function EngagementForm({
   const [clientId, setClientId] = useState(String(existing?.clientId ?? ''));
   const [title, setTitle] = useState(existing?.title ?? '');
   const [goal, setGoal] = useState(existing?.goal ?? '');
+  const [startedOn, setStartedOn] = useState(existing?.startedOn ?? '');
+  const [dueOn, setDueOn] = useState(existing?.dueOn ?? '');
   const [status, setStatus] = useState(existing?.status ?? 'active');
   const [busy, setBusy] = useState(false);
 
@@ -1467,11 +1470,15 @@ function EngagementForm({
               title: title.trim(),
               status,
               goal: goal.trim() || null,
+              startedOn: startedOn || undefined,
+              dueOn: dueOn || null,
             })
           : await createEngagement({
               clientId: Number(clientId),
               title: title.trim(),
               goal: goal.trim() || undefined,
+              startedOn: startedOn || undefined,
+              dueOn: dueOn || null,
             }),
       );
     } catch (err) {
@@ -1521,6 +1528,27 @@ function EngagementForm({
             onChange={(e) => setGoal(e.target.value)}
           />
         </label>
+        <div className="field-row">
+          <label>
+            Start date
+            <input
+              type="date"
+              value={startedOn}
+              required={Boolean(existing)}
+              onChange={(e) => setStartedOn(e.target.value)}
+            />
+          </label>
+          <label>
+            Target date
+            <input
+              type="date"
+              value={dueOn}
+              min={startedOn || undefined}
+              onChange={(e) => setDueOn(e.target.value)}
+            />
+          </label>
+        </div>
+        {!existing && <p className="hint">Leave the start date empty to start today.</p>}
         {existing && (
           <label>
             Status
@@ -1563,6 +1591,7 @@ function AppointmentForm({
     .slice(0, 16);
 
   const [when, setWhen] = useState(localValue);
+  const [title, setTitle] = useState(existing.title ?? '');
   const [length, setLength] = useState(existing.durationMinutes);
   const [status, setStatus] = useState(existing.status);
   const [busy, setBusy] = useState(false);
@@ -1576,6 +1605,7 @@ function AppointmentForm({
           startsAt: new Date(when).toISOString(),
           durationMinutes: length,
           status,
+          title: title.trim(),
         }),
       );
     } catch (err) {
@@ -1594,6 +1624,15 @@ function AppointmentForm({
           <dt>Engagement</dt>
           <dd>{existing.engagementTitle}</dd>
         </dl>
+        <label>
+          Title
+          <input
+            value={title}
+            maxLength={200}
+            placeholder="Optional for a meeting the client booked"
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </label>
         <label>
           Starts
           <input
@@ -1698,6 +1737,7 @@ function Admin() {
   const [paying, setPaying] = useState(false);
   const [openMeeting, setOpenMeeting] = useState<number | null>(null);
   const [openEngagement, setOpenEngagement] = useState<number | null>(null);
+  const [addingMeeting, setAddingMeeting] = useState(false);
 
   const onError = useCallback(
     (e: unknown) => {
@@ -1913,6 +1953,16 @@ function Admin() {
               render: (e) => <span className="nowrap">{formatDay(e.startedOn)}</span>,
             },
             {
+              field: 'dueOn',
+              label: 'Target date',
+              render: (e) =>
+                e.dueOn ? (
+                  <span className="nowrap">{formatDay(e.dueOn)}</span>
+                ) : (
+                  <span className="muted">&mdash;</span>
+                ),
+            },
+            {
               field: 'actions',
               label: '',
               sortable: false,
@@ -1939,9 +1989,7 @@ function Admin() {
           refreshKey={refresh}
           defaultSort="startsAt:desc"
           addLabel="Add New"
-          onAdd={() =>
-            setToast('Meetings are booked by clients from the portal.')
-          }
+          onAdd={() => setAddingMeeting(true)}
           onRowClick={(a) => setOpenMeeting(a.id)}
           rowClassName={(a) => (a.status === 'cancelled' ? 'row-bad' : undefined)}
           empty="No meetings booked."
@@ -1953,7 +2001,13 @@ function Admin() {
                 <span className="nowrap">{formatRange(a.startsAt, a.endsAt)}</span>
               ),
             },
-            { field: 'clientName', label: 'Client', render: (a) => <strong>{a.clientName}</strong> },
+            {
+              field: 'title',
+              label: 'Meeting',
+              render: (a) =>
+                a.title ? <strong>{a.title}</strong> : <span className="muted">Booked by client</span>,
+            },
+            { field: 'clientName', label: 'Client' },
             { field: 'engagementTitle', label: 'Engagement' },
             {
               field: 'durationMinutes',
@@ -2118,6 +2172,21 @@ function Admin() {
             );
             setEditEngagement(null);
             bump();
+          }}
+        />
+      )}
+
+      {addingMeeting && (
+        <NewMeetingForm
+          clients={allClients}
+          onCancel={() => setAddingMeeting(false)}
+          onError={onError}
+          onDone={(created) => {
+            setAddingMeeting(false);
+            setToast('Meeting created');
+            bump();
+            // Straight into it: the next thing anyone does is set the agenda.
+            setOpenMeeting(created.id);
           }}
         />
       )}

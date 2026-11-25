@@ -864,3 +864,28 @@ Left open:
 - Payments are recorded against invoices, not engagements, so "paid" is not
   shown per engagement; an invoice raised from an engagement carries the
   engagement's title in its notes.
+
+## Engagement dates, notes and files; meetings created in the console (V14, 2026-11-25)
+
+- **Dates.** An engagement's start date is now editable and it has an
+  optional target date (`due_on`), shown in the list and flagged "Past due"
+  in the Engagement Manager once it passes on an open engagement. The target
+  date cannot be before the start date.
+- **Notes.** `engagement_note` holds notes about the engagement as a whole,
+  added, edited and deleted from the new Notes tab. An edit keeps the
+  original author and shows when it was edited. The tab that lists notes
+  taken in meetings is now called Meeting notes, and each of those can be
+  edited in place.
+- **Files.** `engagement_media` attaches files to an engagement: a new upload
+  (PDF, image or MP4/WebM video, stored under `engagements/{id}/`) or an item
+  from the media library. Removing a file detaches it; the stored object is
+  left in the bucket, and nothing sweeps those up yet.
+- **Meetings.** Meetings have an optional `title`. Add New on the Meetings
+  list creates one by client, then engagement, then title, time, length,
+  status and billable; Add meeting inside an engagement skips the first two.
+  A meeting created as confirmed gets its video room and the client is told,
+  exactly as when a request is confirmed, unless it is already over.
+- **Agenda items.** The Meeting Manager can add agenda items, because a
+  meeting the firm creates has no client-chosen topics and notes hang off
+  topics. Topics are private to their creator (V8), so an item added here is
+  not shown in the client's own topic list.

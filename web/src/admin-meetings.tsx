@@ -14,6 +14,7 @@ import {
   saveMeetingNote,
   setAgendaItemStatus,
   setAppointmentStatus,
+  addAgendaItem,
   listMeetingParticipants,
   listMeetingShares,
   type AgendaItem,
@@ -206,6 +207,71 @@ function AgendaRow({
   );
 }
 
+/** Adds an item to a meeting's agenda, so there is somewhere to take notes. */
+function AddAgendaItem({
+  appointmentId,
+  onAdded,
+  onError,
+}: {
+  appointmentId: number;
+  onAdded: (item: AgendaItem) => void;
+  onError: (e: unknown) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [outcome, setOutcome] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      onAdded(
+        await addAgendaItem(appointmentId, {
+          title: title.trim(),
+          desiredOutcome: outcome.trim() || undefined,
+        }),
+      );
+      setTitle('');
+      setOutcome('');
+      setOpen(false);
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="tool-toolbar">
+        <button onClick={() => setOpen((v) => !v)}>{open ? 'Cancel' : 'Add agenda item'}</button>
+      </div>
+      {open && (
+        <form onSubmit={submit} className="stack-form inset">
+          <label>
+            Topic
+            <input value={title} required autoFocus maxLength={200} onChange={(e) => setTitle(e.target.value)} />
+          </label>
+          <label>
+            Wanted outcome
+            <input
+              value={outcome}
+              placeholder="Optional: what a good result looks like"
+              onChange={(e) => setOutcome(e.target.value)}
+            />
+          </label>
+          <div className="button-row">
+            <button className="btn btn-primary" type="submit" disabled={busy}>
+              {busy ? 'Adding...' : 'Add to agenda'}
+            </button>
+          </div>
+        </form>
+      )}
+    </>
+  );
+}
+
 type MeetingTab = 'agenda' | 'users' | 'time' | 'media';
 
 const MEETING_TAB_LABELS: Record<MeetingTab, string> = {
@@ -273,8 +339,9 @@ export function MeetingManager({
         <>
           <div className="meeting-head">
             <div>
-              <h3>{a.clientName}</h3>
+              <h3>{a.title ?? a.clientName}</h3>
               <p className="muted">
+                {a.title && <>{a.clientName} &middot; </>}
                 {onOpenEngagement ? (
                   <button className="linklike" onClick={() => onOpenEngagement(a.engagementId)}>
                     {a.engagementTitle}
@@ -413,10 +480,20 @@ export function MeetingManager({
               </div>
             ))}
 
+          {tab === 'agenda' && a.status !== 'cancelled' && (
+            <AddAgendaItem
+              appointmentId={appointmentId}
+              onError={onError}
+              onAdded={(item) =>
+                setMeeting((m) => (m ? { ...m, agenda: [...m.agenda, item] } : m))
+              }
+            />
+          )}
+
           {tab === 'agenda' &&
             (meeting.agenda.length === 0 ? (
               <p className="empty">
-                No agenda items. The client booked this without selecting topics.
+                No agenda items yet. Add the first one above; notes are taken against each item.
               </p>
             ) : (
               <div className="agenda">

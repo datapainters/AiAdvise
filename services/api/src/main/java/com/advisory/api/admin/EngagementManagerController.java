@@ -76,9 +76,17 @@ public class EngagementManagerController {
 
     /* --------------------------------------------------------------- detail */
 
-    public record Meeting(Long id, Instant startsAt, Instant endsAt, int durationMinutes,
-            String status, boolean video, int topicCount, int notedCount,
+    public record Meeting(Long id, String title, Instant startsAt, Instant endsAt,
+            int durationMinutes, String status, boolean video, int topicCount, int notedCount,
             int recordedMinutes) {}
+
+    /** A note about the engagement as a whole, not tied to a meeting. */
+    public record Note(Long id, String body, String authorName, Instant createdAt,
+            Instant updatedAt) {}
+
+    /** A file attached to the engagement directly. */
+    public record EngagementFile(Long id, String title, String kind, String url,
+            boolean fromLibrary, String addedBy, Instant addedAt) {}
 
     /** One agenda line across the whole engagement, with its note if one was taken. */
     public record AgendaLine(Long topicId, String title, String detail, String desiredOutcome,
@@ -97,8 +105,9 @@ public class EngagementManagerController {
             int billedMinutes, List<ChargeView> charges) {}
 
     public record Detail(Long id, Long clientId, String clientName, String title, String goal,
-            String status, LocalDate startedOn, int recordedMinutes, List<Meeting> meetings,
-            List<AgendaLine> agenda, List<SharedItem> media, List<Person> team,
+            String status, LocalDate startedOn, LocalDate dueOn, int recordedMinutes,
+            List<Meeting> meetings, List<Note> notes, List<AgendaLine> agenda,
+            List<EngagementFile> files, List<SharedItem> media, List<Person> team,
             Billing billing) {}
 
     @GetMapping("/engagements/{id}")
@@ -108,7 +117,7 @@ public class EngagementManagerController {
                 .orElse("(client removed)");
 
         List<Meeting> meetings = jdbc.sql("""
-                SELECT a.id, a.starts_at, a.duration_minutes, a.status,
+                SELECT a.id, a.title, a.starts_at, a.duration_minutes, a.status,
                        a.video_room_name IS NOT NULL AS video,
                        (SELECT count(*) FROM topic t WHERE t.appointment_id = a.id) AS topics,
                        (SELECT count(*) FROM meeting_note n WHERE n.appointment_id = a.id)
@@ -124,7 +133,7 @@ public class EngagementManagerController {
                 """).param(id).query((rs, i) -> {
                     Instant starts = rs.getTimestamp("starts_at").toInstant();
                     int minutes = rs.getInt("duration_minutes");
-                    return new Meeting(rs.getLong("id"), starts,
+                    return new Meeting(rs.getLong("id"), rs.getString("title"), starts,
                             starts.plusSeconds(minutes * 60L), minutes, rs.getString("status"),
                             rs.getBoolean("video"), rs.getInt("topics"), rs.getInt("noted"),
                             rs.getInt("recorded"));
@@ -163,8 +172,8 @@ public class EngagementManagerController {
         }
 
         return new Detail(e.getId(), e.getClientId(), clientName, e.getTitle(), e.getGoal(),
-                e.getStatus(), e.getStartedOn(), recorded, meetings, agenda, media,
-                people.team(id), money);
+                e.getStatus(), e.getStartedOn(), e.getDueOn(), recorded, meetings, notes(id),
+                agenda, files(id), media, people.team(id), money);
     }
 
     /** Invoices everything this engagement has that is not yet on an invoice. */
@@ -181,6 +190,185 @@ public class EngagementManagerController {
         }
         return billing.createInvoice(e.getClientId(), unbilled, null,
                 "Engagement: " + e.getTitle(), CurrentUser.from(jwt).id());
+    }
+
+    /* ---------------------------------------------------------------- notes */
+
+    public record NoteBody(@NotBlank String body) {}
+
+    private List<Note> notes(Long engagementId) {
+        return jdbc.sql("""
+                SELECT n.id, n.body, n.created_at, n.updated_at, u.display_name
+                FROM engagement_note n
+                LEFT JOIN app_user u ON u.id = n.author_user_id
+                WHERE n.engagement_id = ?
+                ORDER BY n.created_at DESC, n.id DESC
+                """).param(engagementId).query((rs, i) -> new Note(rs.getLong("id"),
+                rs.getString("body"), rs.getString("display_name"),
+                rs.getTimestamp("created_at").toInstant(),
+                rs.getTimestamp("updated_at").toInstant())).list();
+    }
+
+    @PostMapping("/engagements/{id}/notes")
+    public List<Note> addNote(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+            @Valid @RequestBody NoteBody r) {
+        engagement(id);
+        jdbc.sql("INSERT INTO engagement_note (engagement_id, body, author_user_id) VALUES (?, ?, ?)")
+                .params(id, r.body().trim(), CurrentUser.from(jwt).id()).update();
+        return notes(id);
+    }
+
+    /**
+     * Rewrites a note. The original author stays on it: an edit corrects the
+     * record, it does not change whose note it was. updated_at shows it moved.
+     */
+    @PutMapping("/engagements/{id}/notes/{noteId}")
+    public List<Note> editNote(@PathVariable Long id, @PathVariable Long noteId,
+            @Valid @RequestBody NoteBody r) {
+        int changed = jdbc.sql("""
+                UPDATE engagement_note SET body = ?, updated_at = now()
+                WHERE id = ? AND engagement_id = ?
+                """).params(r.body().trim(), noteId, id).update();
+        if (changed == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        return notes(id);
+    }
+
+    @DeleteMapping("/engagements/{id}/notes/{noteId}")
+    public List<Note> deleteNote(@PathVariable Long id, @PathVariable Long noteId) {
+        jdbc.sql("DELETE FROM engagement_note WHERE id = ? AND engagement_id = ?")
+                .params(noteId, id).update();
+        return notes(id);
+    }
+
+    /* ---------------------------------------------------------------- files */
+
+    /** What can be attached to an engagement, and the largest of each. */
+    private static final java.util.Map<String, Long> FILE_TYPES = java.util.Map.of(
+            "application/pdf", 50L * 1024 * 1024,
+            "image/png", 15L * 1024 * 1024,
+            "image/jpeg", 15L * 1024 * 1024,
+            "image/gif", 15L * 1024 * 1024,
+            "image/webp", 15L * 1024 * 1024,
+            "video/mp4", 500L * 1024 * 1024,
+            "video/webm", 500L * 1024 * 1024);
+
+    public record UploadRequest(String fileName, String contentType, long sizeBytes) {}
+
+    public record UploadSlot(String uploadUrl, String contentType, String uploadKey) {}
+
+    /** Exactly one of mediaItemId (from the library) or uploadKey (a new file). */
+    public record AttachFile(Long mediaItemId, String uploadKey, String title) {}
+
+    private List<EngagementFile> files(Long engagementId) {
+        return jdbc.sql("""
+                SELECT f.id, f.title, f.content_type, f.storage_key, f.media_item_id,
+                       f.created_at, u.display_name
+                FROM engagement_media f
+                LEFT JOIN app_user u ON u.id = f.added_by
+                WHERE f.engagement_id = ?
+                ORDER BY f.created_at DESC, f.id DESC
+                """).param(engagementId).query((rs, i) -> new EngagementFile(rs.getLong("id"),
+                rs.getString("title"), kindOf(rs.getString("content_type")),
+                store.presignGet(rs.getString("storage_key"), MediaService.VIEW_TTL),
+                rs.getObject("media_item_id") != null, rs.getString("display_name"),
+                rs.getTimestamp("created_at").toInstant())).list();
+    }
+
+    /** Step one of uploading a new file: where the browser should send it. */
+    @PostMapping("/engagements/{id}/files/uploads")
+    public UploadSlot startUpload(@PathVariable Long id, @RequestBody UploadRequest r) {
+        engagement(id);
+        Long max = r.contentType() == null ? null : FILE_TYPES.get(r.contentType());
+        if (max == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Attach a PDF, an image (PNG, JPEG, GIF, WebP) or a video (MP4, WebM)");
+        }
+        if (r.sizeBytes() <= 0 || r.sizeBytes() > max) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "That file is too large. The limit for this type is "
+                            + max / (1024 * 1024) + " MB");
+        }
+        String key = "engagements/" + id + "/" + java.util.UUID.randomUUID()
+                + MediaService.extension(r.contentType());
+        MediaStore.Upload up = store.presignPut(key, r.contentType(),
+                java.time.Duration.ofMinutes(30));
+        return new UploadSlot(up.url(), up.contentType(), key);
+    }
+
+    /** Attaches an uploaded file, or an item from the media library. */
+    @PostMapping("/engagements/{id}/files")
+    public List<EngagementFile> attachFile(@AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long id, @RequestBody AttachFile r) {
+        engagement(id);
+        String key;
+        String type;
+        String title;
+        Long itemId = null;
+        if (r.mediaItemId() != null) {
+            var item = jdbc.sql("""
+                    SELECT storage_key, content_type, title FROM media_item
+                    WHERE id = ? AND archived_at IS NULL AND status = 'ready'
+                    """).param(r.mediaItemId()).query((rs, i) -> new String[] {
+                        rs.getString("storage_key"), rs.getString("content_type"),
+                        rs.getString("title")}).optional()
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "That library item is not available"));
+            key = item[0];
+            type = item[1];
+            title = item[2];
+            itemId = r.mediaItemId();
+        } else if (r.uploadKey() != null) {
+            // The key was issued by startUpload for this engagement; refuse
+            // anything else so one engagement cannot claim another's file.
+            if (!r.uploadKey().startsWith("engagements/" + id + "/")
+                    || r.uploadKey().contains("..")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown upload");
+            }
+            if (store.size(r.uploadKey()) <= 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "The file has not finished uploading");
+            }
+            key = r.uploadKey();
+            type = typeFor(key);
+            if (r.title() == null || r.title().isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Give the file a title");
+            }
+            title = r.title().trim().substring(0, Math.min(200, r.title().trim().length()));
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nothing to attach");
+        }
+        jdbc.sql("""
+                INSERT INTO engagement_media
+                    (engagement_id, media_item_id, storage_key, content_type, title, added_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """).params(id, itemId, key, type, title, CurrentUser.from(jwt).id()).update();
+        return files(id);
+    }
+
+    /** Detaches a file. The stored object is left alone; a library item is unaffected. */
+    @DeleteMapping("/engagements/{id}/files/{fileId}")
+    public List<EngagementFile> removeFile(@PathVariable Long id, @PathVariable Long fileId) {
+        jdbc.sql("DELETE FROM engagement_media WHERE id = ? AND engagement_id = ?")
+                .params(fileId, id).update();
+        return files(id);
+    }
+
+    private static String kindOf(String contentType) {
+        return contentType.startsWith("video/") ? "video"
+                : contentType.equals("application/pdf") ? "pdf" : "image";
+    }
+
+    private static String typeFor(String key) {
+        if (key.endsWith(".pdf")) return "application/pdf";
+        if (key.endsWith(".png")) return "image/png";
+        if (key.endsWith(".jpg")) return "image/jpeg";
+        if (key.endsWith(".gif")) return "image/gif";
+        if (key.endsWith(".webp")) return "image/webp";
+        if (key.endsWith(".mp4")) return "video/mp4";
+        if (key.endsWith(".webm")) return "video/webm";
+        return "application/octet-stream";
     }
 
     /* ----------------------------------------------------------------- team */
@@ -270,11 +458,9 @@ public class EngagementManagerController {
             """;
 
     private SharedItem share(java.sql.ResultSet rs, int i) throws java.sql.SQLException {
-        String type = rs.getString("content_type");
         return new SharedItem(rs.getLong("id"), rs.getLong("appointment_id"),
                 rs.getTimestamp("starts_at").toInstant(), rs.getString("title"),
-                type.startsWith("video/") ? "video"
-                        : type.equals("application/pdf") ? "pdf" : "image",
+                kindOf(rs.getString("content_type")),
                 store.presignGet(rs.getString("storage_key"), MediaService.VIEW_TTL),
                 rs.getString("shared_by_role"), rs.getString("shared_by_name"),
                 rs.getTimestamp("created_at").toInstant());

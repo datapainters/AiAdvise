@@ -119,7 +119,7 @@ public class MediaService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
     }
 
-    static String extension(String contentType) {
+    public static String extension(String contentType) {
         return switch (contentType) {
             case "application/pdf" -> ".pdf";
             case "image/png" -> ".png";

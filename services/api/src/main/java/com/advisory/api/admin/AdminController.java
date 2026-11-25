@@ -191,15 +191,17 @@ public class AdminController {
     public record CreateEngagement(
             @NotNull Long clientId,
             @NotBlank String title,
-            String goal) {}
+            String goal,
+            LocalDate startedOn,
+            LocalDate dueOn) {}
 
     public record EngagementView(
             Long id, Long clientId, String title, String status, LocalDate startedOn,
-            String goal) {
+            String goal, LocalDate dueOn) {
 
         static EngagementView of(Engagement e) {
             return new EngagementView(e.getId(), e.getClientId(), e.getTitle(),
-                    e.getStatus(), e.getStartedOn(), e.getGoal());
+                    e.getStatus(), e.getStartedOn(), e.getGoal(), e.getDueOn());
         }
     }
 
@@ -209,7 +211,8 @@ public class AdminController {
                 .add("clientName", "Client", "text",
                         e -> clientNames.getOrDefault(e.clientId(), ""))
                 .add("status", "Status", "text", EngagementView::status)
-                .add("startedOn", "Started", "date", EngagementView::startedOn);
+                .add("startedOn", "Started", "date", EngagementView::startedOn)
+                .add("dueOn", "Target date", "date", EngagementView::dueOn);
     }
 
     @GetMapping("/engagements/columns")
@@ -237,7 +240,25 @@ public class AdminController {
     public record UpdateEngagement(
             @NotBlank String title,
             @NotBlank String status,
-            String goal) {}
+            String goal,
+            LocalDate startedOn,
+            LocalDate dueOn) {}
+
+    /**
+     * Applies the two dates. A missing start date leaves the existing one
+     * alone, because an engagement always has one; a missing target date
+     * clears it, because having none is a legitimate state.
+     */
+    private static void applyDates(Engagement e, LocalDate startedOn, LocalDate dueOn) {
+        if (startedOn != null) {
+            e.setStartedOn(startedOn);
+        }
+        if (dueOn != null && dueOn.isBefore(e.getStartedOn())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The target date cannot be before the start date");
+        }
+        e.setDueOn(dueOn);
+    }
 
     @PutMapping("/engagements/{id}")
     @Transactional
@@ -255,6 +276,7 @@ public class AdminController {
         engagement.setTitle(request.title().trim());
         engagement.setStatus(request.status());
         engagement.setGoal(request.goal());
+        applyDates(engagement, request.startedOn(), request.dueOn());
         log.info("Updated engagement {}", id);
         return EngagementView.of(engagements.save(engagement));
     }
@@ -269,6 +291,7 @@ public class AdminController {
         engagement.setClientId(request.clientId());
         engagement.setTitle(request.title().trim());
         engagement.setGoal(request.goal());
+        applyDates(engagement, request.startedOn(), request.dueOn());
 
         Engagement saved = engagements.save(engagement);
         em.flush();

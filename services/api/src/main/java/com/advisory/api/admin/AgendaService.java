@@ -80,6 +80,25 @@ public class AgendaService {
                 notes.findByAppointmentIdAndTopicId(appointmentId, topicId).orElse(null));
     }
 
+    /**
+     * Puts a new item straight onto a meeting's agenda. Clients build an
+     * agenda by choosing topics when they book; a meeting the firm creates
+     * has none, and without an item there is nowhere to take a note.
+     */
+    @Transactional
+    public AgendaItem addItem(Long appointmentId, Long engagementId, String title,
+            String desiredOutcome, Long userId) {
+        Topic topic = new Topic();
+        topic.setEngagementId(engagementId);
+        topic.setAppointmentId(appointmentId);
+        topic.setTitle(title.trim());
+        topic.setDesiredOutcome(
+                desiredOutcome == null || desiredOutcome.isBlank() ? null : desiredOutcome.trim());
+        topic.setStatus(Topic.SCHEDULED);
+        topic.setCreatedByUserId(userId);
+        return item(topics.save(topic), null);
+    }
+
     private Topic onAgenda(Long appointmentId, Long topicId) {
         Topic topic = topics.findById(topicId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));

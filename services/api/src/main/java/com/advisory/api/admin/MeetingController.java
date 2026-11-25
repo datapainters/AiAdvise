@@ -98,11 +98,12 @@ public class MeetingController {
     public record AppointmentRow(
             Long id, Long clientId, String clientName, Long engagementId,
             String engagementTitle, Instant startsAt, Instant endsAt, int durationMinutes,
-            String status, int topicCount, int notedCount, boolean video) {}
+            String status, int topicCount, int notedCount, boolean video, String title) {}
 
     private static Grid.Spec<AppointmentRow> appointmentSpec() {
         return new Grid.Spec<AppointmentRow>()
                 .add("startsAt", "When", "datetime", AppointmentRow::startsAt)
+                .add("title", "Meeting", "text", AppointmentRow::title)
                 .add("clientName", "Client", "text", AppointmentRow::clientName)
                 .add("engagementTitle", "Engagement", "text", AppointmentRow::engagementTitle)
                 .add("durationMinutes", "Length (min)", "number",
@@ -144,7 +145,84 @@ public class MeetingController {
     public record UpdateAppointment(
             @NotNull Instant startsAt,
             @NotNull Integer durationMinutes,
-            @NotNull String status) {}
+            @NotNull String status,
+            String title) {}
+
+    public record CreateAppointment(
+            @NotNull Long engagementId,
+            @jakarta.validation.constraints.NotBlank String title,
+            @NotNull Instant startsAt,
+            @NotNull Integer durationMinutes,
+            /** requested or confirmed; confirmed is the default for a meeting the firm sets up. */
+            String status,
+            Boolean billable) {}
+
+    /**
+     * A meeting the firm sets up itself, on any engagement that is not
+     * closed. Unlike a client booking it may be in the past (to record a
+     * meeting that already happened) and outside the published hours.
+     *
+     * <p>Created as confirmed unless asked otherwise, which is announced to
+     * the client the same way as confirming a request is.
+     */
+    @org.springframework.web.bind.annotation.PostMapping("/appointments")
+    @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.CREATED)
+    @Transactional
+    public AppointmentRow createAppointment(@AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody CreateAppointment request) {
+        Engagement engagement = engagements.findById(request.engagementId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "No such engagement"));
+        if ("closed".equals(engagement.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "That engagement is closed. Reopen it to add a meeting.");
+        }
+        String status = request.status() == null ? Appointment.CONFIRMED : request.status();
+        if (!List.of(Appointment.REQUESTED, Appointment.CONFIRMED).contains(status)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A new meeting is either requested or confirmed");
+        }
+        Instant start = scheduling.normaliseAndValidate(
+                request.startsAt(), request.durationMinutes(), true);
+
+        Appointment appointment = new Appointment();
+        appointment.setClientId(engagement.getClientId());
+        appointment.setEngagementId(engagement.getId());
+        appointment.setTitle(request.title());
+        appointment.setStartsAt(start);
+        appointment.setDurationMinutes(request.durationMinutes());
+        appointment.setStatus(status);
+        appointment.setBillable(request.billable() == null || request.billable());
+        appointment.setRequestedBy(CurrentUser.from(jwt).id());
+        appointments.saveAndFlush(appointment);
+        log.info("Created appointment {} on engagement {}", appointment.getId(),
+                engagement.getId());
+
+        if (Appointment.CONFIRMED.equals(status)) {
+            video.ensureRoom(appointment);
+            // Telling a client about a meeting that has already happened
+            // would only confuse them.
+            if (appointment.getEndsAt().isAfter(Instant.now())) {
+                announceConfirmed(appointment);
+            }
+        }
+        return rows(List.of(appointment)).get(0);
+    }
+
+    public record AddAgendaItem(
+            @jakarta.validation.constraints.NotBlank String title, String desiredOutcome) {}
+
+    @org.springframework.web.bind.annotation.PostMapping("/appointments/{id}/topics")
+    public AgendaItem addAgendaItem(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+            @Valid @RequestBody AddAgendaItem request) {
+        Appointment appointment = appointments.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        if (Appointment.CANCELLED.equals(appointment.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This meeting is cancelled");
+        }
+        return agenda.addItem(id, appointment.getEngagementId(), request.title(),
+                request.desiredOutcome(), CurrentUser.from(jwt).id());
+    }
 
     /**
      * Reschedules or re-lengthens a meeting.
@@ -176,6 +254,9 @@ public class MeetingController {
         appointment.setStartsAt(start);
         appointment.setDurationMinutes(request.durationMinutes());
         appointment.setStatus(request.status());
+        if (request.title() != null) {
+            appointment.setTitle(request.title());
+        }
 
         log.info("Updated appointment {}", id);
         appointments.saveAndFlush(appointment);
@@ -513,7 +594,8 @@ public class MeetingController {
                         a.getStatus(),
                         topicCounts.getOrDefault(a.getId(), 0L).intValue(),
                         noteCounts.getOrDefault(a.getId(), 0L).intValue(),
-                        a.hasVideo()))
+                        a.hasVideo(),
+                        a.getTitle()))
                 .toList();
     }
 }

@@ -14,6 +14,9 @@ import {
   deleteEngagementNote,
   editEngagementNote,
   removeEngagementFile,
+  chargeMessageTime,
+  closeEngagement,
+  type Communication,
   saveMeetingNote,
   uploadEngagementFile,
   getEngagementDetail,
@@ -31,6 +34,7 @@ import {
 } from './api';
 import { listMedia, type MediaItem } from './billing-api';
 import { NewMeetingForm } from './meeting-form';
+import { MessagesPanel } from './threads';
 import { Modal } from './admin-meetings';
 import { TEAM_ROLE_LABELS, type TeamRole, type User } from './auth';
 import { money } from './billing-api';
@@ -61,11 +65,12 @@ function day(iso: string): string {
 
 /* -------------------------------------------------------- engagement manager */
 
-type Tab = 'overview' | 'meetings' | 'notes' | 'agenda' | 'media' | 'team' | 'billing';
+type Tab = 'overview' | 'meetings' | 'messages' | 'notes' | 'agenda' | 'media' | 'team' | 'billing';
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
   meetings: 'Meetings',
+  messages: 'Messages',
   notes: 'Notes',
   agenda: 'Meeting notes',
   media: 'Media',
@@ -112,13 +117,14 @@ export function EngagementManager({
     reload().finally(() => setLoading(false));
   }, [reload]);
 
-  const tabs: Tab[] = ['overview', 'meetings', 'notes', 'agenda', 'media', 'team'];
+  const tabs: Tab[] = ['overview', 'meetings', 'messages', 'notes', 'agenda', 'media', 'team'];
   if (detail?.billing) tabs.push('billing');
 
   const noted = detail?.agenda.filter((a) => a.note).length ?? 0;
   const counts: Record<Tab, number | null> = {
     overview: null,
     meetings: detail?.meetings.length ?? 0,
+    messages: null,
     notes: detail?.notes.length ?? 0,
     agenda: detail?.agenda.length ?? 0,
     media: (detail?.files.length ?? 0) + (detail?.media.length ?? 0),
@@ -295,6 +301,19 @@ export function EngagementManager({
               </div>
             ))}
 
+          {tab === 'messages' && (
+            <MessagesPanel
+              scope={{ engagementId }}
+              staff
+              onError={onError}
+              empty={
+                detail.communication === 'video'
+                  ? 'This engagement is run by video meetings, so its topics do not take messages. Change Communication on the Overview tab to turn messages on.'
+                  : 'No conversations yet. They start when the client raises a topic.'
+              }
+            />
+          )}
+
           {tab === 'notes' && (
             <NotesTab
               engagementId={engagementId}
@@ -382,6 +401,11 @@ export function EngagementManager({
               onError={onError}
               onOpenMeeting={onOpenMeeting}
               onOpenInvoice={onOpenInvoice}
+              onCharged={() => {
+                onToast('Reply time charged');
+                onChanged();
+                reload();
+              }}
               onInvoiced={(number) => {
                 onToast(`Invoice ${number} created`);
                 onChanged();
@@ -411,9 +435,26 @@ function OverviewTab({
   const [status, setStatus] = useState(detail.status);
   const [startedOn, setStartedOn] = useState(detail.startedOn);
   const [dueOn, setDueOn] = useState(detail.dueOn ?? '');
+  const [communication, setCommunication] = useState<Communication>(detail.communication);
+  const [closing, setClosing] = useState(false);
+  const [closeNotes, setCloseNotes] = useState('');
   const [busy, setBusy] = useState(false);
 
+  async function close(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await closeEngagement(detail.id, closeNotes.trim());
+      onSaved(`Closed “${detail.title}”`);
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const dirty =
+    communication !== detail.communication ||
     title !== detail.title ||
     goal !== (detail.goal ?? '') ||
     status !== detail.status ||
@@ -430,6 +471,7 @@ function OverviewTab({
         goal: goal.trim() || null,
         startedOn,
         dueOn: dueOn || null,
+        communication,
       });
       onSaved(`Saved “${title.trim()}”`);
     } catch (err) {
@@ -443,6 +485,17 @@ function OverviewTab({
   const open = detail.agenda.filter((a) => a.status === 'proposed' || a.status === 'scheduled').length;
 
   return (
+    <>
+    {detail.closure && (detail.status === 'closed' || detail.closure.notes) && (
+      <div className={detail.status === 'closed' ? 'notice closure' : 'inset closure'}>
+        <strong>
+          {detail.status === 'closed'
+            ? `Closed${detail.closure.closedOn ? ` on ${day(detail.closure.closedOn)}` : ''}${detail.closure.closedBy ? ` by ${detail.closure.closedBy}` : ''}`
+            : 'Reopened. Notes from when it was last closed:'}
+        </strong>
+        {detail.closure.notes && <p>{detail.closure.notes}</p>}
+      </div>
+    )}
     <form onSubmit={save} className="stack-form engagement-overview">
       <label>
         Goal
@@ -468,6 +521,14 @@ function OverviewTab({
           </select>
         </label>
       </div>
+      <label>
+        Communication
+        <select value={communication} onChange={(e) => setCommunication(e.target.value as Communication)}>
+          <option value="both">Messages and video meetings</option>
+          <option value="message">Messages only</option>
+          <option value="video">Video meetings only</option>
+        </select>
+      </label>
       <div className="field-row">
         <label>
           Start date
@@ -483,6 +544,11 @@ function OverviewTab({
         <button className="btn btn-primary" type="submit" disabled={!dirty || busy}>
           {busy ? 'Saving...' : 'Save changes'}
         </button>
+        {detail.status !== 'closed' && !closing && (
+          <button type="button" className="btn" onClick={() => setClosing(true)}>
+            Close engagement
+          </button>
+        )}
       </div>
 
       <dl className="detail-list">
@@ -501,6 +567,35 @@ function OverviewTab({
         </dd>
       </dl>
     </form>
+    {closing && (
+      <form onSubmit={close} className="stack-form inset close-form">
+        <label>
+          Closure notes
+          <textarea
+            rows={4}
+            value={closeNotes}
+            required
+            autoFocus
+            placeholder="How it ended: what was delivered, what was left open, why it is closing."
+            onChange={(e) => setCloseNotes(e.target.value)}
+          />
+        </label>
+        <p className="hint">
+          Closing stops new meetings and messages on this engagement and charges any reply time not
+          yet charged. These notes are for your team; the client does not see them. It can be
+          reopened by changing its status.
+        </p>
+        <div className="button-row">
+          <button className="btn btn-primary" type="submit" disabled={busy || !closeNotes.trim()}>
+            {busy ? 'Closing...' : 'Close engagement'}
+          </button>
+          <button type="button" className="linklike" onClick={() => setClosing(false)}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    )}
+    </>
   );
 }
 
@@ -956,11 +1051,14 @@ function FilesSection({
 function BillingTab({
   detail,
   onInvoiced,
+  onCharged,
   onOpenMeeting,
   onOpenInvoice,
   onError,
 }: {
   detail: EngagementDetail;
+  /** Reply time was compiled into a charge; reload to show it. */
+  onCharged: () => void;
   onInvoiced: (invoiceNumber: string) => void;
   onOpenMeeting: (appointmentId: number) => void;
   onOpenInvoice: (invoiceId: number) => void;
@@ -968,6 +1066,18 @@ function BillingTab({
 }) {
   const b = detail.billing!;
   const [busy, setBusy] = useState(false);
+
+  async function chargeReplies() {
+    setBusy(true);
+    try {
+      await chargeMessageTime(detail.id);
+      onCharged();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function invoice() {
     if (
@@ -990,10 +1100,21 @@ function BillingTab({
   return (
     <>
       <div className="tool-toolbar">
-        <button onClick={invoice} disabled={busy || b.unbilledCents <= 0}>
+        <button onClick={invoice} disabled={busy || (b.unbilledCents <= 0 && b.unchargedMessageMinutes === 0)}>
           {busy ? 'Creating...' : `Invoice unbilled work (${money(b.unbilledCents)})`}
         </button>
+        {b.unchargedMessageMinutes > 0 && (
+          <button onClick={chargeReplies} disabled={busy}>
+            Charge reply time ({hours(b.unchargedMessageMinutes)})
+          </button>
+        )}
       </div>
+      {b.unchargedMessageMinutes > 0 && (
+        <p className="hint">
+          {hours(b.unchargedMessageMinutes)} of time recorded on written replies is not yet a charge.
+          Charging it rounds the total up to 30-minute blocks; invoicing does this for you.
+        </p>
+      )}
       <p className="hint">
         Time is recorded per meeting and becomes a charge when the meeting is marked complete, in
         30-minute blocks. {hours(detail.recordedMinutes)} recorded so far; {hours(b.billedMinutes)}{' '}

@@ -4947,3 +4947,367 @@ button:disabled,
 .engagement-files td .linklike + .linklike {
   margin-left: 0.9rem;
 }
+
+/* =====================================================================
+   Topic threads and the message inbox (portal and console)
+   ===================================================================== */
+
+.inbox {
+  display: grid;
+  grid-template-columns: minmax(15rem, 22rem) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.inbox-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.inbox-list li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.inbox-item,
+.inbox-item:hover:not(:disabled) {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.8rem 0.95rem;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.inbox-item:hover:not(:disabled) {
+  background: var(--canvas);
+}
+
+.inbox-item.on,
+.inbox-item.on:hover:not(:disabled) {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.inbox-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.inbox-item-top .muted {
+  flex: none;
+  font-size: 0.75rem;
+}
+
+.inbox-item-where {
+  font-size: 0.78rem;
+}
+
+.inbox-item-snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.inbox-item-snippet b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.inbox-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.inbox-thread {
+  min-width: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 1.25rem;
+}
+
+.modal .inbox-thread,
+.modal .inbox-list {
+  background: var(--bg);
+}
+
+.thread-head h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.1rem;
+}
+
+.thread-head p {
+  margin: 0 0 0.5rem;
+}
+
+.thread-opening {
+  white-space: pre-wrap;
+}
+
+.thread-messages {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+/* Both sides are set flush left, told apart by a rule and a label rather
+   than by chat bubbles: these are working answers, often several paragraphs. */
+.thread-message {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.thread-message.is-team {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.thread-message header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.thread-message header .muted {
+  font-size: 0.75rem;
+}
+
+.thread-time {
+  margin-left: auto;
+}
+
+.thread-message p {
+  margin: 0.4rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.thread-attachments,
+.thread-chips {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  font-size: 0.85rem;
+}
+
+.thread-attachments a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.thread-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.3rem 0.15rem 0.6rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.thread-chips button,
+.thread-chips button:hover:not(:disabled) {
+  padding: 0 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.thread-compose textarea {
+  width: 100%;
+}
+
+.thread-compose-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.thread-compose-row .btn-primary {
+  margin-left: auto;
+}
+
+.thread-minutes {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.thread-minutes input {
+  width: 6rem;
+}
+
+.thread-library {
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.thread-closed {
+  margin-top: 1rem;
+}
+
+.closure {
+  margin-bottom: 1.25rem;
+}
+
+.closure p {
+  margin: 0.35rem 0 0;
+  white-space: pre-wrap;
+}
+
+.close-form {
+  margin-top: 1.25rem;
+}
+
+@media (max-width: 860px) {
+  .inbox {
+    grid-template-columns: 1fr;
+  }
+
+  .inbox-list {
+    max-height: 16rem;
+  }
+}
+
+/* =====================================================================
+   Portal: engagements and their teams
+   ===================================================================== */
+
+.eng-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.eng-card {
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.eng-card > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.eng-card h3 {
+  margin: 0 0 0.2rem;
+  font-size: 1.05rem;
+}
+
+.eng-card > header p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.eng-card > footer {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.eng-team {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+}
+
+.eng-team-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem 2rem;
+}
+
+.eng-team h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+.eng-team ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.eng-team li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+  font-size: 0.9rem;
+}
+
+.eng-team-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.eng-team-add label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.eng-team-add select {
+  min-width: 12rem;
+}
+
+.thread-compose .hint {
+  margin: 0.6rem 0 0;
+}
+
+.eng-team .hint {
+  margin: 0.75rem 0 0;
+}

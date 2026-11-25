@@ -40,6 +40,22 @@ public class Engagement {
     @Column(name = "started_on", nullable = false)
     private LocalDate startedOn = LocalDate.now(java.time.ZoneOffset.UTC);
 
+    /** message, video or both: how the client wants this engagement run. */
+    @Column(nullable = false)
+    private String communication = "video";
+
+    @Column(name = "created_by_user_id")
+    private Long createdByUserId;
+
+    @Column(name = "closed_on")
+    private LocalDate closedOn;
+
+    @Column(name = "closure_notes")
+    private String closureNotes;
+
+    @Column(name = "closed_by")
+    private Long closedBy;
+
     /** When the engagement is meant to reach its goal; null if open-ended. */
     @Column(name = "due_on")
     private LocalDate dueOn;
@@ -92,6 +108,56 @@ public class Engagement {
 
     public void setStartedOn(LocalDate startedOn) {
         this.startedOn = startedOn;
+    }
+
+    public String getCommunication() {
+        return communication;
+    }
+
+    public void setCommunication(String communication) {
+        this.communication = communication;
+    }
+
+    /** Whether topics on this engagement carry a written thread. */
+    public boolean allowsMessages() {
+        return "message".equals(communication) || "both".equals(communication);
+    }
+
+    /** Whether meetings can be booked on this engagement. */
+    public boolean allowsVideo() {
+        return "video".equals(communication) || "both".equals(communication);
+    }
+
+    public Long getCreatedByUserId() {
+        return createdByUserId;
+    }
+
+    public void setCreatedByUserId(Long createdByUserId) {
+        this.createdByUserId = createdByUserId;
+    }
+
+    public LocalDate getClosedOn() {
+        return closedOn;
+    }
+
+    public void setClosedOn(LocalDate closedOn) {
+        this.closedOn = closedOn;
+    }
+
+    public String getClosureNotes() {
+        return closureNotes;
+    }
+
+    public void setClosureNotes(String closureNotes) {
+        this.closureNotes = closureNotes;
+    }
+
+    public Long getClosedBy() {
+        return closedBy;
+    }
+
+    public void setClosedBy(Long closedBy) {
+        this.closedBy = closedBy;
     }
 
     public LocalDate getDueOn() {

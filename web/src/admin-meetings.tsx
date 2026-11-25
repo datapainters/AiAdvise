@@ -28,6 +28,7 @@ import { formatLength, formatRange, statusLabel } from './scheduling';
 import { AccountingTab, TimeTracker } from './billing';
 import { VideoPanel } from './video';
 import { PeopleList } from './people';
+import { MessagesPanel } from './threads';
 
 /* --------------------------------------------------------------- modal shell */
 
@@ -527,7 +528,7 @@ export function MeetingManager({
 
 /* -------------------------------------------------------------- client detail */
 
-type DetailTab = 'overview' | 'engagements' | 'appointments' | 'users' | 'notes' | 'accounting';
+type DetailTab = 'overview' | 'engagements' | 'appointments' | 'messages' | 'users' | 'notes' | 'accounting';
 
 export function ClientDetailModal({
   clientId,
@@ -596,13 +597,14 @@ export function ClientDetailModal({
     }
   }
 
-  const tabs: DetailTab[] = ['overview', 'engagements', 'appointments', 'users', 'notes'];
+  const tabs: DetailTab[] = ['overview', 'engagements', 'appointments', 'messages', 'users', 'notes'];
   if (showAccounting) tabs.push('accounting');
 
   const counts: Record<DetailTab, number | null> = {
     overview: null,
     engagements: detail?.engagements.length ?? 0,
     appointments: detail?.appointments.length ?? 0,
+    messages: null,
     users: detail?.users.length ?? 0,
     notes: detail?.notes.length ?? 0,
     accounting: null,
@@ -934,6 +936,15 @@ export function ClientDetailModal({
                 </div>
               )}
             </>
+          )}
+
+          {tab === 'messages' && (
+            <MessagesPanel
+              scope={{ clientId }}
+              staff
+              onError={onError}
+              empty="No conversations with this client yet. They are collected here from all of its engagements."
+            />
           )}
 
           {tab === 'accounting' && showAccounting && (

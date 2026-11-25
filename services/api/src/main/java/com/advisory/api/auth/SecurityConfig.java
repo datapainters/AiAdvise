@@ -86,6 +86,7 @@ public class SecurityConfig {
                                 "/api/admin/engagement-costs/**",
                                 "/api/admin/engagements/*/costs",
                                 "/api/admin/engagements/*/invoice",
+                                "/api/admin/engagements/*/message-time/**",
                                 "/api/admin/clients/*/account",
                                 "/api/admin/clients/*/statement",
                                 "/api/admin/clients/*/charges",

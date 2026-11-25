@@ -48,6 +48,8 @@ import {
   type AdminAppointment,
   type InviteView,
   type LoginEvent,
+  COMMUNICATION_LABELS,
+  type Communication,
 } from './api';
 import {
   formatLength,
@@ -70,6 +72,7 @@ import {
 import { clearToken, getToken, isTeamAdmin, seesMoney, type User } from './auth';
 import { EngagementManager, TeamAdmin } from './engagement-manager';
 import { NewMeetingForm } from './meeting-form';
+import { MessagesPanel } from './threads';
 import { ClientPortal } from './portal';
 import { MediaLibrary, VideoBillingReportView } from './media';
 import {
@@ -503,6 +506,7 @@ type AdminView =
   | 'clients'
   | 'engagements'
   | 'appointments'
+  | 'messages'
   | 'invoices'
   | 'payments'
   | 'ar'
@@ -853,6 +857,13 @@ const ADMIN_VIEWS: {
     blurb: 'Requested and confirmed meetings. Click a row to run the meeting and take notes.',
   },
   {
+    id: 'messages',
+    label: 'Messages',
+    group: 'Workspace',
+    icon: 'chat',
+    blurb: 'Conversations on client topics, most recent first. Reply here; everyone on the engagement is emailed.',
+  },
+  {
     id: 'invoices',
     label: 'Invoices',
     group: 'Billing',
@@ -932,7 +943,7 @@ const ADMIN_VIEWS: {
 ];
 
 const ADMIN_NAV_GROUPS: { title: string; items: AdminView[] }[] = [
-  { title: 'Workspace', items: ['overview', 'calendar', 'clients', 'engagements', 'appointments', 'media'] },
+  { title: 'Workspace', items: ['overview', 'calendar', 'clients', 'engagements', 'appointments', 'messages', 'media'] },
   { title: 'Billing', items: ['invoices', 'payments'] },
   { title: 'Reports', items: ['ar', 'revenue', 'unbilled', 'costs'] },
   { title: 'System reporting', items: ['videobilling'] },
@@ -970,6 +981,7 @@ type IconName =
   | 'calgrid'
   | 'coins'
   | 'film'
+  | 'chat'
   | 'video';
 
 /** Small stroke icons for the admin sidebar; inline so nothing is fetched. */
@@ -1043,6 +1055,7 @@ function NavIcon({ name }: { name: IconName }) {
       </>
     ),
     sliders: <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" />,
+    chat: <path d="M4 5h16v11H9l-5 4zM8 9h8M8 12.5h5" />,
   };
   return (
     <svg
@@ -1455,6 +1468,7 @@ function EngagementForm({
   const [clientId, setClientId] = useState(String(existing?.clientId ?? ''));
   const [title, setTitle] = useState(existing?.title ?? '');
   const [goal, setGoal] = useState(existing?.goal ?? '');
+  const [communication, setCommunication] = useState<Communication>(existing?.communication ?? 'both');
   const [startedOn, setStartedOn] = useState(existing?.startedOn ?? '');
   const [dueOn, setDueOn] = useState(existing?.dueOn ?? '');
   const [status, setStatus] = useState(existing?.status ?? 'active');
@@ -1472,6 +1486,7 @@ function EngagementForm({
               goal: goal.trim() || null,
               startedOn: startedOn || undefined,
               dueOn: dueOn || null,
+              communication,
             })
           : await createEngagement({
               clientId: Number(clientId),
@@ -1479,6 +1494,7 @@ function EngagementForm({
               goal: goal.trim() || undefined,
               startedOn: startedOn || undefined,
               dueOn: dueOn || null,
+              communication,
             }),
       );
     } catch (err) {
@@ -1527,6 +1543,14 @@ function EngagementForm({
             placeholder="The need this engagement exists to meet. Its meetings work towards this."
             onChange={(e) => setGoal(e.target.value)}
           />
+        </label>
+        <label>
+          Communication
+          <select value={communication} onChange={(e) => setCommunication(e.target.value as Communication)}>
+            <option value="both">Messages and video meetings</option>
+            <option value="message">Messages only</option>
+            <option value="video">Video meetings only</option>
+          </select>
         </label>
         <div className="field-row">
           <label>
@@ -1948,6 +1972,11 @@ function Admin() {
               render: (e) => <span className={`status status-${e.status}`}>{e.status}</span>,
             },
             {
+              field: 'communication',
+              label: 'Communication',
+              render: (e) => COMMUNICATION_LABELS[e.communication] ?? e.communication,
+            },
+            {
               field: 'startedOn',
               label: 'Started',
               render: (e) => <span className="nowrap">{formatDay(e.startedOn)}</span>,
@@ -2103,6 +2132,15 @@ function Admin() {
               render: (p) => (p.voidedAt ? <s>{money(p.amountCents)}</s> : <strong>{money(p.amountCents)}</strong>),
             },
           ]}
+        />
+      )}
+
+      {view === 'messages' && (
+        <MessagesPanel
+          staff
+          onError={onError}
+          initialTopicId={Number(params.get('topic')) || null}
+          empty="No conversations yet. They start when a client raises a topic on an engagement run by message."
         />
       )}
 

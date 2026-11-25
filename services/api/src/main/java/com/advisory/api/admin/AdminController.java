@@ -193,15 +193,17 @@ public class AdminController {
             @NotBlank String title,
             String goal,
             LocalDate startedOn,
-            LocalDate dueOn) {}
+            LocalDate dueOn,
+            String communication) {}
 
     public record EngagementView(
             Long id, Long clientId, String title, String status, LocalDate startedOn,
-            String goal, LocalDate dueOn) {
+            String goal, LocalDate dueOn, String communication) {
 
         static EngagementView of(Engagement e) {
             return new EngagementView(e.getId(), e.getClientId(), e.getTitle(),
-                    e.getStatus(), e.getStartedOn(), e.getGoal(), e.getDueOn());
+                    e.getStatus(), e.getStartedOn(), e.getGoal(), e.getDueOn(),
+                    e.getCommunication());
         }
     }
 
@@ -211,6 +213,7 @@ public class AdminController {
                 .add("clientName", "Client", "text",
                         e -> clientNames.getOrDefault(e.clientId(), ""))
                 .add("status", "Status", "text", EngagementView::status)
+                .add("communication", "Communication", "text", EngagementView::communication)
                 .add("startedOn", "Started", "date", EngagementView::startedOn)
                 .add("dueOn", "Target date", "date", EngagementView::dueOn);
     }
@@ -242,7 +245,20 @@ public class AdminController {
             @NotBlank String status,
             String goal,
             LocalDate startedOn,
-            LocalDate dueOn) {}
+            LocalDate dueOn,
+            String communication) {}
+
+    /** Sets how the engagement is run; a missing value leaves it as it is. */
+    private static void applyCommunication(Engagement e, String communication) {
+        if (communication == null) {
+            return;
+        }
+        if (!List.of("message", "video", "both").contains(communication)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "communication must be message, video or both");
+        }
+        e.setCommunication(communication);
+    }
 
     /**
      * Applies the two dates. A missing start date leaves the existing one
@@ -277,6 +293,13 @@ public class AdminController {
         engagement.setStatus(request.status());
         engagement.setGoal(request.goal());
         applyDates(engagement, request.startedOn(), request.dueOn());
+        applyCommunication(engagement, request.communication());
+        if (!"closed".equals(request.status())) {
+            // Reopened. The closure notes stay as a record of the last close.
+            engagement.setClosedOn(null);
+        } else if (engagement.getClosedOn() == null) {
+            engagement.setClosedOn(LocalDate.now(java.time.ZoneOffset.UTC));
+        }
         log.info("Updated engagement {}", id);
         return EngagementView.of(engagements.save(engagement));
     }
@@ -292,6 +315,7 @@ public class AdminController {
         engagement.setTitle(request.title().trim());
         engagement.setGoal(request.goal());
         applyDates(engagement, request.startedOn(), request.dueOn());
+        applyCommunication(engagement, request.communication());
 
         Engagement saved = engagements.save(engagement);
         em.flush();
@@ -377,6 +401,11 @@ public class AdminController {
         user.setCompanyId(resolveCompany(request.companyName()));
         user.setRole(AppUser.ROLE_CLIENT);
         user.setClientId(request.clientId());
+        // The first login a client gets owns the client account and can add
+        // the rest of their people from the portal.
+        Client owning = clients.findById(request.clientId()).orElseThrow();
+        boolean first = owning.getOwnerUserId() == null;
+        user.setClientRole(first ? AppUser.CLIENT_OWNER : AppUser.CLIENT_MEMBER);
         // No password the firm knows ever exists for this account. The hash
         // is well-formed but matches nothing until the invite is redeemed.
         user.setPasswordHash(invites.unusablePassword());
@@ -384,6 +413,10 @@ public class AdminController {
         user.setEnabled(true);
 
         AppUser saved = users.save(user);
+        if (first) {
+            owning.setOwnerUserId(saved.getId());
+            clients.save(owning);
+        }
         // Deliberately not logging the address or anything about the invite.
         log.info("Created client user {} for client {}", saved.getId(), request.clientId());
 

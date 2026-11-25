@@ -8,7 +8,7 @@ import type { GridColumn, GridPage } from './datagrid';
  * bundle is static files on CloudFront -- changing the API URL means a
  * rebuild, which is the correct trade for a site this size.
  */
-import { clearToken, getToken, setToken, type TeamRole, type User } from './auth';
+import { clearToken, getToken, setToken, type ClientRole, type TeamRole, type User } from './auth';
 
 const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
 
@@ -26,11 +26,25 @@ export interface Topic {
   createdAt: string;
 }
 
+/** How an engagement is run: written threads, video meetings, or both. */
+export type Communication = 'message' | 'video' | 'both';
+
+export const COMMUNICATION_LABELS: Record<Communication, string> = {
+  message: 'Messages',
+  video: 'Video meetings',
+  both: 'Messages and video',
+};
+
 export interface Engagement {
   id: number;
   title: string;
   status: string;
   startedOn: string;
+  goal: string | null;
+  dueOn: string | null;
+  communication: Communication;
+  /** Whether this person may change which of their people are on it. */
+  canManageTeam: boolean;
 }
 
 /** Thrown when the server rejects our token, so callers can send us to login. */
@@ -148,6 +162,158 @@ export function listEngagements(): Promise<Engagement[]> {
   return request<Engagement[]>('/api/engagements');
 }
 
+/** Opens an engagement from the client portal. */
+export function openEngagement(input: {
+  title: string;
+  goal?: string;
+  communication: Communication;
+}): Promise<Engagement> {
+  return request<Engagement>('/api/engagements', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function listEngagementTeam(engagementId: number): Promise<Person[]> {
+  return request<Person[]>(`/api/engagements/${engagementId}/team`);
+}
+
+export function addEngagementTeamMember(
+  engagementId: number,
+  input: { userId: number; role: string },
+): Promise<Person[]> {
+  return request<Person[]>(`/api/engagements/${engagementId}/team`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function removeEngagementTeamMember(engagementId: number, memberId: number): Promise<Person[]> {
+  return request<Person[]>(`/api/engagements/${engagementId}/team/${memberId}`, { method: 'DELETE' });
+}
+
+/* ------------------------------------------------ a client's own team members */
+
+export interface ClientTeamMember {
+  id: number;
+  displayName: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+  phone: string | null;
+  clientRole: ClientRole;
+  enabled: boolean;
+  invitePending: boolean;
+  lastLoginAt: string | null;
+}
+
+export interface ClientTeam {
+  /** True for the account owner, who is the only one who can change this list. */
+  canManage: boolean;
+  members: ClientTeamMember[];
+}
+
+export function getClientTeam(): Promise<ClientTeam> {
+  return request<ClientTeam>('/api/team');
+}
+
+export function addClientTeamMember(input: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  clientRole: ClientRole;
+}): Promise<ClientTeamMember> {
+  return request<ClientTeamMember>('/api/team', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateClientTeamMember(
+  id: number,
+  input: { clientRole: ClientRole; enabled: boolean },
+): Promise<ClientTeamMember> {
+  return request<ClientTeamMember>(`/api/team/${id}`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export function reinviteClientTeamMember(id: number): Promise<ClientTeamMember> {
+  return request<ClientTeamMember>(`/api/team/${id}/invite`, { method: 'POST' });
+}
+
+/* ------------------------------------------------------------ topic threads */
+
+export interface ThreadSummary {
+  topicId: number;
+  title: string;
+  status: string;
+  engagementId: number;
+  engagementTitle: string;
+  clientId: number;
+  clientName: string;
+  raisedBy: string | null;
+  messageCount: number;
+  lastActivityAt: string;
+  lastAuthor: string | null;
+  lastSide: 'team' | 'client' | null;
+  lastSnippet: string | null;
+  /** False once the engagement is closed or no longer takes messages. */
+  open: boolean;
+}
+
+export interface ThreadAttachment {
+  title: string;
+  kind: 'image' | 'pdf' | 'video';
+  url: string;
+}
+
+export interface ThreadMessage {
+  id: number;
+  authorName: string;
+  side: 'team' | 'client';
+  body: string;
+  createdAt: string;
+  /** Time the reply took. Only ever present for Data Painters readers. */
+  minutes: number | null;
+  charged: boolean;
+  attachments: ThreadAttachment[];
+}
+
+export interface Thread {
+  topicId: number;
+  title: string;
+  detail: string | null;
+  desiredOutcome: string | null;
+  status: string;
+  engagementId: number;
+  engagementTitle: string;
+  communication: Communication;
+  clientId: number;
+  clientName: string;
+  raisedBy: string | null;
+  raisedAt: string;
+  canPost: boolean;
+  /** Why nobody can post, when canPost is false. */
+  closedReason: string | null;
+  messages: ThreadMessage[];
+}
+
+export function listThreads(scope: { engagementId?: number; clientId?: number } = {}): Promise<ThreadSummary[]> {
+  const q = new URLSearchParams();
+  if (scope.engagementId) q.set('engagementId', String(scope.engagementId));
+  if (scope.clientId) q.set('clientId', String(scope.clientId));
+  const qs = q.toString();
+  return request<ThreadSummary[]>(`/api/threads${qs ? `?${qs}` : ''}`);
+}
+
+export function getThread(topicId: number): Promise<Thread> {
+  return request<Thread>(`/api/threads/${topicId}`);
+}
+
+export function postThreadMessage(
+  topicId: number,
+  input: { body: string; minutes?: number; mediaItemIds?: number[] },
+): Promise<Thread> {
+  return request<Thread>(`/api/threads/${topicId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 export function listTopics(engagementId: number): Promise<Topic[]> {
   return request<Topic[]>(`/api/topics?engagementId=${engagementId}`);
 }
@@ -259,6 +425,7 @@ export interface AdminEngagement {
   goal: string | null;
   /** When it is meant to reach that goal; null if open-ended. */
   dueOn: string | null;
+  communication: Communication;
 }
 
 export interface LoginEvent {
@@ -307,6 +474,7 @@ export function createEngagement(input: {
   goal?: string;
   startedOn?: string;
   dueOn?: string | null;
+  communication?: Communication;
 }): Promise<AdminEngagement> {
   return request<AdminEngagement>('/api/admin/engagements', {
     method: 'POST',
@@ -333,6 +501,7 @@ export function updateEngagement(
     startedOn?: string;
     /** Sent on every save: null clears the target date. */
     dueOn: string | null;
+    communication?: Communication;
   },
 ): Promise<AdminEngagement> {
   return request<AdminEngagement>(`/api/admin/engagements/${id}`, {
@@ -844,6 +1013,8 @@ export interface EngagementBilling {
   invoicedCents: number;
   unbilledCents: number;
   billedMinutes: number;
+  /** Time recorded on written replies that is not yet a charge. */
+  unchargedMessageMinutes: number;
   charges: EngagementCharge[];
 }
 
@@ -868,6 +1039,23 @@ export interface EngagementDetail {
   team: Person[];
   /** Null for roles that do not handle billing. */
   billing: EngagementBilling | null;
+  communication: Communication;
+  /** When and why it was closed; null if it never has been. */
+  closure: { closedOn: string | null; notes: string | null; closedBy: string | null } | null;
+}
+
+export function closeEngagement(id: number, notes: string): Promise<EngagementDetail> {
+  return request<EngagementDetail>(`/api/admin/engagements/${id}/close`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+}
+
+/** Compiles uncharged reply time on the engagement's threads into a charge. */
+export function chargeMessageTime(id: number): Promise<EngagementDetail> {
+  return request<EngagementDetail>(`/api/admin/engagements/${id}/message-time/charge`, {
+    method: 'POST',
+  });
 }
 
 export interface EngagementNote {

@@ -32,6 +32,10 @@ public class Client {
     @Column(nullable = false)
     private String source = "admin";
 
+    /** The first person who signed up for this client; manages its people. */
+    @Column(name = "owner_user_id")
+    private Long ownerUserId;
+
     // Set here rather than left to the column default, so the entity
     // returned from save() -- and the create response built from it --
     // carries the timestamp instead of null.
@@ -76,6 +80,14 @@ public class Client {
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getSource() {

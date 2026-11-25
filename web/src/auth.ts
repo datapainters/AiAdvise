@@ -26,6 +26,21 @@ export interface User {
    * answer 403.
    */
   teamRole: TeamRole | null;
+  /** A client login's standing on its own account; null for staff. */
+  clientRole: ClientRole | null;
+}
+
+export type ClientRole = 'owner' | 'manager' | 'member';
+
+export const CLIENT_ROLE_LABELS: Record<ClientRole, string> = {
+  owner: 'Owner',
+  manager: 'Manager',
+  member: 'Member',
+};
+
+/** May open engagements and choose who is on them. */
+export function managesClient(user: User | null | undefined): boolean {
+  return user?.clientRole === 'owner' || user?.clientRole === 'manager';
 }
 
 export type TeamRole = 'admin' | 'billing' | 'relations' | 'engineer';

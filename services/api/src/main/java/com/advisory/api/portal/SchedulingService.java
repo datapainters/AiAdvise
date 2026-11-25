@@ -67,6 +67,12 @@ public class SchedulingService {
                             + " and not open for new meetings");
         }
 
+        if (!engagement.allowsVideo()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This engagement is run by message. Post on a topic instead, or ask us to "
+                            + "add video meetings to it.");
+        }
+
         Instant start = normaliseAndValidate(startsAt, durationMinutes);
 
         Appointment appointment = new Appointment();

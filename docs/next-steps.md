@@ -889,3 +889,67 @@ Left open:
   meeting the firm creates has no client-chosen topics and notes hang off
   topics. Topics are private to their creator (V8), so an item added here is
   not shown in the client's own topic list.
+
+## Message threads, client-opened engagements and client team members (V15, 2026-11-25)
+
+**Communication type.** An engagement is run by `message`, `video` or
+`both`. Existing engagements stay `video`. The free consultation booked from
+the website is always `video`. Engagements opened from the console or the
+portal can be any of the three. Clients cannot book a meeting on a
+message-only engagement, and topics on a video-only engagement take no
+messages.
+
+**Threads.** `topic_message` is the conversation on a topic, with
+`topic_message_attachment` for media library items a Data Painters person
+attaches. `/api/threads` serves both sides; `ThreadService` decides what each
+caller may see and set. Every post is emailed to everyone else on the thread
+(the engagement's team from both sides, whoever raised the topic, and anyone
+who has posted) with a button back to the thread. If that leaves nobody from
+Data Painters, the firm's inbox gets it. A client raising a topic on a
+message engagement is announced the same way.
+
+**Visibility widened from V8.** A client user now sees a topic if they raised
+it, are on the engagement's team, or are the account's owner or a manager.
+Someone at the client who is none of those still sees only their own topics.
+This is deliberate: a conversation only its opener could read is not one.
+
+**Reply time is billed.** A Data Painters reply can carry minutes. They are
+compiled into a `message` charge on the engagement on demand (Billing tab →
+Charge reply time), automatically before the engagement is invoiced, and when
+it is closed. The batch is rounded up to 30-minute blocks once, not per
+reply. Voiding that charge releases the replies to be charged again. Clients
+never see the minutes on a reply.
+
+**Closing.** `POST /api/admin/engagements/{id}/close` takes closure notes,
+records who closed it and when, and compiles outstanding reply time. The
+notes are internal: they are not sent to or shown to the client. Reopening is
+a status change and keeps the notes.
+
+**Client account roles.** `owner` (the first login the client got; backfilled
+as each client's earliest user), `manager` and `member`. The owner manages
+the account's people under Team Members; owners and managers open
+engagements and choose which of their people are on them. A client can only
+ever add their own people to an engagement.
+
+**Portal.** Navigation is Overview, Engagements, Topics, Meetings, Messages,
+Team Members, Billing. Messages are reachable from a topic and from the
+Messages inbox.
+
+**Console.** Messages in the Workspace group (all conversations), a Messages
+tab in the Engagement Manager, and a Messages tab on the client record that
+combines every engagement's conversations.
+
+Left open:
+
+- **An engagement opened from the portal is active at once**, with no
+  approval step, and the firm is emailed. If engagements should wait for the
+  firm to accept them, that needs a `requested` status.
+- Messages cannot be edited or deleted, and clients cannot attach files.
+- There is no unread tracking. The inbox marks a thread by who posted last
+  ("Needs a reply" / "New reply"), which is the same for everyone.
+- Email notifications are one message per recipient per post, with no digest
+  or per-person mute.
+- Uncharged reply time is not in the Unbilled work report until it has been
+  compiled into a charge; it shows on the engagement's Billing tab.
+- A client member who is on an engagement can see a colleague's topics there
+  but still cannot drop them; the button answers "not found".

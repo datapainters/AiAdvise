@@ -16,12 +16,18 @@ import {
   listEngagements,
   listTopics,
   updateTopicStatus,
+  getClientTeam,
+  listThreads,
   Unauthorized,
+  type ClientTeamMember,
+  type ThreadSummary,
   type Appointment,
   type Engagement,
   type Topic,
 } from './api';
-import type { User } from './auth';
+import { managesClient, type User } from './auth';
+import { EngagementsView, NewEngagementModal, TeamMembersView } from './portal-team';
+import { MessagesPanel, ThreadView } from './threads';
 import { Modal } from './admin-meetings';
 import { InvoiceStatus } from './billing';
 import {
@@ -35,7 +41,10 @@ import {
 import { BookingForm, formatLength, formatRange, plural, statusLabel } from './scheduling';
 import { JoinCallButton } from './video';
 
-type View = 'overview' | 'topics' | 'meetings' | 'billing';
+type View = 'overview' | 'engagements' | 'topics' | 'meetings' | 'messages' | 'team' | 'billing';
+
+/** Views that are about one engagement, and so show the engagement picker. */
+const PER_ENGAGEMENT: View[] = ['overview', 'topics', 'meetings'];
 
 const VIEWS: { id: View; label: string; blurb: string; icon: ReactNode }[] = [
   {
@@ -43,6 +52,12 @@ const VIEWS: { id: View; label: string; blurb: string; icon: ReactNode }[] = [
     label: 'Overview',
     blurb: 'Your next meeting, open topics and account balance at a glance.',
     icon: <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
+  },
+  {
+    id: 'engagements',
+    label: 'Engagements',
+    blurb: 'Each piece of work we are doing together, how it is run, and who is on it.',
+    icon: <path d="M3 8h18v12H3zM8 8V5h8v3M3 13h18" />,
   },
   {
     id: 'topics',
@@ -58,6 +73,23 @@ const VIEWS: { id: View; label: string; blurb: string; icon: ReactNode }[] = [
       <>
         <rect x="3" y="5" width="18" height="16" rx="1.5" />
         <path d="M3 10h18M8 3v4M16 3v4" />
+      </>
+    ),
+  },
+  {
+    id: 'messages',
+    label: 'Messages',
+    blurb: 'Conversations on your topics. Everyone on the engagement is emailed when someone posts.',
+    icon: <path d="M4 5h16v11H9l-5 4zM8 9h8M8 12.5h5" />,
+  },
+  {
+    id: 'team',
+    label: 'Team Members',
+    blurb: 'The people at your organisation who have a login here.',
+    icon: (
+      <>
+        <circle cx="9" cy="8" r="3.5" />
+        <path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 5.2a3.5 3.5 0 0 1 0 6.6M17.5 14.3c2.4.6 4 2.6 4 5.7" />
       </>
     ),
   },
@@ -113,6 +145,15 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
   const [adding, setAdding] = useState(false);
   const [booking, setBooking] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [roster, setRoster] = useState<ClientTeamMember[] | null>(null);
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [openThread, setOpenThread] = useState<number | null>(null);
+  // An admin previewing the portal has no client account; the client-only
+  // endpoints would answer 403, which signs them out.
+  const isClient = user.role === 'CLIENT';
+  const canOpen = isClient && managesClient(user);
+  const onRoster = useCallback((members: ClientTeamMember[]) => setRoster(members), []);
 
   const onError = useCallback(
     (e: unknown) => {
@@ -166,13 +207,27 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
     reloadTopics().catch(onError);
   }, [reloadTopics, onError]);
 
+  // Who can be put on an engagement, and which topics have conversations.
+  useEffect(() => {
+    if (isClient) getClientTeam().then((t) => setRoster(t.members)).catch(() => setRoster(null));
+  }, [isClient]);
+
+  const reloadThreads = useCallback(() => listThreads().then(setThreads).catch(() => setThreads([])), []);
+
+  useEffect(() => {
+    reloadThreads();
+  }, [reloadThreads, topics.length]);
+
   function go(v: View) {
     setParams(v === 'overview' ? {} : { view: v });
     setError(null);
     setNavOpen(false);
   }
 
-  const bookable = engagements.filter((e) => e.status === 'active');
+  // A message-only engagement has no meetings to book.
+  const bookable = engagements.filter((e) => e.status === 'active' && e.communication !== 'message');
+  const selectedEngagement = engagements.find((e) => e.id === selected);
+  const waitingReplies = threads.filter((t) => t.open && t.lastSide === 'team').length;
   const openTopics = topics.filter((t) => t.status === 'proposed');
   const now = new Date();
   const upcoming = appointments
@@ -236,6 +291,7 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
                 <Icon>{v.icon}</Icon>
                 {v.label}
                 {v.id === 'topics' && openTopics.length > 0 && <span className="nav-badge">{openTopics.length}</span>}
+                {v.id === 'messages' && waitingReplies > 0 && <span className="nav-badge">{waitingReplies}</span>}
                 {v.id === 'billing' && billing && billing.summary.amountDueCents > 0 && (
                   <span className={billing.summary.overdueCents > 0 ? 'nav-badge bad' : 'nav-badge'}>
                     {money(billing.summary.amountDueCents).replace('.00', '')}
@@ -246,7 +302,7 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
           </div>
           <div className="portal-help">
             <strong>Need something?</strong>
-            <p>Reply to any email from us, or add a topic and we will pick it up before your next call.</p>
+            <p>Add a topic and we will pick it up, by message or before your next call.</p>
           </div>
         </nav>
         <div className="admin-side-foot">
@@ -282,7 +338,7 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
             <p className="muted">{current.blurb}</p>
           </div>
           <div className="top-actions">
-            {view !== 'billing' && (
+            {(PER_ENGAGEMENT.includes(view) || view === 'messages') && (
               <>
                 <button className="btn" onClick={() => setAdding(true)} disabled={selected === null}>
                   + Add topic
@@ -291,6 +347,11 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
                   Schedule a meeting
                 </button>
               </>
+            )}
+            {view === 'engagements' && canOpen && (
+              <button className="btn btn-primary" onClick={() => setOpening(true)}>
+                New engagement
+              </button>
             )}
             {view === 'billing' && (
               <button className="btn" onClick={() => window.open('/portal/statement', '_blank')}>
@@ -316,16 +377,51 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
                 <div className="kpi skeleton" key={i} />
               ))}
             </div>
+          ) : view === 'engagements' ? (
+            <EngagementsView
+              engagements={engagements}
+              roster={roster}
+              canOpen={canOpen}
+              onNew={() => setOpening(true)}
+              onError={onError}
+              onOpenTopics={(id) => {
+                setSelected(id);
+                go('topics');
+              }}
+            />
+          ) : view === 'team' ? (
+            isClient ? (
+              <TeamMembersView user={user} onLoaded={onRoster} onError={onError} onToast={(m) => setToast(m)} />
+            ) : (
+              <p className="empty">Team members are managed by each client&rsquo;s own account owner.</p>
+            )
+          ) : view === 'messages' ? (
+            <MessagesPanel
+              staff={!isClient}
+              onError={onError}
+              initialTopicId={Number(params.get('topic')) || null}
+              empty="No conversations yet. Add a topic to an engagement that is run by message and we will answer it here."
+            />
           ) : engagements.length === 0 ? (
             <div className="empty-state">
               <p>
-                <strong>Your workspace is being set up.</strong>
+                <strong>You have no engagements yet.</strong>
               </p>
-              <p className="muted">Once we open an engagement for you, your topics and meetings will appear here.</p>
+              <p className="muted">
+                An engagement is one piece of work with a goal. Topics, meetings and messages are kept
+                under it.
+              </p>
+              {canOpen && (
+                <p>
+                  <button className="btn btn-primary" onClick={() => setOpening(true)}>
+                    New engagement
+                  </button>
+                </p>
+              )}
             </div>
           ) : (
             <>
-              {engagements.length > 1 && view !== 'billing' && (
+              {engagements.length > 1 && PER_ENGAGEMENT.includes(view) && (
                 <label className="engagement-switch">
                   Engagement
                   <select value={selected ?? ''} onChange={(e) => setSelected(Number(e.target.value))}>
@@ -353,7 +449,16 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
               )}
 
               {view === 'topics' && (
-                <TopicsView topics={topics} onDrop={onDropTopic} onAdd={() => setAdding(true)} onBook={startBooking} canBook={bookable.length > 0} />
+                <TopicsView
+                  topics={topics}
+                  threads={threads}
+                  messaging={selectedEngagement ? selectedEngagement.communication !== 'video' : false}
+                  onOpenThread={(id) => setOpenThread(id)}
+                  onDrop={onDropTopic}
+                  onAdd={() => setAdding(true)}
+                  onBook={startBooking}
+                  canBook={bookable.some((e) => e.id === selected)}
+                />
               )}
 
               {view === 'meetings' && (
@@ -378,6 +483,25 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
             setToast(`Topic “${t.title}” added`);
           }}
         />
+      )}
+
+      {opening && (
+        <NewEngagementModal
+          onCancel={() => setOpening(false)}
+          onError={onError}
+          onDone={(created) => {
+            setEngagements((prev) => [created, ...prev]);
+            setSelected(created.id);
+            setOpening(false);
+            setToast(`Engagement “${created.title}” opened`);
+          }}
+        />
+      )}
+
+      {openThread !== null && (
+        <Modal title="Conversation" onClose={() => setOpenThread(null)} wide>
+          <ThreadView topicId={openThread} staff={!isClient} onError={onError} onPosted={reloadThreads} />
+        </Modal>
       )}
 
       {booking && (
@@ -558,11 +682,19 @@ function Overview({
 
 function TopicsView({
   topics,
+  threads,
+  messaging,
+  onOpenThread,
   onDrop,
   onAdd,
   onBook,
   canBook,
 }: {
+  /** Conversations, to show how many messages each topic has. */
+  threads: ThreadSummary[];
+  /** Whether this engagement's topics take messages. */
+  messaging: boolean;
+  onOpenThread: (topicId: number) => void;
   topics: Topic[];
   onDrop: (t: Topic) => void;
   onAdd: () => void;
@@ -603,11 +735,21 @@ function TopicsView({
           <strong>Good outcome:</strong> {t.desiredOutcome}
         </p>
       )}
-      {t.status === 'proposed' && (
+      {(t.status === 'proposed' || messaging || threads.some((x) => x.topicId === t.id)) && (
         <footer>
-          <button className="linklike danger" onClick={() => onDrop(t)}>
-            Drop
-          </button>
+          {(messaging || threads.some((x) => x.topicId === t.id)) && (
+            <button className="btn btn-sm" onClick={() => onOpenThread(t.id)}>
+              {(() => {
+                const n = threads.find((x) => x.topicId === t.id)?.messageCount ?? 0;
+                return n === 0 ? 'Start the conversation' : `Messages (${n})`;
+              })()}
+            </button>
+          )}
+          {t.status === 'proposed' && (
+            <button className="linklike danger" onClick={() => onDrop(t)}>
+              Drop
+            </button>
+          )}
         </footer>
       )}
     </article>

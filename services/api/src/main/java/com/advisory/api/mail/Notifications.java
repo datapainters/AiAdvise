@@ -207,6 +207,94 @@ Set your password</a>
         mail.sendAll(recipients, subject, plain, html);
     }
 
+    /**
+     * Tells one person that someone has posted on a topic's thread, with the
+     * post itself and a button back to the thread to answer it.
+     */
+    public void threadUpdate(String to, String authorName, String clientName,
+            String engagementTitle, String topicTitle, String body, List<String> attachments,
+            String threadUrl) {
+
+        String files = attachments.isEmpty() ? ""
+                : "\nAttached: " + String.join(", ", attachments) + "\n";
+
+        String plain = """
+                %s posted on "%s".
+
+                Client:      %s
+                Engagement:  %s
+
+                %s
+                %s
+                Read the thread and reply:
+                %s
+
+                Data Painters
+                """.formatted(authorName, topicTitle, clientName, engagementTitle, body, files,
+                threadUrl);
+
+        String html = wrap("""
+                <p><strong>%s</strong> posted on <strong>%s</strong>.</p>
+                <p style="color:#595f6b;font-size:13px;margin:0 0 16px">%s &middot; %s</p>
+                <div style="border-left:3px solid #8a5a2b;padding:4px 0 4px 14px;\
+white-space:pre-wrap">%s</div>
+                %s
+                <p style="margin:24px 0">
+                  <a href="%s" style="background:#16181d;color:#fcfcfd;\
+text-decoration:none;padding:11px 20px;border-radius:2px;display:inline-block">\
+Reply in the thread</a>
+                </p>
+                """.formatted(esc(authorName), esc(topicTitle), esc(clientName),
+                esc(engagementTitle), esc(body),
+                attachments.isEmpty() ? ""
+                        : "<p style=\"color:#595f6b;font-size:13px\">Attached: "
+                                + esc(String.join(", ", attachments)) + "</p>",
+                esc(threadUrl)));
+
+        mail.send(to, "New message: " + topicTitle, plain, html);
+    }
+
+    /** Tells the firm a client has opened an engagement from the portal. */
+    public void engagementOpened(String clientName, String openedBy, String title,
+            String communication, String goal) {
+        String to = mail.adminRecipient();
+        if (to == null || to.isBlank()) {
+            return;
+        }
+        String how = switch (communication) {
+            case "message" -> "Messages";
+            case "both" -> "Messages and video meetings";
+            default -> "Video meetings";
+        };
+        String plain = """
+                %s opened a new engagement from the client portal.
+
+                Client:         %s
+                Engagement:     %s
+                Communication:  %s
+                Goal:           %s
+
+                %s/admin?view=engagements
+
+                Data Painters
+                """.formatted(openedBy, clientName, title, how,
+                goal == null || goal.isBlank() ? "(none given)" : goal, mail.baseUrl());
+        String html = wrap("""
+                <p><strong>%s</strong> opened a new engagement from the client portal.</p>
+                <table cellpadding="4" style="border-collapse:collapse;font-size:14px">
+                  <tr><td style="color:#595f6b">Client</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">Engagement</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">Communication</td><td>%s</td></tr>
+                  <tr><td style="color:#595f6b">Goal</td><td>%s</td></tr>
+                </table>
+                <p><a href="%s/admin?view=engagements" style="color:#8a5a2b">Open the
+                engagements list</a></p>
+                """.formatted(esc(openedBy), esc(clientName), esc(title), esc(how),
+                esc(goal == null || goal.isBlank() ? "(none given)" : goal),
+                esc(mail.baseUrl())));
+        mail.send(to, "New engagement: " + title + " (" + clientName + ")", plain, html);
+    }
+
     /* ----------------------------------------------------------- meetings */
 
     /** Tells the firm a client has asked for time. */

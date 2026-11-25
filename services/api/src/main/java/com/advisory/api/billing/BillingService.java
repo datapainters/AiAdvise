@@ -339,6 +339,71 @@ public class BillingService {
                 """).param(engagementId).query(BillingService::charge).list();
     }
 
+    /* ------------------------------------------------------- message time */
+
+    /** Minutes recorded on replies in this engagement's threads and not yet charged. */
+    public int unchargedMessageMinutes(Long engagementId) {
+        return jdbc.sql("""
+                SELECT COALESCE(sum(m.minutes), 0) FROM topic_message m
+                JOIN topic t ON t.id = m.topic_id
+                WHERE t.engagement_id = ? AND m.minutes IS NOT NULL AND m.charge_id IS NULL
+                """).param(engagementId).query(Integer.class).single();
+    }
+
+    /**
+     * Turns the time recorded on written replies into a charge, the way
+     * completing a meeting turns its recorded time into one.
+     *
+     * <p>A meeting is compiled once, when it ends. A thread never ends, so
+     * its time is compiled on demand: every reply not yet charged is added
+     * up, rounded up to 30-minute blocks once for the batch rather than per
+     * reply (five-minute answers would otherwise each cost half an hour), and
+     * written as one charge against the engagement. Each reply is stamped
+     * with that charge, which is what stops it being charged again.
+     *
+     * @return the new charge, or null if there was no uncharged time
+     */
+    @Transactional
+    public ChargeView compileMessageTime(Long engagementId, Long userId) {
+        Map<String, Object> e = jdbc.sql(
+                        "SELECT id, client_id, title FROM engagement WHERE id = ? FOR UPDATE")
+                .param(engagementId).query().singleRow();
+
+        List<Long> ids = jdbc.sql("""
+                SELECT m.id FROM topic_message m
+                JOIN topic t ON t.id = m.topic_id
+                WHERE t.engagement_id = ? AND m.minutes IS NOT NULL AND m.charge_id IS NULL
+                ORDER BY m.id FOR UPDATE OF m
+                """).param(engagementId).query(Long.class).list();
+        if (ids.isEmpty()) {
+            return null;
+        }
+        int minutes = jdbc.sql("SELECT sum(minutes) FROM topic_message WHERE id IN (:ids)")
+                .param("ids", ids).query(Integer.class).single();
+
+        long rate = options.hourlyRateCents();
+        int blocks = blocksFor(minutes);
+        long amount = amountFor(rate, blocks);
+        String description = "Written responses: " + e.get("title") + " (" + ids.size()
+                + (ids.size() == 1 ? " reply, " : " replies, ") + blocks + " × 30 min)";
+
+        Long chargeId = jdbc.sql("""
+                INSERT INTO charge (client_id, engagement_id, kind, description, service_date,
+                    minutes, blocks, rate_cents, amount_cents, created_by)
+                VALUES (?, ?, 'message', ?, ?, ?, ?, ?, ?, ?) RETURNING id
+                """)
+                .params(e.get("client_id"), engagementId, description, today(), minutes, blocks,
+                        rate, amount, userId)
+                .query(Long.class).single();
+        jdbc.sql("UPDATE topic_message SET charge_id = :charge WHERE id IN (:ids)")
+                .param("charge", chargeId).param("ids", ids).update();
+
+        log.info("Compiled {} min of message time on engagement {} into charge {}",
+                minutes, engagementId, chargeId);
+        return jdbc.sql(CHARGE_SELECT + " WHERE c.id = ?").param(chargeId)
+                .query(BillingService::charge).single();
+    }
+
     public ChargeView liveChargeFor(Long appointmentId) {
         return jdbc.sql(CHARGE_SELECT
                         + " WHERE c.appointment_id = ? AND c.voided_at IS NULL")
@@ -381,6 +446,10 @@ public class BillingService {
         }
         jdbc.sql("UPDATE charge SET voided_at = now(), void_reason = ? WHERE id = ?")
                 .params(blank(reason), chargeId).update();
+        // Voiding a charge for written replies puts their time back in the
+        // pool, so it can be charged again correctly rather than lost.
+        jdbc.sql("UPDATE topic_message SET charge_id = NULL WHERE charge_id = ?")
+                .param(chargeId).update();
     }
 
     /* ============================================================ invoices */

@@ -55,10 +55,33 @@ public class TopicController {
 
     private final TopicRepository topics;
     private final EngagementRepository engagements;
+    private final com.advisory.api.messaging.ThreadService threads;
+    private final org.springframework.jdbc.core.simple.JdbcClient jdbc;
 
-    public TopicController(TopicRepository topics, EngagementRepository engagements) {
+    public TopicController(TopicRepository topics, EngagementRepository engagements,
+            com.advisory.api.messaging.ThreadService threads,
+            org.springframework.jdbc.core.simple.JdbcClient jdbc) {
         this.topics = topics;
         this.engagements = engagements;
+        this.threads = threads;
+        this.jdbc = jdbc;
+    }
+
+    /**
+     * Whether a client user sees every topic on an engagement rather than
+     * only their own: true for the account's owner and managers, and for
+     * anyone on the engagement's team. See ThreadService for why V8's
+     * creator-only rule is widened for exactly these people.
+     */
+    private boolean seesAll(CurrentUser user, Long engagementId) {
+        com.advisory.api.auth.AppUser reader = threads.reader(user.id());
+        if (reader.managesClient()) {
+            return true;
+        }
+        return jdbc.sql("""
+                SELECT count(*) FROM engagement_member
+                WHERE engagement_id = ? AND user_id = ?
+                """).params(engagementId, user.id()).query(Long.class).single() > 0;
     }
 
     public record TopicView(
@@ -143,7 +166,7 @@ public class TopicController {
         requireAccess(user, engagementId);
 
         List<Topic> found;
-        if (user.isAdmin()) {
+        if (user.isAdmin() || seesAll(user, engagementId)) {
             found = (status == null)
                     ? topics.findByEngagementIdOrderByPriorityAscCreatedAtAsc(engagementId)
                     : topics.findByEngagementIdAndStatusOrderByPriorityAsc(engagementId, status);
@@ -182,6 +205,15 @@ public class TopicController {
         }
 
         Topic saved = topics.save(topic);
+        // On an engagement run by message, a new topic opens a thread; tell
+        // the people who will answer it.
+        if (!user.isAdmin()) {
+            try {
+                threads.topicRaised(threads.reader(user.id()), saved.getId());
+            } catch (RuntimeException e) {
+                // The topic is saved; a notification problem must not lose it.
+            }
+        }
         return ResponseEntity.created(URI.create("/api/topics/" + saved.getId()))
                 .body(TopicView.of(saved));
     }

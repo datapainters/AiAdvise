@@ -168,6 +168,9 @@ public class InquiryService {
         engagement.setClientId(client.getId());
         engagement.setTitle("Free consultation: " + segment);
         engagement.setStatus("inquiry");
+        // A free consultation is a call. Whatever the client chooses for
+        // later engagements, this one is always run by video.
+        engagement.setCommunication("video");
         engagement = engagements.save(engagement);
 
         Appointment appointment = new Appointment();

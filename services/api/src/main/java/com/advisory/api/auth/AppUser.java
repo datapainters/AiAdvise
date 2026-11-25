@@ -76,6 +76,10 @@ public class AppUser {
     @Column(name = "team_role")
     private String teamRole;
 
+    /** owner, manager or member of the client account; null for staff. */
+    @Column(name = "client_role")
+    private String clientRole;
+
     @Column(nullable = false)
     private boolean enabled = true;
 
@@ -93,6 +97,23 @@ public class AppUser {
 
     public boolean isAdmin() {
         return ROLE_ADMIN.equals(role);
+    }
+
+    public static final String CLIENT_OWNER = "owner";
+    public static final String CLIENT_MANAGER = "manager";
+    public static final String CLIENT_MEMBER = "member";
+
+    public String getClientRole() {
+        return clientRole;
+    }
+
+    public void setClientRole(String clientRole) {
+        this.clientRole = clientRole;
+    }
+
+    /** May open engagements and choose who is on them. */
+    public boolean managesClient() {
+        return CLIENT_OWNER.equals(clientRole) || CLIENT_MANAGER.equals(clientRole);
     }
 
     public String getTeamRole() {

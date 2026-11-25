@@ -102,13 +102,16 @@ public class EngagementManagerController {
      * from meetings, so this only moves when a meeting is completed.
      */
     public record Billing(long chargedCents, long invoicedCents, long unbilledCents,
-            int billedMinutes, List<ChargeView> charges) {}
+            int billedMinutes, int unchargedMessageMinutes, List<ChargeView> charges) {}
+
+    /** When and why an engagement was closed. Never sent to the client. */
+    public record Closure(LocalDate closedOn, String notes, String closedBy) {}
 
     public record Detail(Long id, Long clientId, String clientName, String title, String goal,
             String status, LocalDate startedOn, LocalDate dueOn, int recordedMinutes,
             List<Meeting> meetings, List<Note> notes, List<AgendaLine> agenda,
             List<EngagementFile> files, List<SharedItem> media, List<Person> team,
-            Billing billing) {}
+            Billing billing, String communication, Closure closure) {}
 
     @GetMapping("/engagements/{id}")
     public Detail detail(@PathVariable Long id, Authentication auth) {
@@ -168,12 +171,58 @@ public class EngagementManagerController {
                     .mapToLong(ChargeView::amountCents).sum();
             int billedMinutes = charges.stream()
                     .mapToInt(c -> c.minutes() == null ? 0 : c.minutes()).sum();
-            money = new Billing(charged, invoiced, charged - invoiced, billedMinutes, charges);
+            money = new Billing(charged, invoiced, charged - invoiced, billedMinutes,
+                    billing.unchargedMessageMinutes(id), charges);
         }
 
         return new Detail(e.getId(), e.getClientId(), clientName, e.getTitle(), e.getGoal(),
                 e.getStatus(), e.getStartedOn(), e.getDueOn(), recorded, meetings, notes(id),
-                agenda, files(id), media, people.team(id), money);
+                agenda, files(id), media, people.team(id), money, e.getCommunication(),
+                closure(e));
+    }
+
+    private Closure closure(Engagement e) {
+        if (e.getClosedOn() == null && e.getClosureNotes() == null) {
+            return null;
+        }
+        String by = e.getClosedBy() == null ? null
+                : jdbc.sql("SELECT display_name FROM app_user WHERE id = ?")
+                        .param(e.getClosedBy()).query(String.class).optional().orElse(null);
+        return new Closure(e.getClosedOn(), e.getClosureNotes(), by);
+    }
+
+    public record CloseRequest(@NotBlank String notes) {}
+
+    /**
+     * Closes an engagement with a note saying how it ended. Any reply time
+     * not yet charged is compiled first, so closing never strands billable
+     * work; what was charged is left for whoever raises the final invoice.
+     */
+    @PostMapping("/engagements/{id}/close")
+    @org.springframework.transaction.annotation.Transactional
+    public Detail close(@AuthenticationPrincipal Jwt jwt, Authentication auth,
+            @PathVariable Long id, @Valid @RequestBody CloseRequest r) {
+        Engagement e = engagement(id);
+        Long userId = CurrentUser.from(jwt).id();
+        billing.compileMessageTime(id, userId);
+        e.setStatus("closed");
+        e.setClosedOn(LocalDate.now(java.time.ZoneOffset.UTC));
+        e.setClosureNotes(r.notes().trim());
+        e.setClosedBy(userId);
+        engagements.saveAndFlush(e);
+        return detail(id, auth);
+    }
+
+    /** Compiles this engagement's uncharged reply time into a charge. */
+    @PostMapping("/engagements/{id}/message-time/charge")
+    public Detail chargeMessageTime(@AuthenticationPrincipal Jwt jwt, Authentication auth,
+            @PathVariable Long id) {
+        engagement(id);
+        if (billing.compileMessageTime(id, CurrentUser.from(jwt).id()) == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "There is no uncharged reply time on this engagement");
+        }
+        return detail(id, auth);
     }
 
     /** Invoices everything this engagement has that is not yet on an invoice. */
@@ -181,6 +230,8 @@ public class EngagementManagerController {
     @ResponseStatus(HttpStatus.CREATED)
     public InvoiceView invoice(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
         Engagement e = engagement(id);
+        // Bring reply time into the charges first, so one invoice covers it.
+        billing.compileMessageTime(id, CurrentUser.from(jwt).id());
         List<Long> unbilled = billing.engagementCharges(id).stream()
                 .filter(c -> c.invoiceId() == null).map(ChargeView::id).toList();
         if (unbilled.isEmpty()) {

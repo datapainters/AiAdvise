@@ -1,10 +1,18 @@
 ###############################################################################
 # Network — VPC with public and private subnets across two AZs.
 #
-# Cost note: a NAT gateway is roughly $33/month per AZ plus data processing,
-# which is the single largest fixed line item in this stack. `single_nat`
-# keeps one NAT in one AZ (fine for a site this size); flip it off only when
-# you genuinely need AZ-independent egress.
+# NAT is OFF by default (2026-11-19). It existed so Fargate tasks in private
+# subnets could reach ECR, Secrets Manager and CloudWatch. Those tasks now run
+# in public subnets -- ECS Express Mode derives its load balancer scheme from
+# the subnet type, and the API has to be internet-facing -- so they egress
+# through the internet gateway directly. The only thing left in the private
+# subnets is RDS, which makes no outbound calls, so the NAT was billing
+# roughly $33/month plus data processing to route nothing.
+#
+# It is kept as a flag rather than deleted because anything placed back in the
+# private subnets needs it again: EKS nodes, a worker, a batch task. Set
+# enable_nat = true and the default route returns. Nothing else in this module
+# has to change.
 ###############################################################################
 
 terraform {
@@ -27,9 +35,19 @@ variable "cidr_block" {
   default     = "10.40.0.0/16"
 }
 
+variable "enable_nat" {
+  type        = bool
+  description = <<-EOT
+    Give the private subnets a route to the internet via a NAT gateway.
+    Only needed when something that makes outbound calls runs in a private
+    subnet. RDS does not. Costs ~$33/month per gateway plus data processing.
+  EOT
+  default     = false
+}
+
 variable "single_nat" {
   type        = bool
-  description = "Run one NAT gateway instead of one per AZ."
+  description = "With enable_nat, run one NAT gateway instead of one per AZ."
   default     = true
 }
 
@@ -43,7 +61,7 @@ locals {
   public_subnets  = [for i in range(2) : cidrsubnet(var.cidr_block, 8, i)]
   private_subnets = [for i in range(2) : cidrsubnet(var.cidr_block, 8, i + 10)]
 
-  nat_count = var.single_nat ? 1 : 2
+  nat_count = var.enable_nat ? (var.single_nat ? 1 : 2) : 0
 }
 
 resource "aws_vpc" "this" {
@@ -68,6 +86,10 @@ resource "aws_subnet" "public" {
   availability_zone       = local.azs[count.index]
   map_public_ip_on_launch = true
 
+  # The kubernetes.io tags are what a Kubernetes load-balancer controller
+  # looks for when choosing subnets. Nothing uses them today, but they are
+  # free and they are exactly what a throwaway demo cluster in this VPC would
+  # need, so they stay.
   tags = {
     Name                     = "${var.project}-public-${local.azs[count.index]}"
     "kubernetes.io/role/elb" = "1"
@@ -128,12 +150,30 @@ resource "aws_route_table" "private" {
 
   vpc_id = aws_vpc.this.id
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.this[var.single_nat ? 0 : count.index].id
-  }
-
+  # No inline route. The default route lives in aws_route.private_nat below so
+  # it can disappear with the NAT instead of being an unavoidable part of the
+  # table. With NAT off these tables carry only the VPC-local route, which is
+  # all RDS needs.
   tags = { Name = "${var.project}-private-${local.azs[count.index]}" }
+}
+
+# A separate resource rather than an inline route block, for two reasons.
+#
+# The S3 gateway endpoint below writes its own prefix-list route into these
+# same tables via route_table_ids, so a table that manages its routes inline
+# would fight the endpoint on every apply.
+#
+# And inline routes are not removed by deleting the block: with no `route`
+# argument present the provider stops managing inline routes rather than
+# emptying them. When the NAT was turned off on 2026-11-19 the old inline
+# route survived as a blackhole to the deleted gateway and had to be removed
+# by hand. As its own resource it disappears with the NAT instead.
+resource "aws_route" "private_nat" {
+  count = var.enable_nat ? 2 : 0
+
+  route_table_id         = aws_route_table.private[count.index].id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.this[var.single_nat ? 0 : count.index].id
 }
 
 resource "aws_route_table_association" "private" {
@@ -143,8 +183,10 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private[count.index].id
 }
 
-# Gateway endpoint for S3 is free and keeps ECR layer pulls off the NAT,
-# which is a real saving on every deploy.
+# Gateway endpoint for S3. This used to matter because it kept ECR layer pulls
+# off the NAT on every deploy; with the tasks in public subnets it no longer
+# carries that traffic. Kept because it costs nothing and is needed again the
+# moment anything is placed back in a private subnet.
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.this.id
   service_name      = "com.amazonaws.${data.aws_region.current.region}.s3"

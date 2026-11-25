@@ -33,6 +33,27 @@ api_memory = 1024
 
 db_instance_class = "db.t4g.small"
 
+# The first admin. Created on startup only while the user table is empty, so
+# changing this later has no effect -- the account would have to be added
+# through an admin flow, or by hand in the database.
+#
+# Read the generated password once, then change it:
+#   aws secretsmanager get-secret-value --secret-id advisory/bootstrap-admin \
+#     --query SecretString --output text
+bootstrap_admin_email = "wes@schiesz.com"
+
 # Flip to true only while you are actually demoing. ~$73/month idle.
-enable_eks_lab           = false
-lab_admin_principal_arns = []
+
+# Mail. On as of 2026-11-19, while SES is still in the sandbox.
+#
+# In the sandbox only verified recipients receive anything, so right now
+# this means the firm-side notifications reach wes@schiesz.com and any
+# client-facing message is rejected and logged. That is a strictly better
+# state than disabled: the half that can work, works, and MailSender
+# swallows the rejections rather than failing the action that triggered
+# them. Nothing changes here when production access is granted -- the
+# client-facing half simply starts arriving.
+mail_enabled         = true
+mail_from            = "notifications@datapainters.com"
+mail_from_name       = "Data Painters"
+mail_admin_recipient = "wes@schiesz.com"

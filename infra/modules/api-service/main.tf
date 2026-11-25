@@ -7,11 +7,10 @@
 # the ALB, logs and data transfer. Up to 25 Express services in compatible
 # subnets share one ALB, so adding a second service later costs no new ALB.
 #
-# >>> VERIFY ON FIRST PLAN <<<
-# aws_ecs_express_gateway_service shipped in AWS provider 6.23.0 and is newer
-# than most of this stack. If `terraform plan` disputes an argument name here,
-# check the resource docs and adjust -- the surrounding IAM and logging is
-# conventional and will not be the problem.
+# Schema verified against AWS provider 6.73.0. Two things to know if you edit
+# this resource:
+#   * the service name argument is `service_name`, not `name`
+#   * there is no url attribute; the public endpoint arrives via ingress_paths
 ###############################################################################
 
 terraform {
@@ -19,6 +18,10 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = ">= 6.23"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.6"
     }
   }
 }
@@ -31,8 +34,24 @@ variable "vpc_id" {
   type = string
 }
 
-variable "private_subnet_ids" {
+variable "subnet_ids" {
   type = list(string)
+
+  description = <<-EOT
+    Subnets for the service. At least two are required.
+
+    IMPORTANT: Express Mode derives whether the load balancer is
+    internet-facing or internal from these subnets -- there is no argument
+    for it. Public subnets yield an ingress path with accessType PUBLIC;
+    private subnets yield PRIVATE, and nothing outside the VPC can reach the
+    API. This is only discoverable after apply, via the ingress_paths
+    attribute or `aws ecs describe-express-gateway-service`.
+  EOT
+
+  validation {
+    condition     = length(var.subnet_ids) >= 2
+    error_message = "Express Mode requires at least 2 subnets."
+  }
 }
 
 variable "image" {
@@ -79,6 +98,42 @@ variable "log_retention_days" {
   default = 30
 }
 
+variable "ses_send_resource_arns" {
+  type        = list(string)
+  description = <<-EOT
+    Every SES resource the sender must be authorised against.
+
+    This is a list, not a single identity ARN, because SendEmail authorises
+    against each resource the request touches. A request that names a
+    configuration set is checked against the identity AND the configuration
+    set; a policy granting only the identity denies it with a message that
+    reads like the identity is wrong. Pass both.
+
+    Empty disables the grant entirely, which is right for an environment
+    with no verified domain.
+  EOT
+  default     = []
+}
+
+variable "bootstrap_admin_email" {
+  type        = string
+  description = <<-EOT
+    Email for the initial admin account, created on startup only while the
+    user table is empty. Leave null once a real admin exists; the account is
+    not removed if you do, because the service never deletes users.
+  EOT
+  default     = null
+}
+
+variable "media_allowed_origins" {
+  type        = list(string)
+  description = <<-EOT
+    Origins (https://host) whose pages upload to and read from the media
+    bucket directly, through presigned URLs. The site's own hostnames.
+  EOT
+  default     = []
+}
+
 variable "environment" {
   type        = map(string)
   description = "Plain environment variables for the container."
@@ -90,6 +145,187 @@ data "aws_caller_identity" "current" {}
 
 locals {
   name = "${var.project}-api"
+
+  # The JWT secret ARN is the module's own concern rather than the caller's,
+  # so it is merged in here instead of being threaded through var.environment.
+  container_environment = merge(
+    var.environment,
+    {
+      JWT_SECRET_ARN           = aws_secretsmanager_secret.jwt.arn
+      DAILY_API_KEY_SECRET_ARN = aws_secretsmanager_secret.daily.arn
+      MEDIA_BUCKET             = aws_s3_bucket.media.id
+    },
+    var.bootstrap_admin_email == null ? {} : {
+      BOOTSTRAP_ADMIN_SECRET_ARN = aws_secretsmanager_secret.bootstrap_admin[0].arn
+    },
+  )
+
+  # Secrets the task role may read. The bootstrap entry disappears from the
+  # policy once bootstrap_admin_email is cleared.
+  readable_secret_arns = concat(
+    [var.db_secret_arn, aws_secretsmanager_secret.jwt.arn, aws_secretsmanager_secret.daily.arn],
+    var.bootstrap_admin_email == null ? [] : [aws_secretsmanager_secret.bootstrap_admin[0].arn],
+  )
+}
+
+###############################################################################
+# JWT signing key
+#
+# Generated here and stored in Secrets Manager so it never appears in the
+# image, the task definition or `docker inspect`. HS256, so this single value
+# both signs and verifies.
+#
+# Rotating it is a deliberate act with a visible consequence: every issued
+# token stops verifying and users have to sign in again. There is no
+# automatic rotation for that reason -- taint this resource when you want it.
+###############################################################################
+
+resource "random_password" "jwt" {
+  length = 64
+  # Alphanumeric only. The value is used as raw HMAC key material, and
+  # punctuation buys no entropy worth the encoding risk at this length.
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "jwt" {
+  name        = "${var.project}/jwt-signing-key"
+  description = "HS256 signing key for ${local.name} access tokens"
+}
+
+resource "aws_secretsmanager_secret_version" "jwt" {
+  secret_id     = aws_secretsmanager_secret.jwt.id
+  secret_string = jsonencode({ key = random_password.jwt.result })
+}
+
+###############################################################################
+# Daily (video meetings) API key
+#
+# Terraform creates the secret but never its value: the key is issued by
+# Daily and set by hand, so it does not end up in Terraform state. Until a
+# value exists the API runs with video switched off, and it re-reads the
+# secret every few minutes, so setting it needs no redeploy:
+#
+#   aws secretsmanager put-secret-value --secret-id <project>/daily-api-key \
+#     --secret-string '{"key":"<your Daily API key>"}'
+###############################################################################
+
+resource "aws_secretsmanager_secret" "daily" {
+  name        = "${var.project}/daily-api-key"
+  description = "Daily.co REST API key for ${local.name} video meetings"
+}
+
+###############################################################################
+# Media bucket
+#
+# Templates, pre-recorded videos and images for the media library, and the
+# screenshots people share in meetings. Private: nothing is public, every
+# read and write is a short-lived presigned URL issued by the API after it
+# has checked who is asking. CORS lets the site's own pages PUT uploads and
+# GET files directly.
+###############################################################################
+
+resource "aws_s3_bucket" "media" {
+  bucket = "${var.project}-media-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_s3_bucket_public_access_block" "media" {
+  bucket                  = aws_s3_bucket.media.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "media" {
+  bucket = aws_s3_bucket.media.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_cors_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+  cors_rule {
+    allowed_methods = ["GET", "PUT", "HEAD"]
+    allowed_origins = var.media_allowed_origins
+    allowed_headers = ["Content-Type"]
+    max_age_seconds = 3600
+  }
+}
+
+# Screenshots from meetings are working material, not records: they go
+# after a year. Library items are kept until removed by hand.
+resource "aws_s3_bucket_lifecycle_configuration" "media" {
+  bucket = aws_s3_bucket.media.id
+  rule {
+    id     = "expire-meeting-shares"
+    status = "Enabled"
+    filter {
+      prefix = "meetings/"
+    }
+    expiration {
+      days = 365
+    }
+  }
+  rule {
+    id     = "abort-incomplete-uploads"
+    status = "Enabled"
+    filter {}
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 2
+    }
+  }
+}
+
+###############################################################################
+# Bootstrap admin
+#
+# A fresh database has no users, so there is no way in. When
+# bootstrap_admin_email is set, the service creates that one admin on startup
+# -- and only while the user table is completely empty, so it can never
+# resurrect or overwrite an account later.
+#
+# The password is generated here and kept in Secrets Manager rather than
+# passed as a plain environment variable, because task definitions are
+# readable by anyone with ecs:DescribeTaskDefinition. Read it once with:
+#
+#   aws secretsmanager get-secret-value \
+#     --secret-id <project>/bootstrap-admin --query SecretString --output text
+#
+# then sign in and change it.
+###############################################################################
+
+resource "random_password" "bootstrap_admin" {
+  count = var.bootstrap_admin_email == null ? 0 : 1
+
+  length  = 24
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "bootstrap_admin" {
+  count = var.bootstrap_admin_email == null ? 0 : 1
+
+  name        = "${var.project}/bootstrap-admin"
+  description = "Initial admin password for ${local.name}"
+}
+
+resource "aws_secretsmanager_secret_version" "bootstrap_admin" {
+  count = var.bootstrap_admin_email == null ? 0 : 1
+
+  secret_id = aws_secretsmanager_secret.bootstrap_admin[0].id
+  secret_string = jsonencode({
+    email    = var.bootstrap_admin_email
+    password = random_password.bootstrap_admin[0].result
+  })
 }
 
 ###############################################################################
@@ -149,10 +385,41 @@ resource "aws_iam_role" "task" {
 
 data "aws_iam_policy_document" "task" {
   statement {
-    sid       = "ReadDatabaseSecret"
+    sid       = "ReadSecrets"
     effect    = "Allow"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.db_secret_arn]
+    resources = local.readable_secret_arns
+  }
+
+  # Outbound mail. Scoped to named resources rather than "*", so a bug
+  # cannot send as some other domain this account verifies later.
+  dynamic "statement" {
+    for_each = length(var.ses_send_resource_arns) == 0 ? [] : [1]
+    content {
+      sid    = "SendMail"
+      effect = "Allow"
+      actions = [
+        "ses:SendEmail",
+        "ses:SendRawEmail",
+      ]
+      resources = var.ses_send_resource_arns
+    }
+  }
+
+  # The media library and in-meeting shares. The API only presigns URLs and
+  # checks that uploads landed; browsers move the bytes.
+  statement {
+    sid       = "MediaObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.media.arn}/*"]
+  }
+
+  statement {
+    sid       = "MediaList"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.media.arn]
   }
 
   # ECS Exec, so you can get a shell in a running task without a bastion.
@@ -230,9 +497,41 @@ resource "aws_ecs_cluster" "this" {
   }
 }
 
+# AWS refuses to move an existing Express service between subnet types:
+#
+#   InvalidParameterException: Changing subnet types is not supported for
+#   ECS express gateway services.
+#
+# The provider does not mark subnets as force-new, so it plans a harmless
+# looking in-place update that then fails at apply. Binding the service to
+# this value turns a LATER subnet change into a replacement, which AWS does
+# allow.
+#
+# Note the limitation, learned the hard way: replace_triggered_by fires when
+# the referenced value CHANGES, not when it is first created. Adding this
+# block does not retroactively force the replacement you are currently stuck
+# on -- the first apply just creates the terraform_data and then fails the
+# same way. To get out of that state, either run
+#   terraform apply -replace=module.api.aws_ecs_express_gateway_service.api
+# (the deploy workflow exposes this as a manual input), or delete the
+# service out of band and let the next apply recreate it.
+#
+# Replacement means a new endpoint hostname, and the API is briefly down
+# while the old service drains. The deploy workflow re-reads api_url after
+# every apply and rebuilds the front end against it, so nothing is left
+# pointing at the old address.
+resource "terraform_data" "subnet_binding" {
+  input = var.subnet_ids
+}
+
 resource "aws_ecs_express_gateway_service" "api" {
-  name    = local.name
-  cluster = aws_ecs_cluster.this.name
+  lifecycle {
+    replace_triggered_by = [terraform_data.subnet_binding]
+  }
+
+  # NOT `name` -- this resource calls it service_name, unlike aws_ecs_service.
+  service_name = local.name
+  cluster      = aws_ecs_cluster.this.name
 
   execution_role_arn      = aws_iam_role.execution.arn
   task_role_arn           = aws_iam_role.task.arn
@@ -243,15 +542,35 @@ resource "aws_ecs_express_gateway_service" "api" {
 
   health_check_path = var.health_check_path
 
+  # Without this, apply returns as soon as the service is accepted, and the
+  # deploy's smoke test then polls a load balancer whose DNS has not
+  # propagated -- every attempt returns 000 and the deploy fails even though
+  # the service comes up healthy a minute later. Waiting costs a few minutes
+  # of apply time and removes a whole class of false failure.
+  wait_for_steady_state = true
+
   primary_container {
     image          = var.image
     container_port = var.container_port
 
-    # >>> VERIFY: if plan rejects this block, the container reads the same
-    # values from ENV defaults baked into the Dockerfile, except
-    # CORS_ALLOWED_ORIGINS -- which would then need passing another way.
+    # Without this, Express Mode creates its own log group
+    # (/aws/ecs/<cluster>/<service>-<suffix>) which never expires, and the
+    # group defined above sits empty while CloudWatch charges accrue
+    # indefinitely. Pointing it here puts logs under the retention policy.
+    aws_logs_configuration {
+      log_group = aws_cloudwatch_log_group.api.name
+
+      # The provider documents log_stream_prefix as optional, but
+      # UpdateExpressGatewayService rejects the call without it:
+      #   missing required field,
+      #   UpdateExpressGatewayServiceInput.PrimaryContainer
+      #     .AwsLogsConfiguration.LogStreamPrefix
+      # Omitting it plans as a removal, which fails every apply. Keep it.
+      log_stream_prefix = "ecs"
+    }
+
     dynamic "environment" {
-      for_each = var.environment
+      for_each = local.container_environment
 
       content {
         name  = environment.key
@@ -261,7 +580,7 @@ resource "aws_ecs_express_gateway_service" "api" {
   }
 
   network_configuration {
-    subnets         = var.private_subnet_ids
+    subnets         = var.subnet_ids
     security_groups = [aws_security_group.api.id]
   }
 
@@ -274,13 +593,25 @@ resource "aws_ecs_express_gateway_service" "api" {
   tags = { Name = local.name }
 }
 
+locals {
+  # Express Mode has no single "url" attribute. The public endpoint comes back
+  # through the ingress_paths list, so normalise it into a usable URL. The
+  # scheme check is defensive: the endpoint is a bare hostname today, and this
+  # keeps working if the provider starts including one.
+  raw_endpoint = try(aws_ecs_express_gateway_service.api.ingress_paths[0].endpoint, null)
+
+  service_url = local.raw_endpoint == null ? null : (
+    startswith(local.raw_endpoint, "http") ? local.raw_endpoint : "https://${local.raw_endpoint}"
+  )
+}
+
 output "service_url" {
   description = "Public HTTPS URL Express Mode assigned to the service."
-  value       = try(aws_ecs_express_gateway_service.api.service_url, null)
+  value       = local.service_url
 }
 
 output "service_arn" {
-  value = aws_ecs_express_gateway_service.api.arn
+  value = aws_ecs_express_gateway_service.api.service_arn
 }
 
 output "cluster_name" {
@@ -288,11 +619,15 @@ output "cluster_name" {
 }
 
 output "service_name" {
-  value = aws_ecs_express_gateway_service.api.name
+  value = aws_ecs_express_gateway_service.api.service_name
 }
 
 output "security_group_id" {
   value = aws_security_group.api.id
+}
+
+output "media_bucket" {
+  value = aws_s3_bucket.media.id
 }
 
 output "log_group_name" {

@@ -79,13 +79,25 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Format check
-        run: terraform fmt -check -recursive infra/
+        # -diff so a failure shows exactly what to change, rather than just
+        # naming the offending files and leaving you to guess.
+        run: terraform fmt -check -diff -recursive infra/
 
       - name: Validate modules
         # Each module gets its own init so a syntax error is attributed to the
         # module that contains it rather than surfacing as a mystery in prod.
+        #
+        # Modules declaring configuration_aliases are skipped: an aliased
+        # provider is supplied by the caller, so validating such a module
+        # standalone fails with "Provider configuration not present" no matter
+        # how correct it is. The plan against infra/envs/prod below covers
+        # them properly, with the providers actually wired in.
         run: |
           for dir in infra/modules/*/; do
+            if grep -rq 'configuration_aliases' "$dir"; then
+              echo "skipping $dir (needs a caller to supply its aliased provider)"
+              continue
+            fi
             echo "::group::validate $dir"
             terraform -chdir="$dir" init -backend=false -input=false
             terraform -chdir="$dir" validate
@@ -112,6 +124,21 @@ jobs:
           terraform plan -input=false -no-color -lock=false \
             -out=tfplan 2>&1 | tee plan.txt
           echo "exitcode=$?" >> "$GITHUB_OUTPUT"
+
+      # The development stack, planned the same way. pipefail so a failed
+      # plan fails the job instead of being hidden by tee.
+      - name: Init (dev)
+        working-directory: infra/envs/dev
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
+
+      - name: Plan (dev)
+        working-directory: infra/envs/dev
+        run: |
+          set -o pipefail
+          terraform plan -input=false -no-color -lock=false 2>&1 | tail -n 40
 
       - name: Comment plan on PR
         if: github.event_name == 'pull_request'

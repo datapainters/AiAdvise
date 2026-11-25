@@ -81,6 +81,31 @@ variable "domain_name" {
   description = "Hostname the site is served at. May be a subdomain."
 }
 
+variable "mail_enabled" {
+  type        = bool
+  description = <<-EOT
+    Whether the service actually sends. Off while SES is in the sandbox,
+    where anything to an unverified recipient is rejected anyway; the code
+    logs what it would have sent instead.
+  EOT
+  default     = false
+}
+
+variable "mail_from" {
+  type        = string
+  description = "Envelope and header From address. Must be on the verified domain."
+}
+
+variable "mail_from_name" {
+  type    = string
+  default = "Data Painters"
+}
+
+variable "mail_admin_recipient" {
+  type        = string
+  description = "Where firm-side notifications go, such as a new meeting request."
+}
+
 variable "hosted_zone_name" {
   type        = string
   description = <<-EOT
@@ -117,15 +142,14 @@ variable "db_instance_class" {
   default = "db.t4g.small"
 }
 
-variable "enable_eks_lab" {
-  type        = bool
-  description = "Stand up the demo Kubernetes cluster. Costs ~$73/month idle."
-  default     = false
-}
-
-variable "lab_admin_principal_arns" {
-  type    = list(string)
-  default = []
+variable "bootstrap_admin_email" {
+  type        = string
+  description = <<-EOT
+    Email for the first admin account. Only has any effect while the user
+    table is empty. The password is generated into Secrets Manager at
+    <project>/bootstrap-admin -- read it from there, then change it.
+  EOT
+  default     = null
 }
 
 ###############################################################################
@@ -142,7 +166,11 @@ module "network" {
 
   project    = var.project
   cidr_block = "10.40.0.0/16"
-  single_nat = true
+
+  # Off since 2026-11-19: the API runs in the public subnets and RDS makes no
+  # outbound calls, so nothing in a private subnet needs egress. Set this true
+  # again before putting a worker, batch task or Kubernetes node back there.
+  enable_nat = false
 }
 
 module "database" {
@@ -154,12 +182,42 @@ module "database" {
   instance_class     = var.db_instance_class
 }
 
+###############################################################################
+# Email
+#
+# Verified on the apex so mail comes from a human-looking address. The
+# domain already runs Zoho Mail; see the module header for exactly what is
+# and is not touched.
+###############################################################################
+
+module "email" {
+  source = "../../modules/email"
+
+  domain         = var.hosted_zone_name
+  hosted_zone_id = data.aws_route53_zone.primary.zone_id
+
+  # Zoho sends this domain's human mail. Dropping this include would start
+  # failing SPF on every message Wes sends from his own mailbox.
+  extra_spf_includes = ["zoho.com"]
+
+  dmarc_report_to = "dmarc@${var.hosted_zone_name}"
+}
+
 module "api" {
   source = "../../modules/api-service"
 
-  project            = var.project
-  vpc_id             = module.network.vpc_id
-  private_subnet_ids = module.network.private_subnet_ids
+  project = var.project
+  vpc_id  = module.network.vpc_id
+
+  # PUBLIC subnets, deliberately. Express Mode decides the load balancer
+  # scheme from the subnets it is given, and private subnets produce an
+  # internal ALB that the browser cannot reach -- which is exactly what the
+  # first deploy produced. The tasks themselves are still only reachable
+  # through the Express-managed load balancer and security group.
+  #
+  # Postgres stays in the private subnets and is reachable only from this
+  # service's security group.
+  subnet_ids = module.network.public_subnet_ids
 
   image          = var.api_image
   cpu            = var.api_cpu
@@ -170,12 +228,46 @@ module "api" {
   db_secret_arn        = module.database.secret_arn
   db_security_group_id = module.database.security_group_id
 
+  bootstrap_admin_email = var.bootstrap_admin_email
+
+  media_allowed_origins = [for n in concat([var.domain_name], var.subject_alternative_names) : "https://${n}"]
+
   environment = {
     SPRING_PROFILES_ACTIVE = "prod"
-    DB_SECRET_ARN          = module.database.secret_arn
-    AWS_REGION             = var.region
-    CORS_ALLOWED_ORIGINS   = join(",", [for n in concat([var.domain_name], var.subject_alternative_names) : "https://${n}"])
+
+    # The managed secret holds username and password only, so the rest of the
+    # connection details come through here. They are not secret, and keeping
+    # them out of the secret means a rotation changes only the credential.
+    DB_SECRET_ARN = module.database.secret_arn
+    DB_HOST       = module.database.host
+    DB_PORT       = tostring(module.database.port)
+    DB_NAME       = module.database.dbname
+
+    AWS_REGION           = var.region
+    CORS_ALLOWED_ORIGINS = join(",", [for n in concat([var.domain_name], var.subject_alternative_names) : "https://${n}"])
+
+    # Mail. MAIL_ENABLED exists so the service can be deployed with sending
+    # off -- useful while SES is still in the sandbox and most recipients
+    # would be rejected anyway.
+    MAIL_ENABLED           = tostring(var.mail_enabled)
+    MAIL_FROM              = var.mail_from
+    MAIL_FROM_NAME         = var.mail_from_name
+    MAIL_CONFIGURATION_SET = module.email.configuration_set_name
+    MAIL_ADMIN_RECIPIENT   = var.mail_admin_recipient
+    APP_BASE_URL           = "https://${var.domain_name}"
+
+    # Daily rooms from every environment share one Daily account; the prefix
+    # keeps them apart.
+    VIDEO_ROOM_PREFIX = "dp"
   }
+
+  # Both: SendEmail with a configuration set is authorised against the
+  # identity and the configuration set, and a policy with only the first
+  # fails in a way that reads like the identity is at fault.
+  ses_send_resource_arns = [
+    module.email.identity_arn,
+    module.email.configuration_set_arn,
+  ]
 }
 
 module "web" {
@@ -190,16 +282,6 @@ module "web" {
   domain_name               = var.domain_name
   subject_alternative_names = var.subject_alternative_names
   hosted_zone_id            = data.aws_route53_zone.primary.zone_id
-}
-
-module "eks_lab" {
-  source = "../../modules/eks-lab"
-  count  = var.enable_eks_lab ? 1 : 0
-
-  project              = var.project
-  vpc_id               = module.network.vpc_id
-  subnet_ids           = module.network.private_subnet_ids
-  admin_principal_arns = var.lab_admin_principal_arns
 }
 
 ###############################################################################
@@ -235,10 +317,10 @@ output "ecs_service_name" {
   value = module.api.service_name
 }
 
-output "database_endpoint" {
-  value = module.database.endpoint
+output "media_bucket" {
+  value = module.api.media_bucket
 }
 
-output "eks_lab_kubeconfig_command" {
-  value = var.enable_eks_lab ? module.eks_lab[0].kubeconfig_command : "EKS lab not enabled"
+output "database_endpoint" {
+  value = module.database.endpoint
 }

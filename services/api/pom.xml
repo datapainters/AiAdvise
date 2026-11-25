@@ -59,6 +59,17 @@
     </dependency>
 
     <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    <!-- Brings spring-security-oauth2-jose, which supplies both the JWT
+         encoder used to issue tokens and the decoder used to verify them. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+    </dependency>
+
+    <dependency>
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-core</artifactId>
     </dependency>
@@ -68,17 +79,36 @@
       <artifactId>flyway-database-postgresql</artifactId>
     </dependency>
 
+    <!-- Compile scope, not runtime. DataSourceConfig builds the pool around
+         a PGSimpleDataSource rather than a JDBC URL, because HikariCP only
+         honours a runtime password change for DataSource-based pools, and the
+         password rotates every seven days. Referencing the driver's
+         DataSource class directly means it has to be on the compile
+         classpath. -->
     <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
-      <scope>runtime</scope>
     </dependency>
 
     <!-- Reads the RDS credentials at boot. No password ever lands in the
          image or the task definition. -->
+    <!-- Outbound mail. SES v2 rather than the v1 API: v2 is where the
+         configuration-set and suppression-list features live. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>sesv2</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>secretsmanager</artifactId>
+    </dependency>
+
+    <!-- Media library and in-meeting shares: presigned uploads and downloads,
+         so file bytes never pass through the API. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
     </dependency>
 
     <dependency>

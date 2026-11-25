@@ -1,168 +1,31 @@
-name: Deploy
+name: Deploy production
 
-# Merges to main deploy to production. Order matters:
-#   1. build and push an immutable image
-#   2. terraform apply (brings the ECS service onto the new image, runs any
-#      infrastructure change, and only then is the API live)
-#   3. build the front end against the live API URL and sync it to S3
-#   4. invalidate CloudFront
-#
-# Step 3 depends on step 2's output, which is why the front end is built here
-# rather than in CI: the API base URL is not known until the infrastructure
-# exists.
+# Production (https://ai.datapainters.com, moving to www.datapainters.com) is
+# deployed by hand, never on merge: run this workflow from the Actions tab,
+# choosing the commit already tested on the development site. Its API image
+# is reused rather than rebuilt, so production runs exactly what was tested.
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
-
-# Never run two deploys at once; the second would fight the first for the
-# Terraform state lock and lose in a confusing way.
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
+    inputs:
+      replace_api_service:
+        description: >-
+          Force-replace the API service. Needed when a change AWS cannot make
+          in place (notably moving between public and private subnets) leaves
+          apply failing with InvalidParameterException.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   id-token: write
 
-env:
-  AWS_REGION: us-east-2
-  TF_VERSION: 1.14.3
-
 jobs:
   deploy:
-    name: Build and deploy
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Log in to ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # ---------------------------------------------------------------- image
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push API image
-        id: image
-        uses: docker/build-push-action@v6
-        with:
-          context: services/api
-          push: true
-          # Tagged by commit SHA, never :latest. The ECR repository is set to
-          # IMMUTABLE, so a tag always means exactly one image -- which is
-          # what makes a rollback a one-line variable change.
-          tags: ${{ steps.ecr.outputs.registry }}/${{ vars.PROJECT_NAME }}/api:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
-
-      # ------------------------------------------------------------ terraform
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Init
-        working-directory: infra/envs/prod
-        run: |
-          terraform init -input=false \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
-
-      - name: Apply
-        working-directory: infra/envs/prod
-        run: |
-          terraform apply -input=false -auto-approve \
-            -var="api_image=${{ steps.ecr.outputs.registry }}/${{ vars.PROJECT_NAME }}/api:${{ github.sha }}"
-
-      - name: Read outputs
-        id: tf
-        working-directory: infra/envs/prod
-        run: |
-          {
-            echo "api_url=$(terraform output -raw api_url)"
-            echo "web_bucket=$(terraform output -raw web_bucket)"
-            echo "distribution_id=$(terraform output -raw cloudfront_distribution_id)"
-            echo "site_url=$(terraform output -raw site_url)"
-          } >> "$GITHUB_OUTPUT"
-
-      # ------------------------------------------------------------- frontend
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - run: npm ci
-        working-directory: web
-
-      - name: Build front end
-        working-directory: web
-        env:
-          VITE_API_BASE_URL: ${{ steps.tf.outputs.api_url }}
-        run: npm run build
-
-      - name: Sync hashed assets
-        # Long cache: every asset filename contains a content hash, so a
-        # changed file is a new URL and can never be served stale.
-        working-directory: web
-        run: |
-          aws s3 sync dist/ "s3://${{ steps.tf.outputs.web_bucket }}/" \
-            --delete \
-            --exclude "index.html" \
-            --cache-control "public,max-age=31536000,immutable"
-
-      - name: Upload index.html
-        # Short cache: this is the file that points at the new asset URLs, so
-        # it must not be sticky. Uploaded last so the assets it references
-        # already exist.
-        working-directory: web
-        run: |
-          aws s3 cp dist/index.html "s3://${{ steps.tf.outputs.web_bucket }}/index.html" \
-            --cache-control "public,max-age=0,must-revalidate" \
-            --content-type "text/html; charset=utf-8"
-
-      - name: Invalidate CloudFront
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id "${{ steps.tf.outputs.distribution_id }}" \
-            --paths "/index.html" "/"
-
-      - name: Smoke test
-        run: |
-          echo "Waiting for the API to answer its readiness probe..."
-          for attempt in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" \
-              "${{ steps.tf.outputs.api_url }}/actuator/health/readiness" || true)
-            if [ "$code" = "200" ]; then
-              echo "API ready after ${attempt} attempt(s)."
-              exit 0
-            fi
-            echo "  attempt ${attempt}: HTTP ${code}"
-            sleep 10
-          done
-          echo "::error::API did not become ready within 5 minutes."
-          exit 1
-
-      - name: Summary
-        if: always()
-        run: |
-          {
-            echo "### Deployed"
-            echo ""
-            echo "| | |"
-            echo "|---|---|"
-            echo "| Site | ${{ steps.tf.outputs.site_url }} |"
-            echo "| API | ${{ steps.tf.outputs.api_url }} |"
-            echo "| Image tag | \`${{ github.sha }}\` |"
-          } >> "$GITHUB_STEP_SUMMARY"
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      environment: prod
+      github_environment: production
+      site_env: production
+      replace_api_service: ${{ inputs.replace_api_service }}
+    secrets: inherit

@@ -64,3 +64,36 @@ so provider upgrades warrant more attention than usual here.
 capacity cheaper than Fargate on-demand, when more than a handful of services
 need to talk to each other, or when a client engagement requires the firm to
 run production workloads on Kubernetes directly.
+
+---
+
+## Update 2026-11-19 — the lab cluster is removed
+
+The apply-on-demand EKS module and its `eks-lab` workflow are deleted. The
+decision above still stands; what changed is the judgement that keeping a
+dormant second deployment target in this repository was paying maintenance
+for an option nobody had exercised.
+
+"Bad" above predicted the Helm path would rot if it were never exercised. It
+was never exercised, and no chart was ever written, so what existed was a
+cluster definition with nothing to deploy onto it — the rot arrived before the
+feature did.
+
+A demo cluster will be stood up separately if a client engagement needs one.
+That is a better fit than a flag in the production stack, because a demo
+wants to be disposable and to run whatever version the conversation calls for,
+not whatever this repository happens to pin.
+
+Two things were deliberately kept so that remains easy:
+
+- The `kubernetes.io/role/elb` and `kubernetes.io/role/internal-elb` subnet
+  tags, which a load-balancer controller needs in order to pick subnets.
+- `enable_nat` in the network module, which restores private-subnet egress in
+  one line. Nodes in private subnets need it.
+
+To recover the module: `git log --diff-filter=D -- infra/modules/eks-lab`.
+
+**Consequence for the network.** The lab was the last thing that would have
+placed workloads in the private subnets, so with it gone the NAT gateway was
+routing nothing. It is now off, saving roughly $33/month plus data
+processing. See next-steps section 4.

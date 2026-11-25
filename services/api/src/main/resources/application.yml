@@ -12,6 +12,15 @@ spring:
         jdbc:
           time_zone: UTC
 
+  mvc:
+    problemdetails:
+      # RFC 9457 bodies for Spring MVC's own exceptions, including
+      # ResponseStatusException: its reason becomes `detail`, which the web
+      # client shows. Reasons are written for users ("That start time is in
+      # the past"). Unhandled exceptions still go to the default error page
+      # with no message, so nothing internal leaks.
+      enabled: true
+
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -34,7 +43,14 @@ management:
     health:
       probes:
         enabled: true
-      show-details: never
+      # The load balancer polls /actuator/health unauthenticated, so details
+      # must not be public. when-authorized keeps them hidden from anonymous
+      # callers while letting a signed-in admin see the credential-refresh
+      # state -- a rotation that has quietly stopped working is otherwise
+      # invisible until the pool next needs a connection. If the role name
+      # below ever stops matching, the only consequence is hidden details.
+      show-details: when-authorized
+      roles: ADMIN
   health:
     livenessstate:
       enabled: true
@@ -46,6 +62,11 @@ app:
     # Overridden by CORS_ALLOWED_ORIGINS, which Terraform sets from the
     # site's real domain names.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  jwt:
+    # Local development only. Deployed environments read the key from
+    # Secrets Manager via JWT_SECRET_ARN and ignore this entirely; if neither
+    # is present the application refuses to start rather than inventing one.
+    secret: ${APP_JWT_SECRET:local-development-signing-key-not-for-any-real-use}
 
 ---
 # Local development: plain Postgres on localhost, no Secrets Manager.

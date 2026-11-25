@@ -1,31 +1,35 @@
 package com.advisory.api;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariDataSource;
 import javax.sql.DataSource;
+import org.postgresql.ds.PGSimpleDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
-import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
-import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
 
 /**
- * Builds the production {@link DataSource} from the RDS credentials held in
- * Secrets Manager.
+ * Builds the production {@link DataSource} from the RDS-managed master user
+ * credentials in Secrets Manager.
  *
- * <p>The point of doing it here rather than through ECS secret injection is
- * that the password never appears in the task definition, in the image, or in
+ * <p>The password never appears in the task definition, in the image, or in
  * {@code docker inspect} output. The task role grants
- * {@code secretsmanager:GetSecretValue} on exactly one secret ARN and nothing
- * else.
+ * {@code secretsmanager:GetSecretValue} on exactly one secret ARN.
  *
- * <p>Credentials are read once at startup. If you later turn on automatic
- * rotation, this needs to become a refreshing credentials provider or the
- * service will start failing authentication a rotation period after deploy --
- * see docs/next-steps.md.
+ * <p><strong>Why this pool is built around a PGSimpleDataSource rather than a
+ * JDBC URL.</strong> RDS rotates the master password every seven days, so the
+ * pool has to be able to pick up a new password without a restart. HikariCP
+ * supports that through {@code HikariConfigMXBean.setPassword}, but its
+ * contract is narrow: the change applies to new connections only, and it
+ * <em>only works for DataSource-based pools, not for Driver-class or JDBC
+ * URL-based ones</em>. This pool used to be configured with
+ * {@code setJdbcUrl}, which is exactly the case where a runtime password
+ * change is silently ignored -- it would have looked correct, logged
+ * cheerfully, and then failed a week later when the old password stopped
+ * working. Hence the explicit PGSimpleDataSource.
+ *
+ * <p>{@link DbCredentialRefresher} does the actual rotation follow-up.
  */
 @Configuration
 @Profile("prod")
@@ -33,24 +37,40 @@ public class DataSourceConfig {
 
     private static final Logger log = LoggerFactory.getLogger(DataSourceConfig.class);
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    /**
+     * Deliberately not a bean. PGSimpleDataSource implements
+     * {@link DataSource}, so publishing it would leave the context with two
+     * DataSource candidates and JPA auto-configuration would refuse to pick
+     * one. {@link DbCredentialRefresher} reaches it through
+     * {@code HikariDataSource.getDataSource()} instead, which hands back this
+     * very instance.
+     */
+    private static PGSimpleDataSource driverDataSource() {
+        PGSimpleDataSource pg = new PGSimpleDataSource();
+        pg.setServerNames(new String[] {required("DB_HOST")});
+        pg.setPortNumbers(new int[] {Integer.parseInt(requiredOr("DB_PORT", "5432"))});
+        pg.setDatabaseName(required("DB_NAME"));
+
+        // RDS always offers TLS. `require` encrypts without verifying the
+        // server certificate; the Postgres driver's default (`prefer`) would
+        // silently fall back to plaintext if the handshake failed. Moving to
+        // verify-full means shipping the RDS CA bundle in the image -- worth
+        // doing, not worth bundling into the rotation change.
+        pg.setSslMode("require");
+
+        pg.setApplicationName("advisory-api");
+        return pg;
+    }
 
     @Bean
     public DataSource dataSource() {
-        String secretArn = System.getenv("DB_SECRET_ARN");
-        if (secretArn == null || secretArn.isBlank()) {
-            throw new IllegalStateException(
-                    "DB_SECRET_ARN is not set. Terraform passes it as a container "
-                            + "environment variable; check the api-service module.");
-        }
-
-        JsonNode secret = fetchSecret(secretArn);
+        String secretArn = required("DB_SECRET_ARN");
+        DbCredentials creds = DbCredentials.fetch(secretArn);
 
         HikariDataSource ds = new HikariDataSource();
-        ds.setJdbcUrl(secret.get("jdbc_url").asText());
-        ds.setUsername(secret.get("username").asText());
-        ds.setPassword(secret.get("password").asText());
-        ds.setDriverClassName("org.postgresql.Driver");
+        ds.setDataSource(driverDataSource());
+        ds.setUsername(creds.username());
+        ds.setPassword(creds.password());
 
         // A db.t4g.small has a connection ceiling in the low hundreds and
         // every Fargate task opens its own pool. Keep pools small so that
@@ -59,29 +79,31 @@ public class DataSourceConfig {
         ds.setMinimumIdle(2);
         ds.setConnectionTimeout(10_000);
         ds.setValidationTimeout(5_000);
+
+        // Also the rotation backstop. Even if the refresher never fired, no
+        // physical connection outlives this, so the pool fully turns over
+        // well inside a seven-day rotation period.
         ds.setMaxLifetime(600_000);
+
         ds.setPoolName("advisory-pool");
 
-        log.info("Datasource configured from secret {}", redact(secretArn));
+        log.info("Datasource configured from secret {} as user {}",
+                DbCredentials.redact(secretArn), creds.username());
         return ds;
     }
 
-    private JsonNode fetchSecret(String secretArn) {
-        try (SecretsManagerClient client = SecretsManagerClient.create()) {
-            String payload = client.getSecretValue(
-                            GetSecretValueRequest.builder().secretId(secretArn).build())
-                    .secretString();
-            return objectMapper.readTree(payload);
-        } catch (Exception e) {
-            // Failing fast is correct: a task that cannot reach its database
-            // should never pass its readiness probe and take traffic.
+    private static String required(String name) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
             throw new IllegalStateException(
-                    "Could not read database credentials from " + redact(secretArn), e);
+                    name + " is not set. Terraform passes it as a container environment "
+                            + "variable; check the api-service module and envs/prod/main.tf.");
         }
+        return value;
     }
 
-    private static String redact(String arn) {
-        int slash = arn.lastIndexOf(':');
-        return slash > 0 ? arn.substring(0, slash) + ":***" : "***";
+    private static String requiredOr(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
     }
 }

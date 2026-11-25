@@ -43,6 +43,22 @@ data "aws_caller_identity" "current" {}
 locals {
   account_id  = data.aws_caller_identity.current.account_id
   name_prefix = var.project
+
+  # GitHub can issue OIDC tokens whose subject embeds immutable numeric IDs
+  # -- repo:<owner>@<owner_id>/<repo>@<repo_id>:... -- rather than plain
+  # names. That is an org-level setting, it is ON for this org, and it is
+  # invisible from the workflow side: the only symptom is AccessDenied with
+  # "Not authorized to perform sts:AssumeRoleWithWebIdentity", naming
+  # nothing. If you ever need to see the real subject, it is recorded in
+  # CloudTrail against the failed AssumeRoleWithWebIdentity event.
+  #
+  # Both forms are trusted so the role survives that setting being toggled.
+  oidc_repo_forms = concat(
+    ["${var.github_owner}/${var.github_repo}"],
+    var.github_owner_id != null && var.github_repo_id != null
+    ? ["${var.github_owner}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}"]
+    : []
+  )
 }
 
 ###############################################################################
@@ -163,20 +179,17 @@ data "aws_iam_policy_document" "github_assume" {
     # Scope the trust to THIS repository. Without this condition any GitHub
     # repo on the internet could assume the role.
     #
-    # Both casings of the repo name are listed because GitHub's `sub` claim
-    # carries the repository's canonical casing, which is easy to get wrong
-    # and fails as an opaque AssumeRoleWithWebIdentity error rather than
-    # anything that names the cause. Repo names are case-insensitive for
-    # uniqueness on GitHub, so only one of these can ever exist and the
-    # extra entry grants nothing.
+    # Contexts are enumerated rather than trusting a bare
+    # "repo:<owner>/<repo>:*", so a token minted for a context this pipeline
+    # does not use cannot assume the role.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       values = flatten([
-        for repo in distinct([var.github_repo, lower(var.github_repo)]) : [
-          "repo:${var.github_owner}/${repo}:ref:refs/heads/${var.deploy_branch}",
-          "repo:${var.github_owner}/${repo}:pull_request",
-          "repo:${var.github_owner}/${repo}:environment:*",
+        for repo in local.oidc_repo_forms : [
+          "repo:${repo}:ref:refs/heads/${var.deploy_branch}",
+          "repo:${repo}:pull_request",
+          "repo:${repo}:environment:*",
         ]
       ])
     }
@@ -248,10 +261,14 @@ data "aws_iam_policy_document" "github_deploy_iam" {
   }
 
   statement {
-    sid       = "StateLocking"
-    effect    = "Allow"
-    actions = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem",
-    "dynamodb:DescribeTable"]
+    sid    = "StateLocking"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:DescribeTable",
+    ]
     resources = [aws_dynamodb_table.tflock.arn]
   }
 }
@@ -292,6 +309,24 @@ variable "deploy_branch" {
   description = "Branch whose merges are allowed to deploy."
   type        = string
   default     = "main"
+}
+
+variable "github_owner_id" {
+  description = <<-EOT
+    Numeric GitHub org/user ID, needed when the org issues immutable OIDC
+    subject claims. Find it with: gh api users/<owner> --jq .id
+  EOT
+  type        = string
+  default     = null
+}
+
+variable "github_repo_id" {
+  description = <<-EOT
+    Numeric GitHub repository ID, paired with github_owner_id.
+    Find it with: gh api repos/<owner>/<repo> --jq .id
+  EOT
+  type        = string
+  default     = null
 }
 
 ###############################################################################

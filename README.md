@@ -1,7 +1,30 @@
-# Advisory platform
+# Data Painters platform
 
-Marketing site and client portal for the advisory practice. React front end,
-Spring Boot API, PostgreSQL, all on AWS, deployed by GitHub Actions.
+Marketing site and client portal for Data Painters. React front end, Spring
+Boot API, PostgreSQL, all on AWS, deployed by GitHub Actions.
+
+Live, pre-production, at **https://ai.datapainters.com**. The page carries
+`noindex` until it is ready to be found.
+
+## A note on naming
+
+The infrastructure is prefixed `advisory-` — the deploy role, state bucket,
+ECR repository, RDS instance, ECS cluster and S3 web bucket all carry it,
+and the Java package is `com.advisory.api`. That predates the decision to
+trade as Data Painters and is deliberately left alone: the Terraform
+`project` variable feeds resource names, so changing it would destroy and
+recreate the database, the buckets and the registry rather than rename
+them. None of it is customer-visible. If you want the prefix to match the
+brand, the moment to do it is a deliberate rebuild, not an incremental
+apply.
+
+`datapainters.com` also hosts the previous Tableau consultancy's DNS —
+an active apex plus `moodle`, `portal`, `learn`, `edu`, `demos`, `travel`
+and others, along with Zoho mail. This stack only ever adds records for
+`ai.datapainters.com` and reads the zone through a data source, so none of
+that is at risk. Note that `portal.datapainters.com` is already taken by
+the old estate, so the client portal cannot move there without retiring it
+first.
 
 ## Architecture
 

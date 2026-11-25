@@ -20,6 +20,30 @@ export interface User {
    * so skipping the prompt gets 403 on everything but the change itself.
    */
   mustChangePassword: boolean;
+  /**
+   * What a staff account works on; null for a client. The server decides
+   * what each role may reach -- this only saves showing links that would
+   * answer 403.
+   */
+  teamRole: TeamRole | null;
+}
+
+export type TeamRole = 'admin' | 'billing' | 'relations' | 'engineer';
+
+export const TEAM_ROLE_LABELS: Record<TeamRole, string> = {
+  admin: 'Administrator',
+  billing: 'Billing',
+  relations: 'Client relations',
+  engineer: 'Engineer',
+};
+
+/** Invoices, payments and the financial reports. */
+export function seesMoney(user: User | null | undefined): boolean {
+  return user?.teamRole === 'admin' || user?.teamRole === 'billing';
+}
+
+export function isTeamAdmin(user: User | null | undefined): boolean {
+  return user?.teamRole === 'admin';
 }
 
 export function getToken(): string | null {

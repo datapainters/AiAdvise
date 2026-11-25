@@ -32,6 +32,10 @@ public class Engagement {
     @Column(nullable = false)
     private String status = "active";
 
+    /** The need this engagement exists to meet; its meetings work towards it. */
+    @Column
+    private String goal;
+
     // UTC, matching the database default this replaces on RDS.
     @Column(name = "started_on", nullable = false, updatable = false)
     private LocalDate startedOn = LocalDate.now(java.time.ZoneOffset.UTC);
@@ -60,6 +64,14 @@ public class Engagement {
 
     public void setTitle(String title) {
         this.title = title;
+    }
+
+    public String getGoal() {
+        return goal;
+    }
+
+    public void setGoal(String goal) {
+        this.goal = goal == null || goal.isBlank() ? null : goal.trim();
     }
 
     public String getStatus() {

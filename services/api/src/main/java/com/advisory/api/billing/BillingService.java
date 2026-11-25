@@ -331,6 +331,14 @@ public class BillingService {
                 rs.getString("void_reason"));
     }
 
+    /** Every live charge raised against one engagement, oldest first. */
+    public List<ChargeView> engagementCharges(Long engagementId) {
+        return jdbc.sql(CHARGE_SELECT + """
+                 WHERE c.engagement_id = ? AND c.voided_at IS NULL
+                 ORDER BY c.service_date, c.id
+                """).param(engagementId).query(BillingService::charge).list();
+    }
+
     public ChargeView liveChargeFor(Long appointmentId) {
         return jdbc.sql(CHARGE_SELECT
                         + " WHERE c.appointment_id = ? AND c.voided_at IS NULL")

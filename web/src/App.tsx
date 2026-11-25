@@ -67,7 +67,8 @@ import {
   type GridFilter,
   type GridPage,
 } from './datagrid';
-import { clearToken, getToken, type User } from './auth';
+import { clearToken, getToken, isTeamAdmin, seesMoney, type User } from './auth';
+import { EngagementManager, TeamAdmin } from './engagement-manager';
 import { ClientPortal } from './portal';
 import { MediaLibrary, VideoBillingReportView } from './media';
 import {
@@ -511,6 +512,7 @@ type AdminView =
   | 'videobilling'
   | 'signins'
   | 'logins'
+  | 'team'
   | 'options';
 type SystemTool = 'signins' | 'logins';
 
@@ -899,6 +901,13 @@ const ADMIN_VIEWS: {
     blurb: 'What each customer was billed per month for meetings held over video, with call time and video cost.',
   },
   {
+    id: 'team',
+    label: 'Team',
+    group: 'System',
+    icon: 'users',
+    blurb: 'Data Painters people with a console account, and what each one can do.',
+  },
+  {
     id: 'logins',
     label: 'Portal logins',
     group: 'System',
@@ -926,8 +935,23 @@ const ADMIN_NAV_GROUPS: { title: string; items: AdminView[] }[] = [
   { title: 'Billing', items: ['invoices', 'payments'] },
   { title: 'Reports', items: ['ar', 'revenue', 'unbilled', 'costs'] },
   { title: 'System reporting', items: ['videobilling'] },
-  { title: 'System', items: ['logins', 'signins', 'options'] },
+  { title: 'System', items: ['team', 'logins', 'signins', 'options'] },
 ];
+
+/**
+ * Which screens each team role is offered. The server enforces the same
+ * split by path; this only keeps people from being shown links that would
+ * answer "forbidden".
+ */
+function canSee(view: AdminView, user: User | null): boolean {
+  const group = ADMIN_VIEWS.find((v) => v.id === view)?.group;
+  if (group === 'Billing' || group === 'Reports' || group === 'System reporting') {
+    return seesMoney(user);
+  }
+  if (view === 'logins') return isTeamAdmin(user) || user?.teamRole === 'relations';
+  if (group === 'System') return isTeamAdmin(user);
+  return true;
+}
 
 type IconName =
   | 'home'
@@ -1072,7 +1096,10 @@ function Overview({
   onError,
   onGo,
   onOpenMeeting,
+  money: showMoney,
 }: {
+  /** Whether this person handles billing; the figures are left out if not. */
+  money: boolean;
   refreshKey: number;
   onError: (e: unknown) => void;
   onGo: (v: AdminView) => void;
@@ -1096,13 +1123,13 @@ function Overview({
         `filter=status:eq:confirmed&filter=startsAt:gte:${encodeURIComponent(now)}&sort=startsAt:asc&size=8`,
       ),
       // Billing is additive: the dashboard still renders if it fails.
-      getSnapshot().catch(() => null),
+      showMoney ? getSnapshot().catch(() => null) : Promise.resolve(null),
     ])
       .then(([c, e, pending, upcoming, billing]) =>
         setData({ clients: c.total, active: e.total, pending, upcoming, billing }),
       )
       .catch(onError);
-  }, [refreshKey, onError]);
+  }, [refreshKey, onError, showMoney]);
 
   if (!data) {
     return (
@@ -1426,6 +1453,7 @@ function EngagementForm({
 }) {
   const [clientId, setClientId] = useState(String(existing?.clientId ?? ''));
   const [title, setTitle] = useState(existing?.title ?? '');
+  const [goal, setGoal] = useState(existing?.goal ?? '');
   const [status, setStatus] = useState(existing?.status ?? 'active');
   const [busy, setBusy] = useState(false);
 
@@ -1435,8 +1463,16 @@ function EngagementForm({
     try {
       onDone(
         existing
-          ? await updateEngagement(existing.id, { title: title.trim(), status })
-          : await createEngagement({ clientId: Number(clientId), title: title.trim() }),
+          ? await updateEngagement(existing.id, {
+              title: title.trim(),
+              status,
+              goal: goal.trim() || null,
+            })
+          : await createEngagement({
+              clientId: Number(clientId),
+              title: title.trim(),
+              goal: goal.trim() || undefined,
+            }),
       );
     } catch (err) {
       onError(err);
@@ -1474,6 +1510,15 @@ function EngagementForm({
             autoFocus
             placeholder="AI readiness assessment"
             onChange={(e) => setTitle(e.target.value)}
+          />
+        </label>
+        <label>
+          Goal
+          <textarea
+            rows={3}
+            value={goal}
+            placeholder="The need this engagement exists to meet. Its meetings work towards this."
+            onChange={(e) => setGoal(e.target.value)}
           />
         </label>
         {existing && (
@@ -1601,9 +1646,12 @@ function Admin() {
   // The view lives in the URL so a refresh, a bookmark or the back button
   // lands on the same screen.
   const [params, setParams] = useSearchParams();
-  const view: AdminView = ADMIN_VIEWS.some((v) => v.id === params.get('view'))
+  const asked: AdminView = ADMIN_VIEWS.some((v) => v.id === params.get('view'))
     ? (params.get('view') as AdminView)
     : 'overview';
+  // A bookmark to a screen this role is not offered lands on the overview.
+  const view: AdminView = canSee(asked, user) ? asked : 'overview';
+  const showMoney = seesMoney(user);
   const [navOpen, setNavOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -1649,6 +1697,7 @@ function Admin() {
   const [openInvoice, setOpenInvoice] = useState<number | null>(null);
   const [paying, setPaying] = useState(false);
   const [openMeeting, setOpenMeeting] = useState<number | null>(null);
+  const [openEngagement, setOpenEngagement] = useState<number | null>(null);
 
   const onError = useCallback(
     (e: unknown) => {
@@ -1668,8 +1717,10 @@ function Admin() {
       appointmentColumns(),
       listClients('size=200&sort=name:asc'),
       listUsers(),
-      invoiceColumns(),
-      paymentColumns(),
+      // Billing screens are not offered to every role; do not ask for what
+      // the server would refuse.
+      showMoney ? invoiceColumns() : Promise.resolve([]),
+      showMoney ? paymentColumns() : Promise.resolve([]),
     ])
       .then(([c, e, a, clientPage, u, inv, pay]) => {
         setCols({ clients: c, engagements: e, appointments: a, invoices: inv, payments: pay });
@@ -1677,7 +1728,7 @@ function Admin() {
         setUsers(u);
       })
       .catch(onError);
-  }, [onError, refresh]);
+  }, [onError, refresh, showMoney]);
 
   const loadClients = useCallback((q: string) => listClients(q), []);
   const loadEngagements = useCallback((q: string) => listAllEngagements(q), []);
@@ -1705,7 +1756,12 @@ function Admin() {
           <span aria-hidden="true">▾</span>
         </button>
         <nav className="admin-nav" aria-label="Admin">
-          {ADMIN_NAV_GROUPS.map((g) => (
+          {ADMIN_NAV_GROUPS.map((g) => ({
+            ...g,
+            items: g.items.filter((id) => canSee(id, user)),
+          }))
+            .filter((g) => g.items.length > 0)
+            .map((g) => (
             <div className="admin-nav-group" key={g.title}>
               <span className="admin-nav-title">{g.title}</span>
               {g.items.map((id) => {
@@ -1776,6 +1832,7 @@ function Admin() {
 
       {view === 'overview' && (
         <Overview
+          money={showMoney}
           refreshKey={refresh}
           onError={onError}
           onGo={go}
@@ -1835,6 +1892,7 @@ function Admin() {
           defaultSort="startedOn:desc"
           addLabel="Add New"
           onAdd={() => setEditEngagement('new')}
+          onRowClick={(e) => setOpenEngagement(e.id)}
           empty="No engagements yet."
           gridColumns={[
             { field: 'title', label: 'Engagement', render: (e) => <strong>{e.title}</strong> },
@@ -2015,6 +2073,14 @@ function Admin() {
       {view === 'options' && <SystemOptions onError={onError} onSaved={(m) => setToast(m)} />}
 
       {view === 'signins' && <SignInActivity onError={onError} />}
+      {view === 'team' && (
+        <TeamAdmin
+          me={user}
+          onError={onError}
+          onToast={(m) => setToast(m)}
+          onIssued={(created) => setIssued(created)}
+        />
+      )}
       {view === 'logins' && (
         <PortalLogins
           clients={allClients}
@@ -2074,6 +2140,7 @@ function Admin() {
           key={`${openClient.id}-${openClient.tab ?? ''}`}
           clientId={openClient.id}
           initialTab={openClient.tab}
+          showAccounting={showMoney}
           onToast={(m) => setToast(m)}
           onClose={() => {
             setOpenClient(null);
@@ -2117,6 +2184,27 @@ function Admin() {
           }}
           onError={onError}
           onChanged={bump}
+          onOpenEngagement={(id) => {
+            setOpenMeeting(null);
+            setOpenEngagement(id);
+          }}
+        />
+      )}
+
+      {/* Rendered after the Meeting Manager only in source order: opening a
+          meeting from here closes this first, so the two never stack. */}
+      {openEngagement !== null && openMeeting === null && openInvoice === null && (
+        <EngagementManager
+          engagementId={openEngagement}
+          onClose={() => {
+            setOpenEngagement(null);
+            bump();
+          }}
+          onChanged={bump}
+          onError={onError}
+          onToast={(m) => setToast(m)}
+          onOpenMeeting={(id) => setOpenMeeting(id)}
+          onOpenInvoice={(id) => setOpenInvoice(id)}
         />
       )}
         </div>

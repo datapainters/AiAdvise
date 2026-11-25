@@ -8,7 +8,7 @@ import type { GridColumn, GridPage } from './datagrid';
  * bundle is static files on CloudFront -- changing the API URL means a
  * rebuild, which is the correct trade for a site this size.
  */
-import { clearToken, getToken, setToken, type User } from './auth';
+import { clearToken, getToken, setToken, type TeamRole, type User } from './auth';
 
 const BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
 
@@ -255,6 +255,8 @@ export interface AdminEngagement {
   title: string;
   status: string;
   startedOn: string;
+  /** The need this engagement exists to meet. */
+  goal: string | null;
 }
 
 export interface LoginEvent {
@@ -300,6 +302,7 @@ export function createClient(input: { name: string; primaryEmail: string }): Pro
 export function createEngagement(input: {
   clientId: number;
   title: string;
+  goal?: string;
 }): Promise<AdminEngagement> {
   return request<AdminEngagement>('/api/admin/engagements', {
     method: 'POST',
@@ -319,7 +322,7 @@ export function engagementColumns(): Promise<GridColumn[]> {
 
 export function updateEngagement(
   id: number,
-  input: { title: string; status: string },
+  input: { title: string; status: string; goal?: string | null },
 ): Promise<AdminEngagement> {
   return request<AdminEngagement>(`/api/admin/engagements/${id}`, {
     method: 'PUT',
@@ -606,3 +609,230 @@ export const listCalendar = (from: Date, to: Date) =>
   request<AdminAppointment[]>(
     `/api/admin/calendar?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
   );
+
+/* ------------------------------------------------------------- team members */
+
+
+export interface TeamMember {
+  id: number;
+  email: string;
+  displayName: string;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  teamRole: TeamRole;
+  enabled: boolean;
+  /** Invited but has not yet set a password. */
+  invitePending: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+export function listTeam(): Promise<TeamMember[]> {
+  return request<TeamMember[]>('/api/admin/team');
+}
+
+export function inviteTeamMember(input: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  teamRole: TeamRole;
+}): Promise<CreatedUser> {
+  return request<CreatedUser>('/api/admin/team', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateTeamMember(
+  id: number,
+  input: { firstName: string; lastName: string; phone?: string; teamRole: TeamRole; enabled: boolean },
+): Promise<TeamMember> {
+  return request<TeamMember>(`/api/admin/team/${id}`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+/* --------------------------------------------- engagement and meeting people */
+
+export type PersonSide = 'team' | 'client';
+
+/** Someone who can be added: a Data Painters account, or a login at this client. */
+export interface PersonCandidate {
+  userId: number;
+  name: string;
+  email: string;
+  side: PersonSide;
+  teamRole: TeamRole | null;
+}
+
+export interface Person {
+  id: number;
+  userId: number;
+  name: string;
+  email: string;
+  side: PersonSide;
+  role: string;
+  /** Meetings only: will be on the call. */
+  attending: boolean;
+  /** Meetings only: is emailed the write-up when the meeting is completed. */
+  sendSummary: boolean;
+  enabled: boolean;
+}
+
+/** The part someone plays on an engagement or in a meeting, by side. */
+export const PERSON_ROLES: Record<PersonSide, { value: string; label: string }[]> = {
+  team: [
+    { value: 'lead', label: 'Engagement lead' },
+    { value: 'engineer', label: 'Engineer' },
+    { value: 'account_manager', label: 'Account manager' },
+    { value: 'billing', label: 'Billing' },
+  ],
+  client: [
+    { value: 'sponsor', label: 'Executive sponsor' },
+    { value: 'project_owner', label: 'Project owner' },
+    { value: 'technical', label: 'Technical contact' },
+    { value: 'billing_contact', label: 'Billing contact' },
+    { value: 'stakeholder', label: 'Stakeholder' },
+  ],
+};
+
+export function personRoleLabel(role: string): string {
+  return (
+    [...PERSON_ROLES.team, ...PERSON_ROLES.client].find((r) => r.value === role)?.label ?? role
+  );
+}
+
+type PeopleScope = { kind: 'engagement' | 'meeting'; id: number };
+
+function peopleBase(scope: PeopleScope) {
+  return scope.kind === 'engagement'
+    ? { root: `/api/admin/engagements/${scope.id}`, list: 'team' }
+    : { root: `/api/admin/appointments/${scope.id}`, list: 'participants' };
+}
+
+export function listPeopleCandidates(scope: PeopleScope): Promise<PersonCandidate[]> {
+  return request<PersonCandidate[]>(`${peopleBase(scope).root}/people`);
+}
+
+export function listMeetingParticipants(appointmentId: number): Promise<Person[]> {
+  return request<Person[]>(`/api/admin/appointments/${appointmentId}/participants`);
+}
+
+export function addPerson(
+  scope: PeopleScope,
+  input: { userId: number; role: string; attending?: boolean; sendSummary?: boolean },
+): Promise<Person[]> {
+  const b = peopleBase(scope);
+  return request<Person[]>(`${b.root}/${b.list}`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updatePerson(
+  scope: PeopleScope,
+  personId: number,
+  input: { role: string; attending?: boolean; sendSummary?: boolean },
+): Promise<Person[]> {
+  const b = peopleBase(scope);
+  return request<Person[]>(`${b.root}/${b.list}/${personId}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export function removePerson(scope: PeopleScope, personId: number): Promise<Person[]> {
+  const b = peopleBase(scope);
+  return request<Person[]>(`${b.root}/${b.list}/${personId}`, { method: 'DELETE' });
+}
+
+/** Copies the engagement's team onto the meeting; people already there are kept. */
+export function addEngagementTeamToMeeting(appointmentId: number): Promise<Person[]> {
+  return request<Person[]>(`/api/admin/appointments/${appointmentId}/participants/from-engagement`, {
+    method: 'POST',
+  });
+}
+
+/* ------------------------------------------------------- engagement manager */
+
+export interface EngagementMeeting {
+  id: number;
+  startsAt: string;
+  endsAt: string;
+  durationMinutes: number;
+  status: 'requested' | 'confirmed' | 'completed' | 'cancelled';
+  video: boolean;
+  topicCount: number;
+  notedCount: number;
+  recordedMinutes: number;
+}
+
+export interface EngagementAgendaLine {
+  topicId: number;
+  title: string;
+  detail: string | null;
+  desiredOutcome: string | null;
+  priority: number;
+  status: string;
+  /** Null while the topic is still waiting to be put on a meeting. */
+  appointmentId: number | null;
+  meetingAt: string | null;
+  note: string | null;
+  noteUpdatedAt: string | null;
+}
+
+export interface SharedItem {
+  id: number;
+  appointmentId: number;
+  meetingAt: string;
+  title: string;
+  kind: 'image' | 'pdf' | 'video';
+  url: string;
+  sharedByRole: string;
+  sharedByName: string;
+  sharedAt: string;
+}
+
+export interface EngagementCharge {
+  id: number;
+  appointmentId: number | null;
+  kind: string;
+  description: string;
+  serviceDate: string;
+  minutes: number | null;
+  blocks: number | null;
+  amountCents: number;
+  invoiceId: number | null;
+  invoiceNumber: string | null;
+}
+
+export interface EngagementBilling {
+  chargedCents: number;
+  invoicedCents: number;
+  unbilledCents: number;
+  billedMinutes: number;
+  charges: EngagementCharge[];
+}
+
+export interface EngagementDetail {
+  id: number;
+  clientId: number;
+  clientName: string;
+  title: string;
+  goal: string | null;
+  status: string;
+  startedOn: string;
+  recordedMinutes: number;
+  meetings: EngagementMeeting[];
+  agenda: EngagementAgendaLine[];
+  media: SharedItem[];
+  team: Person[];
+  /** Null for roles that do not handle billing. */
+  billing: EngagementBilling | null;
+}
+
+export function getEngagementDetail(id: number): Promise<EngagementDetail> {
+  return request<EngagementDetail>(`/api/admin/engagements/${id}`);
+}
+
+export function invoiceEngagement(id: number): Promise<{ id: number; number: string; totalCents: number }> {
+  return request(`/api/admin/engagements/${id}/invoice`, { method: 'POST' });
+}
+
+export function listMeetingShares(appointmentId: number): Promise<SharedItem[]> {
+  return request<SharedItem[]>(`/api/admin/appointments/${appointmentId}/shares`);
+}

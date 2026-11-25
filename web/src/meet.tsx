@@ -53,6 +53,27 @@ interface LibraryItem {
   contentType: string;
 }
 
+/** One agenda line as the host sees it in the call window. */
+interface AgendaItem {
+  topicId: number;
+  title: string;
+  detail: string | null;
+  desiredOutcome: string | null;
+  priority: number;
+  status: string;
+  note: string | null;
+  noteUpdatedAt: string | null;
+}
+
+/** The meeting clock. Minutes only: no rates or amounts reach the call window. */
+interface Timer {
+  running: boolean;
+  runningSince: string | null;
+  totalMinutes: number;
+  /** The meeting's time is already on an invoice and cannot change. */
+  locked: boolean;
+}
+
 type StageMessage = { type: 'dp-stage'; share: Share | null };
 type VideoMessage = { type: 'dp-video'; action: 'play' | 'pause' | 'seek'; time: number };
 
@@ -133,6 +154,9 @@ export function MeetingRoom() {
   const [joined, setJoined] = useState(false);
   const [left, setLeft] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
+  const [agenda, setAgenda] = useState<AgendaItem[] | null>(null);
+  const [timer, setTimer] = useState<Timer | null>(null);
+  const [notesOpen, setNotesOpen] = useState(true);
 
   const frameHost = useRef<HTMLDivElement>(null);
   const call = useRef<DailyCall | null>(null);
@@ -140,8 +164,30 @@ export function MeetingRoom() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const applyingRemote = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Whether another Data Painters host is in the call. The clock follows
+  // the hosts as a group: it stops when the last one leaves, not the first.
+  const otherHost = useRef(false);
+  const meetToken = useRef<string | null>(null);
 
   const isHost = session?.role === 'host';
+
+  /** Starts or stops the meeting clock. Failures are shown, never thrown. */
+  const clock = useCallback(
+    async (action: 'start' | 'stop') => {
+      if (!meetToken.current) return;
+      try {
+        setTimer(
+          await meetApi<Timer>(`/api/meet/${id}/timer/${action}`, {
+            method: 'POST',
+            meetToken: meetToken.current,
+          }),
+        );
+      } catch (e) {
+        setError(`The meeting timer did not ${action}: ${(e as Error).message}`);
+      }
+    },
+    [id],
+  );
 
   useEffect(() => {
     document.title = 'Meeting · Data Painters';
@@ -200,8 +246,22 @@ export function MeetingRoom() {
       }
       call.current = frame;
 
-      frame.on('joined-meeting', () => setJoined(true));
-      frame.on('left-meeting', () => setLeft(true));
+      const trackHosts = () => {
+        otherHost.current = Object.values(frame?.participants() ?? {}).some(
+          (p) => !p.local && p.owner,
+        );
+      };
+      frame.on('joined-meeting', () => {
+        setJoined(true);
+        trackHosts();
+        // The clock runs for as long as a host is in the call.
+        if (session.role === 'host') clock('start');
+      });
+      frame.on('left-meeting', () => {
+        setLeft(true);
+        if (session.role === 'host' && !otherHost.current) clock('stop');
+      });
+      frame.on('participant-left', trackHosts);
       frame.on('error', (e) => setError(e?.errorMsg ?? 'The video call reported an error'));
       frame.on('participant-updated', (e) => {
         if (e?.participant?.local) {
@@ -209,6 +269,7 @@ export function MeetingRoom() {
         }
       });
       frame.on('participant-joined', (e) => {
+        trackHosts();
         // The host brings late joiners up to date with what is on the stage.
         if (session.role === 'host' && stageRef.current && e?.participant?.session_id) {
           broadcastStage(stageRef.current, e.participant.session_id);
@@ -234,12 +295,36 @@ export function MeetingRoom() {
         .catch((e) => !cancelled && setError(`Could not join the video call: ${e?.errorMsg ?? e?.message ?? e}`));
     })();
 
+    meetToken.current = session.meetToken;
+    if (session.role === 'host') {
+      meetApi<AgendaItem[]>(`/api/meet/${id}/agenda`, { meetToken: session.meetToken })
+        .then(setAgenda)
+        .catch((e) => setError((e as Error).message));
+      meetApi<Timer>(`/api/meet/${id}/timer`, { meetToken: session.meetToken })
+        .then(setTimer)
+        .catch(() => undefined);
+    }
+
+    // Closing the tab ends the call without a "left" event reaching this
+    // page, so stop the clock on the way out. keepalive lets the request
+    // finish after the page has gone.
+    const onPageHide = () => {
+      if (session.role !== 'host' || otherHost.current) return;
+      fetch(`${BASE_URL}/api/meet/${id}/timer/stop`, {
+        method: 'POST',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json', 'X-Meet-Token': session.meetToken },
+      }).catch(() => undefined);
+    };
+    window.addEventListener('pagehide', onPageHide);
+
     // Earlier shares, so the history drawer is complete after a rejoin.
     meetApi<Share[]>(`/api/meet/${id}/shares`, { meetToken: session.meetToken })
       .then(setHistory)
       .catch(() => undefined);
 
     return () => {
+      window.removeEventListener('pagehide', onPageHide);
       cancelled = true;
       frame?.destroy();
       call.current = null;
@@ -364,7 +449,11 @@ export function MeetingRoom() {
   const grouped = (kind: LibraryItem['kind']) => (library ?? []).filter((i) => i.kind === kind);
 
   return (
-    <div className={stage ? 'meet with-stage' : 'meet'}>
+    <div
+      className={['meet', stage && 'with-stage', isHost && notesOpen && 'with-notes']
+        .filter(Boolean)
+        .join(' ')}
+    >
       <header className="meet-bar">
         <div className="meet-title">
           <span className="portal-mark" aria-hidden="true" />
@@ -431,10 +520,28 @@ export function MeetingRoom() {
             {stage.kind === 'video' && !isHost && <p className="muted small meet-stage-note">The host controls playback.</p>}
           </section>
         )}
+
+        {isHost && notesOpen && session && (
+          <HostPanel
+            meetingId={id}
+            meetToken={session.meetToken}
+            agenda={agenda}
+            timer={timer}
+            onAgenda={setAgenda}
+            onClock={clock}
+            onError={setError}
+          />
+        )}
       </main>
 
       <footer className="meet-toolbar" aria-label="Sharing">
         <div className="meet-tools">
+          {isHost && (
+            <button className={notesOpen ? 'tool on' : 'tool'} onClick={() => setNotesOpen((v) => !v)}>
+              <ToolIcon d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7" />
+              <span>Agenda and notes</span>
+            </button>
+          )}
           {isHost && (
             <button className="tool" onClick={openLibrary} disabled={!joined || busy !== null}>
               <ToolIcon d="M4 5h6v6H4zM14 5h6v6h-6zM4 15h6v4H4zM14 15h6v4h-6z" />
@@ -544,5 +651,191 @@ function ToolIcon({ d }: { d: string }) {
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={d} />
     </svg>
+  );
+}
+
+/* ------------------------------------------------------------- host panel */
+
+function clockText(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const sec = totalSeconds % 60;
+  const mm = String(m).padStart(h > 0 ? 2 : 1, '0');
+  return `${h > 0 ? `${h}:` : ''}${mm}:${String(sec).padStart(2, '0')}`;
+}
+
+/**
+ * What the Data Painters host runs the meeting from, beside the video: the
+ * clock that bills the meeting, and the agenda with a note field per topic.
+ * Only the host sees it; clients and guests never receive this data.
+ */
+function HostPanel({
+  meetingId,
+  meetToken,
+  agenda,
+  timer,
+  onAgenda,
+  onClock,
+  onError,
+}: {
+  meetingId: number;
+  meetToken: string;
+  agenda: AgendaItem[] | null;
+  timer: Timer | null;
+  onAgenda: (next: AgendaItem[]) => void;
+  onClock: (action: 'start' | 'stop') => void;
+  onError: (message: string) => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!timer?.running) return;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [timer?.running]);
+
+  const runningSeconds =
+    timer?.running && timer.runningSince
+      ? Math.max(0, Math.floor((now - new Date(timer.runningSince).getTime()) / 1000))
+      : 0;
+
+  const replace = (updated: AgendaItem) =>
+    onAgenda((agenda ?? []).map((a) => (a.topicId === updated.topicId ? updated : a)));
+
+  return (
+    <aside className="meet-notes" aria-label="Agenda, notes and meeting timer">
+      <section className="meet-timer">
+        <div>
+          <span className="meet-timer-label">
+            {timer?.running ? 'Timer running' : timer?.locked ? 'Time is invoiced' : 'Timer stopped'}
+          </span>
+          <strong className={timer?.running ? 'meet-timer-clock on' : 'meet-timer-clock'}>
+            {timer?.running ? clockText(runningSeconds) : '0:00'}
+          </strong>
+          <span className="muted small">
+            {timer ? `${timer.totalMinutes} min recorded for this meeting` : 'Loading…'}
+          </span>
+        </div>
+        {timer?.running ? (
+          <button className="btn btn-sm" onClick={() => onClock('stop')}>
+            Stop timer
+          </button>
+        ) : (
+          <button className="btn btn-sm btn-primary" disabled={!timer || timer.locked} onClick={() => onClock('start')}>
+            Start timer
+          </button>
+        )}
+      </section>
+      <p className="muted small meet-timer-note">
+        The timer starts when you join the call and stops when you leave.
+      </p>
+
+      <h3>Agenda</h3>
+      {agenda === null ? (
+        <p className="muted small">Loading…</p>
+      ) : agenda.length === 0 ? (
+        <p className="muted small">The client booked this meeting without choosing topics.</p>
+      ) : (
+        <div className="meet-agenda">
+          {agenda.map((item) => (
+            <HostAgendaItem
+              key={item.topicId}
+              meetingId={meetingId}
+              meetToken={meetToken}
+              item={item}
+              onChanged={replace}
+              onError={onError}
+            />
+          ))}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function HostAgendaItem({
+  meetingId,
+  meetToken,
+  item,
+  onChanged,
+  onError,
+}: {
+  meetingId: number;
+  meetToken: string;
+  item: AgendaItem;
+  onChanged: (updated: AgendaItem) => void;
+  onError: (message: string) => void;
+}) {
+  const [draft, setDraft] = useState(item.note ?? '');
+  const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const lastSaved = useRef(item.note ?? '');
+  const dirty = draft !== lastSaved.current;
+
+  // Saved when the field loses focus, not per keystroke: someone typing
+  // through a live call should not be sending a request per character.
+  async function save() {
+    if (!dirty || state === 'saving') return;
+    setState('saving');
+    try {
+      const updated = await meetApi<AgendaItem>(`/api/meet/${meetingId}/agenda/${item.topicId}/note`, {
+        method: 'PUT',
+        meetToken,
+        body: JSON.stringify({ body: draft }),
+      });
+      lastSaved.current = updated.note ?? '';
+      onChanged(updated);
+      setState('saved');
+      window.setTimeout(() => setState('idle'), 2000);
+    } catch (e) {
+      setState('idle');
+      onError(`Note not saved: ${(e as Error).message}`);
+    }
+  }
+
+  async function mark(status: string) {
+    try {
+      onChanged(
+        await meetApi<AgendaItem>(`/api/meet/${meetingId}/agenda/${item.topicId}/status`, {
+          method: 'PUT',
+          meetToken,
+          body: JSON.stringify({ status }),
+        }),
+      );
+    } catch (e) {
+      onError((e as Error).message);
+    }
+  }
+
+  return (
+    <article className={`meet-agenda-item is-${item.status}`}>
+      <header>
+        <strong>{item.title}</strong>
+        <span className="meet-agenda-status">{item.status}</span>
+      </header>
+      {item.desiredOutcome && <p className="muted small">Wanted: {item.desiredOutcome}</p>}
+      <textarea
+        rows={3}
+        value={draft}
+        aria-label={`Notes for ${item.title}`}
+        placeholder="What was discussed, decided, and what happens next."
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+      />
+      <div className="meet-agenda-actions">
+        <span className="muted small">
+          {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : dirty ? 'Not saved yet' : ''}
+        </span>
+        {item.status !== 'discussed' && (
+          <button className="btn btn-sm" onClick={() => mark('discussed')}>
+            Mark discussed
+          </button>
+        )}
+        {item.status === 'discussed' && (
+          <button className="btn btn-sm" onClick={() => mark('scheduled')}>
+            Reopen
+          </button>
+        )}
+      </div>
+    </article>
   );
 }

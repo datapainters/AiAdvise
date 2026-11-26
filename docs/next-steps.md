@@ -1105,3 +1105,17 @@ startup: 60 clients with users, engagements, topics, meetings, time, charges,
 invoices and payments. "Paging Test Co" is the heavy record. Every demo
 client's email ends in `@demo.datapainters.test`; none of the demo users can
 sign in. Production never sets the variable.
+
+## One-time production clean start (V18, 2026-11-26)
+
+Production was emptied on request so specific test cases can be entered.
+`DataReset` runs `resources/maintenance/reset.sql` once when
+`DATA_RESET_TOKEN` is set (production only, in `infra/envs/prod/main.tf`):
+every record is deleted except the bootstrap admin's sign-in, and the system
+options go back to their defaults (the hourly rate returns to 0.00 and must
+be set again). The token is recorded in `maintenance_run` (V18) in the same
+transaction, so a restart or redeploy never repeats it. If the account to
+keep is missing, nothing is deleted.
+
+Not touched: files in the production media bucket and rooms at Daily. A
+database snapshot was taken before the release.

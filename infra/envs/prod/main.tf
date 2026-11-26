@@ -259,6 +259,14 @@ module "api" {
     # Daily rooms from every environment share one Daily account; the prefix
     # keeps them apart.
     VIDEO_ROOM_PREFIX = "dp"
+
+    # One-time clean start, requested 2026-11-26: on the first start with this
+    # token the service deletes every record except the bootstrap admin's
+    # sign-in and puts the system options back to defaults. The token is
+    # recorded in the database, so it never runs twice; leaving it here is
+    # harmless. Change the token only to wipe production again.
+    DATA_RESET_TOKEN      = "2026-11-26-clean-start"
+    DATA_RESET_KEEP_EMAIL = var.bootstrap_admin_email
   }
 
   # Both: SendEmail with a configuration set is authorised against the

@@ -15,6 +15,12 @@ on:
           apply failing with InvalidParameterException.
         type: boolean
         default: false
+      snapshot_database:
+        description: >-
+          Take a manual database snapshot before applying. Use when the
+          release changes data in a way that cannot be undone.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,4 +34,5 @@ jobs:
       github_environment: production
       site_env: production
       replace_api_service: ${{ inputs.replace_api_service }}
+      snapshot_database: ${{ inputs.snapshot_database }}
     secrets: inherit

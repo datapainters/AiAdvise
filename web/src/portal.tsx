@@ -256,9 +256,8 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
     <div className="admin-shell portal-shell">
       <aside className={navOpen ? 'admin-side open' : 'admin-side'}>
         <div className="admin-brand">
-          <Link to="/" className="admin-brand-mark">
-            <span className="portal-mark" aria-hidden="true" />
-            Data Painters
+          <Link to="/" className="admin-brand-mark" aria-label="Data Painters home">
+            <img className="brand-logo" src="/brand/logo-horizontal.svg" alt="Data Painters" />
           </Link>
           <span className="admin-brand-sub">Client portal</span>
         </div>

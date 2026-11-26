@@ -1513,7 +1513,9 @@ function PrintShell({
       <article className="doc">
         <header className="doc-head">
           <div>
-            <div className="doc-brand">Data Painters</div>
+            <div className="doc-brand">
+            <img src="/brand/logo-horizontal.svg" alt="Data Painters" />
+          </div>
             <div className="doc-sub">Enterprise AI consulting</div>
           </div>
           <div className="doc-title">{title}</div>

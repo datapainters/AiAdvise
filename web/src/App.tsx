@@ -1632,8 +1632,8 @@ function Admin() {
     <div className="admin-shell">
       <aside className={navOpen ? 'admin-side open' : 'admin-side'}>
         <div className="admin-brand">
-          <Link to="/" className="admin-brand-mark">
-            Data Painters
+          <Link to="/" className="admin-brand-mark" aria-label="Data Painters home">
+            <img className="brand-logo" src="/brand/logo-horizontal-on-dark.svg" alt="Data Painters" />
           </Link>
           <span className="admin-brand-sub">Admin console</span>
         </div>

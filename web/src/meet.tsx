@@ -410,7 +410,9 @@ export function MeetingRoom() {
     return (
       <div className="meet-gate">
         <div className="meet-gate-card">
-          <div className="doc-brand">Data Painters</div>
+          <div className="doc-brand">
+            <img src="/brand/logo-horizontal.svg" alt="Data Painters" />
+          </div>
           <h1>We could not open this meeting</h1>
           <p className="muted">{error}</p>
           <p>
@@ -427,7 +429,9 @@ export function MeetingRoom() {
     return (
       <div className="meet-gate">
         <div className="meet-gate-card">
-          <div className="doc-brand">Data Painters</div>
+          <div className="doc-brand">
+            <img src="/brand/logo-horizontal.svg" alt="Data Painters" />
+          </div>
           <h1>You have left the meeting</h1>
           <p className="muted">Thank you. You can rejoin while the room is open.</p>
           <p className="button-row">

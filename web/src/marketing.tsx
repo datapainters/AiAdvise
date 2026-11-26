@@ -177,8 +177,7 @@ export function SiteNav({ account }: { account?: ReactNode }) {
     <header className="mk-header">
       <div className="mk-header-inner">
         <Link to="/" className="mk-brand" aria-label="Data Painters home">
-          <span className="mk-brand-mark" aria-hidden="true" />
-          Data Painters
+          <img className="mk-brand-logo" src="/brand/logo-horizontal.svg" alt="Data Painters" />
         </Link>
 
         <button
@@ -217,8 +216,7 @@ export function SiteFooter() {
       <div className="mk-footer-inner">
         <div className="mk-footer-brand">
           <span className="mk-brand">
-            <span className="mk-brand-mark" aria-hidden="true" />
-            Data Painters
+            <img className="mk-brand-logo" src="/brand/logo-horizontal-on-dark.svg" alt="Data Painters" />
           </span>
           <p>
             Enterprise AI advisory from engineers with twenty-five years in enterprise

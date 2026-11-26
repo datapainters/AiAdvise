@@ -149,14 +149,25 @@ jobs:
         run: npm run build
 
       - name: Sync hashed assets
-        # Long cache: every asset filename contains a content hash, so a
-        # changed file is a new URL and can never be served stale.
+        # Long cache: every filename under assets/ contains a content hash, so
+        # a changed file is a new URL and can never be served stale.
+        working-directory: web
+        run: |
+          aws s3 sync dist/assets/ "s3://${{ steps.tf.outputs.web_bucket }}/assets/" \
+            --delete \
+            --cache-control "public,max-age=31536000,immutable"
+
+      - name: Sync unhashed files
+        # Short cache: the favicon, icons and logo keep the same name when
+        # they change, so a year-long immutable cache pins the old picture in
+        # every browser that has seen it.
         working-directory: web
         run: |
           aws s3 sync dist/ "s3://${{ steps.tf.outputs.web_bucket }}/" \
             --delete \
             --exclude "index.html" \
-            --cache-control "public,max-age=31536000,immutable"
+            --exclude "assets/*" \
+            --cache-control "public,max-age=3600"
 
       - name: Upload index.html
         # Short cache: this is the file that points at the new asset URLs, so
@@ -172,7 +183,7 @@ jobs:
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${{ steps.tf.outputs.distribution_id }}" \
-            --paths "/index.html" "/"
+            --paths "/*"
 
       - name: Smoke test
         # --max-time is load-bearing, not tidiness. Without it, curl against

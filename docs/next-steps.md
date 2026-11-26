@@ -1051,3 +1051,30 @@ Left open:
   team from the console would be the next step.
 - "Time this month" on the overview counts time by when it was recorded, not
   by the meeting's date.
+
+## Clients list counts, client status and the fixed-size client record (V17, 2026-11-26)
+
+**Clients list.** Columns for status, engagements, topics, meetings, hours
+worked (meeting time entries plus time recorded on replies) and balance
+(charges less payments; admin and billing roles only). All sort and filter;
+the balance filters in dollars. The Edit link is gone: the row opens the
+record, which is where a client is now edited.
+
+**Client status (V17).** `client.status` is `prospect`, `active`, `on_hold`
+or `former`, set by the firm rather than inferred from engagements. Existing
+clients with an active engagement were migrated to `active`, the rest to
+`prospect`. New clients start as `prospect`.
+
+**Client record popup.** One fixed size (70rem by 52rem, capped to the
+window), centred, with the tab content scrolling inside. The figures are one
+compact row. Classic boxed tabs. The Notes tab is removed (notes live in
+topic threads). Name, status and primary email are edited on the Overview
+tab and saved with the Save button in the footer.
+
+**Favicon and other unhashed files.** The deploy used to upload everything
+except `index.html` as immutable for a year, which is right for hashed
+`assets/` and wrong for `favicon.svg`, the icons and `brand/`: a browser that
+had the old favicon kept it. Those now get a one-hour cache, the deploy
+invalidates the whole distribution, and `index.html` links the icons with
+`?v=2` so browsers holding the old immutable copy fetch the new one. Bump the
+`v` if the icons change again.

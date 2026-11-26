@@ -5625,3 +5625,167 @@ button:disabled,
   min-width: 14rem;
   font-size: 0.8rem;
 }
+
+/* =====================================================================
+   Fixed-size record popup (client detail)
+   ===================================================================== */
+
+/* Centred both ways, and one size whatever the tab holds: the frame stays
+   put and the tab's content scrolls inside it. */
+.modal-backdrop-fixed {
+  align-items: center;
+  padding: 1rem;
+  overflow: hidden;
+}
+
+.modal-fixed {
+  display: flex;
+  flex-direction: column;
+  width: min(70rem, calc(100vw - 2rem));
+  max-width: none;
+  height: min(52rem, calc(100vh - 2rem));
+}
+
+.modal-fixed .modal-head {
+  position: static;
+  flex: none;
+}
+
+.modal-fixed .modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 1.5rem 0;
+}
+
+.modal-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 0.8rem 1.5rem;
+  border-top: 1px solid var(--rule);
+  background: var(--canvas);
+}
+
+.modal-foot-note {
+  margin-right: auto;
+  font-size: 0.82rem;
+  color: var(--warn-ink);
+}
+
+/* Every figure on one short row. */
+.summary-compact {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 0.9rem;
+  background: var(--rule);
+  max-height: 20vh;
+}
+
+.summary-compact .summary-figure {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 0 0.5rem;
+  padding: 0.5rem 0.8rem 0.55rem;
+}
+
+.summary-compact .summary-figure dt {
+  grid-column: 1 / -1;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.summary-compact .summary-figure dd {
+  font-size: 1.1rem;
+}
+
+.summary-compact .summary-figure small {
+  font-size: 0.7rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Classic tab set: each tab is a bordered box, and the selected one opens
+   onto the panel below it. */
+.tabs-classic {
+  flex: none;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0 0.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.tabs-classic .tab {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: var(--canvas);
+  margin-bottom: -1px;
+}
+
+.tabs-classic .tab:hover {
+  background: var(--surface);
+}
+
+.tabs-classic .tab-on {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  border-color: var(--rule);
+  border-bottom: 1px solid var(--surface);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tab-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem 1.25rem 1.5rem;
+  border: 1px solid var(--rule);
+  border-top: none;
+  background: var(--surface);
+}
+
+.record-form {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--rule);
+  max-width: 44rem;
+}
+
+.status-client-active {
+  background: var(--good-bg, #e7f4ec);
+  color: var(--good-ink);
+}
+
+.status-client-prospect,
+.status-client-on_hold {
+  background: var(--warn-bg, #fbf1dc);
+  color: var(--warn-ink);
+}
+
+.status-client-former {
+  background: var(--rule);
+  color: var(--ink-soft);
+}
+
+@media (max-width: 800px) {
+  .summary-compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-height: none;
+  }
+
+  .tabs-classic {
+    overflow-x: auto;
+  }
+}

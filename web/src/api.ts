@@ -414,11 +414,27 @@ export async function changePassword(
 
 /* ------------------------------------------------------------------ admin */
 
+export type ClientStatus = 'prospect' | 'active' | 'on_hold' | 'former';
+
+export const CLIENT_STATUS_LABEL: Record<ClientStatus, string> = {
+  prospect: 'Prospect',
+  active: 'Active',
+  on_hold: 'On hold',
+  former: 'Former',
+};
+
 export interface Client {
   id: number;
   name: string;
   primaryEmail: string;
+  status: ClientStatus;
   createdAt: string;
+  engagements: number;
+  topics: number;
+  meetings: number;
+  hoursWorked: number;
+  /** Null for staff who do not handle money. */
+  balanceCents: number | null;
 }
 
 export interface AdminUser {
@@ -487,7 +503,7 @@ export function clientColumns(): Promise<GridColumn[]> {
 
 export function updateClient(
   id: number,
-  input: { name: string; primaryEmail: string },
+  input: { name: string; primaryEmail: string; status?: ClientStatus },
 ): Promise<Client> {
   return request<Client>(`/api/admin/clients/${id}`, {
     method: 'PUT',
@@ -753,6 +769,7 @@ export interface ClientDetail {
   id: number;
   name: string;
   primaryEmail: string;
+  status: ClientStatus;
   createdAt: string;
   engagements: ClientEngagement[];
   appointments: AdminAppointment[];

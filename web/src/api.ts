@@ -340,6 +340,8 @@ export function postThreadMessage(
     minutes?: number;
     mediaItemIds?: number[];
     uploads?: { uploadKey: string; title: string }[];
+    /** False posts without emailing the topic's team. Staff only. */
+    notifyTeam?: boolean;
   },
 ): Promise<Thread> {
   return request<Thread>(`/api/threads/${topicId}/messages`, {

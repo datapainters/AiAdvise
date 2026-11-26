@@ -31,8 +31,9 @@ public class ThreadController {
         this.threads = threads;
     }
 
+    /** notifyTeam: false posts without emailing the topic's team. Staff only; absent means true. */
     public record PostMessage(String body, Integer minutes, List<Long> mediaItemIds,
-            List<ThreadService.Upload> uploads) {}
+            List<ThreadService.Upload> uploads, Boolean notifyTeam) {}
 
     public record UploadRequest(String fileName, String contentType, long sizeBytes) {}
 
@@ -61,6 +62,6 @@ public class ThreadController {
     public Thread post(@AuthenticationPrincipal Jwt jwt, @PathVariable Long topicId,
             @RequestBody PostMessage r) {
         return threads.post(threads.reader(CurrentUser.from(jwt).id()), topicId, r.body(),
-                r.minutes(), r.mediaItemIds(), r.uploads());
+                r.minutes(), r.mediaItemIds(), r.uploads(), !Boolean.FALSE.equals(r.notifyTeam()));
     }
 }

@@ -256,7 +256,7 @@ export function AdminOverviewPage({
           <header>
             <h2>Conversations awaiting reply</h2>
             <button className="linklike" onClick={() => onGo('messages')}>
-              All messages →
+              All topics →
             </button>
           </header>
           {data.waiting.length === 0 ? (

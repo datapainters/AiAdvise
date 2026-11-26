@@ -874,10 +874,10 @@ const ADMIN_VIEWS: {
   },
   {
     id: 'messages',
-    label: 'Messages',
+    label: 'Topics',
     group: 'Workspace',
     icon: 'chat',
-    blurb: 'Conversations on client topics, most recent first. Reply here; everyone on the engagement is emailed.',
+    blurb: 'Every client topic and its thread. Filter by client and engagement, or search; reply here.',
   },
   {
     id: 'invoices',
@@ -1635,7 +1635,7 @@ function Admin() {
   const current = ADMIN_VIEWS.find((v) => v.id === view)!;
 
   return (
-    <div className="admin-shell">
+    <div className={view === 'messages' ? 'admin-shell admin-shell-fill' : 'admin-shell'}>
       <aside className={navOpen ? 'admin-side open' : 'admin-side'}>
         <div className="admin-brand">
           <Link to="/" className="admin-brand-mark" aria-label="Data Painters home">
@@ -1985,9 +1985,14 @@ function Admin() {
       {view === 'messages' && (
         <MessagesPanel
           staff
+          all
+          filters
+          fill
+          groupByEngagement
           onError={onError}
+          onOpenMeeting={(id) => setOpenMeeting(id)}
           initialTopicId={Number(params.get('topic')) || null}
-          empty="No conversations yet. They start when a client raises a topic on an engagement run by message."
+          empty="No topics yet. They appear here when a client raises one or one is added to a meeting."
         />
       )}
 

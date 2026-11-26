@@ -1139,3 +1139,21 @@ checked with the demo data at 1920x1080, 1366x768, 1180x820, 820x1180,
 
 Tables still scroll sideways inside their own frame on phones; the page
 itself never does.
+
+## Admin Topics screen and quiet replies (2026-11-26)
+
+The admin menu item Messages is now **Topics** (the view id in the URL is
+still `messages`, so emailed links keep working). The screen lists every
+topic under a heading per engagement, with a client filter, an engagement
+filter that follows the client, and a search over titles, latest message and
+people. Filtering happens in the browser on the list already loaded.
+
+The screen fills the window and does not scroll as a page: the topic list
+and the open thread each scroll in their own frame (`admin-shell-fill`,
+`inbox-fill`). On narrow screens the list sits above the thread, a third and
+two thirds.
+
+Staff replies carry a **Notify Topic Team** checkbox, checked by default.
+Unchecked, the post is saved without the update email (`notifyTeam: false`
+on `POST /api/threads/{id}/messages`). The server ignores the flag from
+client accounts: a client's message always reaches the team.

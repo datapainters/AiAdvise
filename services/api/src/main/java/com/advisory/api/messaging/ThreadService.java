@@ -72,9 +72,30 @@ public class ThreadService {
 
     public record Attachment(String title, String kind, String url) {}
 
-    /** {@code minutes} is only ever filled for a Data Painters reader. */
-    public record Message(Long id, String authorName, String side, String body,
-            Instant createdAt, Integer minutes, boolean charged, List<Attachment> attachments) {}
+    /**
+     * One entry in a thread. {@code kind} is {@code message} for a post, or
+     * {@code meeting} for the notes taken on this topic in one meeting; the
+     * three meeting fields are only set for the latter. {@code minutes} is
+     * only ever filled for a Data Painters reader.
+     */
+    public record Message(Long id, String kind, String authorName, String side, String body,
+            Instant createdAt, Integer minutes, boolean charged, List<Attachment> attachments,
+            Long appointmentId, String meetingTitle, Integer participants) {}
+
+    /** A file someone is attaching from their own machine. */
+    public record Upload(String uploadKey, String title) {}
+
+    public record UploadSlot(String uploadUrl, String contentType, String uploadKey) {}
+
+    /** What can be attached to a post, and the largest of each. */
+    private static final Map<String, Long> ATTACHMENT_TYPES = Map.of(
+            "application/pdf", 50L * 1024 * 1024,
+            "image/png", 15L * 1024 * 1024,
+            "image/jpeg", 15L * 1024 * 1024,
+            "image/gif", 15L * 1024 * 1024,
+            "image/webp", 15L * 1024 * 1024,
+            "video/mp4", 200L * 1024 * 1024,
+            "video/webm", 200L * 1024 * 1024);
 
     public record Thread(Long topicId, String title, String detail, String desiredOutcome,
             String status, Long engagementId, String engagementTitle, String communication,
@@ -100,8 +121,13 @@ public class ThreadService {
                 WHERE m.topic_id = t.id
                 ORDER BY m.created_at DESC, m.id DESC
                 LIMIT 1) lm ON true
-            WHERE (e.communication IN ('message', 'both')
-                   OR EXISTS (SELECT 1 FROM topic_message m WHERE m.topic_id = t.id))
+            WHERE true
+            """;
+
+    /** Narrows a list to topics that take messages or already have some. */
+    private static final String CONVERSATIONS_ONLY = """
+             AND (e.communication IN ('message', 'both')
+                  OR EXISTS (SELECT 1 FROM topic_message m WHERE m.topic_id = t.id))
             """;
 
     /** What a client-side reader may see. Bound with :uid, :cid and :manages. */
@@ -134,9 +160,16 @@ public class ThreadService {
      * @param engagementId narrow to one engagement, or null
      * @param clientId     narrow to one client, or null; ignored for a client
      *                     reader, who is always held to their own
+     * @param everyTopic   include topics that neither take messages nor have
+     *                     any, so the list is the whole set of topics rather
+     *                     than an inbox
      */
-    public List<Summary> list(AppUser reader, Long engagementId, Long clientId) {
+    public List<Summary> list(AppUser reader, Long engagementId, Long clientId,
+            boolean everyTopic) {
         StringBuilder sql = new StringBuilder(SUMMARY_SELECT);
+        if (!everyTopic) {
+            sql.append(CONVERSATIONS_ONLY);
+        }
         Map<String, Object> p = new HashMap<>();
         if (!reader.isAdmin()) {
             sql.append(CLIENT_SCOPE);
@@ -224,13 +257,13 @@ public class ThreadService {
                 });
 
         boolean staff = reader.isAdmin();
-        List<Message> messages = jdbc.sql("""
+        List<Message> messages = new ArrayList<>(jdbc.sql("""
                 SELECT m.id, m.author_side, m.body, m.created_at, m.minutes, m.charge_id,
                        u.display_name
                 FROM topic_message m
                 LEFT JOIN app_user u ON u.id = m.author_user_id
                 WHERE m.topic_id = ? ORDER BY m.created_at, m.id
-                """).param(topicId).query((rs, i) -> new Message(rs.getLong("id"),
+                """).param(topicId).query((rs, i) -> new Message(rs.getLong("id"), "message",
                 rs.getString("display_name") == null
                         ? ("team".equals(rs.getString("author_side"))
                                 ? "Data Painters" : "Former team member")
@@ -241,7 +274,29 @@ public class ThreadService {
                 // line on an invoice.
                 staff ? rs.getObject("minutes", Integer.class) : null,
                 staff && rs.getObject("charge_id") != null,
-                attachments.getOrDefault(rs.getLong("id"), List.of()))).list();
+                attachments.getOrDefault(rs.getLong("id"), List.of()),
+                null, null, null)).list());
+
+        // What was written down about this topic in each meeting it was
+        // taken to. A topic can be carried through several meetings, and
+        // each leaves its own entry, placed in the thread at the time of the
+        // meeting it belongs to.
+        messages.addAll(jdbc.sql("""
+                SELECT n.id, n.body, a.id AS appointment_id, a.starts_at, a.title,
+                       u.display_name,
+                       (SELECT count(*) FROM appointment_participant p
+                        WHERE p.appointment_id = a.id AND p.attending) AS participants
+                FROM meeting_note n
+                JOIN appointment a ON a.id = n.appointment_id
+                LEFT JOIN app_user u ON u.id = n.author_user_id
+                WHERE n.topic_id = ?
+                """).param(topicId).query((rs, i) -> new Message(rs.getLong("id"), "meeting",
+                rs.getString("display_name") == null ? "Data Painters"
+                        : rs.getString("display_name"),
+                "team", rs.getString("body"), rs.getTimestamp("starts_at").toInstant(),
+                null, false, List.of(), rs.getLong("appointment_id"), rs.getString("title"),
+                rs.getInt("participants"))).list());
+        messages.sort(java.util.Comparator.comparing(Message::createdAt));
 
         String reason = closedReason(t);
         return new Thread(t.id(), t.title(), t.detail(), t.desiredOutcome(), t.status(),
@@ -257,18 +312,63 @@ public class ThreadService {
      * @param minutes      time the reply took; honoured for Data Painters only
      * @param mediaItemIds library items to attach; honoured for Data Painters only
      */
-    @Transactional
-    public Thread post(AppUser author, Long topicId, String text, Integer minutes,
-            List<Long> mediaItemIds) {
+    /**
+     * Step one of attaching a file from someone's own machine: where their
+     * browser should send it. Anyone who may post on the thread may attach.
+     */
+    public UploadSlot startUpload(AppUser author, Long topicId, String contentType, long size) {
         TopicRow t = visible(author, topicId);
         String reason = closedReason(t);
         if (reason != null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
         }
-        String body = text == null ? "" : text.trim();
-        if (body.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Write a message first");
+        Long max = contentType == null ? null : ATTACHMENT_TYPES.get(contentType);
+        if (max == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Attach a PDF, an image (PNG, JPEG, GIF, WebP) or a video (MP4, WebM)");
         }
+        if (size <= 0 || size > max) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "That file is too large. The limit for this type is "
+                            + max / (1024 * 1024) + " MB");
+        }
+        String key = "threads/" + topicId + "/" + java.util.UUID.randomUUID()
+                + MediaService.extension(contentType);
+        MediaStore.Upload up = store.presignPut(key, contentType,
+                java.time.Duration.ofMinutes(30));
+        return new UploadSlot(up.url(), up.contentType(), key);
+    }
+
+    private static String typeFor(String key) {
+        if (key.endsWith(".pdf")) return "application/pdf";
+        if (key.endsWith(".png")) return "image/png";
+        if (key.endsWith(".jpg")) return "image/jpeg";
+        if (key.endsWith(".gif")) return "image/gif";
+        if (key.endsWith(".webp")) return "image/webp";
+        if (key.endsWith(".mp4")) return "video/mp4";
+        if (key.endsWith(".webm")) return "video/webm";
+        return "application/octet-stream";
+    }
+
+    @Transactional
+    public Thread post(AppUser author, Long topicId, String text, Integer minutes,
+            List<Long> mediaItemIds, List<Upload> uploads) {
+        TopicRow t = visible(author, topicId);
+        String reason = closedReason(t);
+        if (reason != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
+        }
+        List<Upload> files = uploads == null ? List.of() : uploads.stream().limit(10).toList();
+        String typed = text == null ? "" : text.trim();
+        if (typed.isEmpty() && files.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Write a message or attach a file first");
+        }
+        // A post that is only files still needs words for the email and the
+        // list of conversations to show.
+        String body = typed.isEmpty()
+                ? (files.size() == 1 ? "Shared a file." : "Shared " + files.size() + " files.")
+                : typed;
         if (body.length() > 20000) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "That message is too long. Keep it under 20,000 characters.");
@@ -305,6 +405,27 @@ public class ThreadService {
                         """).params(messageId, itemId, item[0], item[1], item[2]).update();
                 attached.add(item[2]);
             }
+        }
+
+        for (Upload f : files) {
+            // Only a key this thread issued, so nobody can attach a file that
+            // belongs to another conversation by naming it.
+            if (f.uploadKey() == null || !f.uploadKey().startsWith("threads/" + topicId + "/")
+                    || f.uploadKey().contains("..")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown upload");
+            }
+            if (store.size(f.uploadKey()) <= 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "A file has not finished uploading");
+            }
+            String title = f.title() == null || f.title().isBlank() ? "Attachment"
+                    : f.title().trim().substring(0, Math.min(200, f.title().trim().length()));
+            jdbc.sql("""
+                    INSERT INTO topic_message_attachment
+                        (message_id, storage_key, content_type, title)
+                    VALUES (?, ?, ?, ?)
+                    """).params(messageId, f.uploadKey(), typeFor(f.uploadKey()), title).update();
+            attached.add(title);
         }
 
         log.info("Message {} posted on topic {} by user {}", messageId, topicId, author.getId());

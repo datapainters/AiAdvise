@@ -18,7 +18,6 @@ import {
   COMMUNICATION_LABELS,
   closeEngagement,
   type Communication,
-  saveMeetingNote,
   uploadEngagementFile,
   getEngagementDetail,
   inviteTeamMember,
@@ -28,7 +27,6 @@ import {
   updateEngagement,
   updateTeamMember,
   type CreatedUser,
-  type EngagementAgendaLine,
   type EngagementDetail,
   type EngagementNote,
   type TeamMember,
@@ -78,14 +76,13 @@ function day(iso: string): string {
 
 /* -------------------------------------------------------- engagement manager */
 
-type Tab = 'overview' | 'meetings' | 'messages' | 'notes' | 'agenda' | 'media' | 'team' | 'billing';
+type Tab = 'overview' | 'meetings' | 'messages' | 'notes' | 'media' | 'team' | 'billing';
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
   meetings: 'Meetings',
-  messages: 'Messages',
+  messages: 'Topics',
   notes: 'Notes',
-  agenda: 'Topics',
   media: 'Media',
   team: 'Team',
   billing: 'Billing',
@@ -105,8 +102,11 @@ export function EngagementManager({
   onError,
   onOpenMeeting,
   onOpenInvoice,
+  onOpenClient,
   onToast,
 }: {
+  /** Opens the client record this engagement belongs to. */
+  onOpenClient?: (clientId: number) => void;
   engagementId: number;
   onClose: () => void;
   /** Tells the list behind to reload after an edit. */
@@ -130,16 +130,15 @@ export function EngagementManager({
     reload().finally(() => setLoading(false));
   }, [reload]);
 
-  const tabs: Tab[] = ['overview', 'meetings', 'messages', 'notes', 'agenda', 'media', 'team'];
+  const tabs: Tab[] = ['overview', 'meetings', 'messages', 'notes', 'media', 'team'];
   if (detail?.billing) tabs.push('billing');
 
   const noted = detail?.agenda.filter((a) => a.note).length ?? 0;
   const counts: Record<Tab, number | null> = {
     overview: null,
     meetings: detail?.meetings.length ?? 0,
-    messages: null,
+    messages: detail?.agenda.length ?? 0,
     notes: detail?.notes.length ?? 0,
-    agenda: detail?.agenda.length ?? 0,
     media: (detail?.files.length ?? 0) + (detail?.media.length ?? 0),
     team: detail?.team.length ?? 0,
     billing: null,
@@ -228,7 +227,14 @@ export function EngagementManager({
             ]}
             facts={[
               <>
-                Client <strong>{detail.clientName}</strong>
+                Client{' '}
+                {onOpenClient ? (
+                  <button className="linklike" onClick={() => onOpenClient(detail.clientId)}>
+                    {detail.clientName}
+                  </button>
+                ) : (
+                  <strong>{detail.clientName}</strong>
+                )}
               </>,
               <>
                 Run by <strong>{COMMUNICATION_LABELS[detail.communication].toLowerCase()}</strong>
@@ -321,13 +327,11 @@ export function EngagementManager({
           {tab === 'messages' && (
             <MessagesPanel
               scope={{ engagementId }}
+              all
               staff
               onError={onError}
-              empty={
-                detail.communication === 'video'
-                  ? 'This engagement is run by video meetings, so its topics do not take messages. Change Communication on the Overview tab to turn messages on.'
-                  : 'No conversations yet. They start when the client raises a topic.'
-              }
+              onOpenMeeting={onOpenMeeting}
+              empty="No topics yet. The client adds what they want covered from their portal, and you can add agenda items from a meeting."
             />
           )}
 
@@ -337,15 +341,6 @@ export function EngagementManager({
               notes={detail.notes}
               onError={onError}
               onChange={(notes) => setDetail((d) => (d ? { ...d, notes } : d))}
-            />
-          )}
-
-          {tab === 'agenda' && (
-            <AgendaTab
-              lines={detail.agenda}
-              onOpenMeeting={onOpenMeeting}
-              onError={onError}
-              onSaved={reload}
             />
           )}
 
@@ -616,140 +611,6 @@ function OverviewTab({
   );
 }
 
-/** A meeting note shown with an Edit button that turns it into a field. */
-function MeetingNote({
-  line,
-  onSaved,
-  onError,
-}: {
-  line: EngagementAgendaLine;
-  onSaved: () => void;
-  onError: OnError;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(line.note ?? '');
-  const [busy, setBusy] = useState(false);
-
-  async function save() {
-    if (line.appointmentId === null) return;
-    setBusy(true);
-    try {
-      await saveMeetingNote(line.appointmentId, line.topicId, draft);
-      setEditing(false);
-      onSaved();
-    } catch (err) {
-      onError(err);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (editing) {
-    return (
-      <div className="note-edit">
-        <textarea
-          rows={4}
-          value={draft}
-          autoFocus
-          aria-label={`Note for ${line.title}`}
-          onChange={(e) => setDraft(e.target.value)}
-        />
-        <div className="button-row">
-          <button className="btn btn-primary" onClick={save} disabled={busy}>
-            {busy ? 'Saving...' : 'Save note'}
-          </button>
-          <button
-            className="linklike"
-            onClick={() => {
-              setDraft(line.note ?? '');
-              setEditing(false);
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <>
-      {line.note ? <p>{line.note}</p> : <p className="muted">No notes recorded.</p>}
-      {/* A topic still waiting for a meeting has nowhere to hang a note. */}
-      {line.appointmentId !== null && (
-        <button className="linklike" onClick={() => setEditing(true)}>
-          {line.note ? 'Edit note' : 'Add note'}
-        </button>
-      )}
-    </>
-  );
-}
-
-function AgendaTab({
-  lines,
-  onOpenMeeting,
-  onSaved,
-  onError,
-}: {
-  lines: EngagementAgendaLine[];
-  onOpenMeeting: (appointmentId: number) => void;
-  onSaved: () => void;
-  onError: OnError;
-}) {
-  if (lines.length === 0) {
-    return (
-      <p className="empty">
-        No topics yet. The client adds what they want covered from their portal, and each topic is
-        put on a meeting&rsquo;s agenda when the meeting is booked.
-      </p>
-    );
-  }
-
-  // Lines arrive ordered: unscheduled first, then by meeting, newest first.
-  const groups: { key: string; appointmentId: number | null; meetingAt: string | null; lines: EngagementAgendaLine[] }[] = [];
-  for (const line of lines) {
-    const key = line.appointmentId === null ? 'waiting' : String(line.appointmentId);
-    const last = groups[groups.length - 1];
-    if (last && last.key === key) last.lines.push(line);
-    else groups.push({ key, appointmentId: line.appointmentId, meetingAt: line.meetingAt, lines: [line] });
-  }
-
-  return (
-    <div className="engagement-agenda">
-      {groups.map((g) => (
-        <section key={g.key}>
-          <h4 className="people-side-title">
-            {g.appointmentId === null ? (
-              'Waiting for a meeting'
-            ) : (
-              <button className="linklike" onClick={() => onOpenMeeting(g.appointmentId!)}>
-                Meeting on {g.meetingAt ? day(g.meetingAt) : 'an unknown date'}
-              </button>
-            )}
-            <span className="tab-count">{g.lines.length}</span>
-          </h4>
-          <div className="notes-list">
-            {g.lines.map((l) => (
-              <article key={l.topicId} className="note-entry">
-                <header>
-                  <strong>{l.title}</strong>
-                  <span className={`status status-${l.status}`}>{l.status}</span>
-                </header>
-                {l.desiredOutcome && (
-                  <p className="topic-outcome">
-                    <strong>Wanted:</strong> {l.desiredOutcome}
-                  </p>
-                )}
-                <MeetingNote line={l} onSaved={onSaved} onError={onError} />
-              </article>
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
-
 /* ---------------------------------------------------------- engagement notes */
 
 function when(iso: string): string {
@@ -813,7 +674,7 @@ function NotesTab({
 
       {notes.length === 0 ? (
         <p className="empty">
-          No notes yet. Notes taken against a meeting&rsquo;s agenda are under Topics.
+          No notes yet. Notes taken on a topic in a meeting appear in that topic&rsquo;s thread, under Topics.
         </p>
       ) : (
         <div className="notes-list">

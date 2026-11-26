@@ -209,6 +209,17 @@ public class MeetingController {
         return rows(List.of(appointment)).get(0);
     }
 
+    /** Puts a topic the engagement already has onto this meeting's agenda. */
+    @org.springframework.web.bind.annotation.PostMapping("/appointments/{id}/topics/{topicId}")
+    public AgendaItem carryOverTopic(@PathVariable Long id, @PathVariable Long topicId) {
+        Appointment appointment = appointments.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        if (Appointment.CANCELLED.equals(appointment.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This meeting is cancelled");
+        }
+        return agenda.carryOver(id, appointment.getEngagementId(), topicId);
+    }
+
     public record AddAgendaItem(
             @jakarta.validation.constraints.NotBlank String title, String desiredOutcome) {}
 

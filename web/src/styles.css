@@ -5500,3 +5500,26 @@ button:disabled,
 .dash-panels table {
   max-width: 100%;
 }
+
+/* Notes from a meeting, inside a topic's thread. Set apart from the posts:
+   a record of a meeting, not something one person said. */
+.thread-message.is-meeting {
+  border-left-color: var(--ink);
+  background: var(--canvas);
+}
+
+.thread-message.is-meeting footer {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.thread-head h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.thread-head h3 .status {
+  font-weight: 600;
+}

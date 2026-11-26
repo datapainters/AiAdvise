@@ -28,18 +28,62 @@ public class AgendaService {
 
     private final TopicRepository topics;
     private final MeetingNoteRepository notes;
+    private final org.springframework.jdbc.core.simple.JdbcClient jdbc;
 
-    public AgendaService(TopicRepository topics, MeetingNoteRepository notes) {
+    public AgendaService(TopicRepository topics, MeetingNoteRepository notes,
+            org.springframework.jdbc.core.simple.JdbcClient jdbc) {
         this.topics = topics;
         this.notes = notes;
+        this.jdbc = jdbc;
     }
 
+    /** Topics brought back to this meeting from an earlier one (V16). */
+    private List<Long> carriedTopicIds(Long appointmentId) {
+        return jdbc.sql("SELECT topic_id FROM meeting_topic WHERE appointment_id = ?")
+                .param(appointmentId).query(Long.class).list();
+    }
+
+    /**
+     * The agenda: the topics booked onto this meeting, then any brought back
+     * to it from earlier meetings.
+     */
     public List<AgendaItem> agenda(Long appointmentId) {
         Map<Long, MeetingNote> byTopic = notes.findAllByAppointmentId(appointmentId).stream()
                 .collect(Collectors.toMap(MeetingNote::getTopicId, n -> n, (a, b) -> a));
-        return topics.findByAppointmentIdOrderByPriorityAscCreatedAtAsc(appointmentId).stream()
-                .map(t -> item(t, byTopic.get(t.getId())))
-                .toList();
+        List<Topic> all = new java.util.ArrayList<>(
+                topics.findByAppointmentIdOrderByPriorityAscCreatedAtAsc(appointmentId));
+        all.addAll(topics.findAllById(carriedTopicIds(appointmentId)));
+        return all.stream().map(t -> item(t, byTopic.get(t.getId()))).toList();
+    }
+
+    /**
+     * Brings a topic that already exists on the engagement onto this
+     * meeting's agenda, so it can be taken further and noted again. Its
+     * earlier notes stay with the meetings they were taken in.
+     */
+    @Transactional
+    public AgendaItem carryOver(Long appointmentId, Long engagementId, Long topicId) {
+        Topic topic = topics.findById(topicId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        if (!engagementId.equals(topic.getEngagementId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "That topic belongs to a different engagement");
+        }
+        if (appointmentId.equals(topic.getAppointmentId())
+                || carriedTopicIds(appointmentId).contains(topicId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "That topic is already on this meeting's agenda");
+        }
+        jdbc.sql("INSERT INTO meeting_topic (appointment_id, topic_id) VALUES (?, ?)")
+                .params(appointmentId, topicId).update();
+        // Back on an agenda, so no longer finished.
+        if (Topic.DISCUSSED.equals(topic.getStatus()) || Topic.PROPOSED.equals(topic.getStatus())) {
+            topic.setStatus(Topic.SCHEDULED);
+            topic.setUpdatedAt(Instant.now());
+            topics.save(topic);
+        }
+        return item(topic,
+                notes.findByAppointmentIdAndTopicId(appointmentId, topicId).orElse(null));
     }
 
     /** Saves the note for one agenda item; an empty body removes it. */
@@ -102,7 +146,8 @@ public class AgendaService {
     private Topic onAgenda(Long appointmentId, Long topicId) {
         Topic topic = topics.findById(topicId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        if (!appointmentId.equals(topic.getAppointmentId())) {
+        if (!appointmentId.equals(topic.getAppointmentId())
+                && !carriedTopicIds(appointmentId).contains(topicId)) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "That topic is not on this meeting's agenda");
         }

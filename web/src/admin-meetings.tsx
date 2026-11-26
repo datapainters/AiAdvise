@@ -15,6 +15,9 @@ import {
   setAgendaItemStatus,
   setAppointmentStatus,
   addAgendaItem,
+  carryOverTopic,
+  listTopics,
+  type Topic,
   listMeetingParticipants,
   listMeetingShares,
   listThreads,
@@ -251,9 +254,15 @@ function AgendaRow({
 /** Adds an item to a meeting's agenda, so there is somewhere to take notes. */
 function AddAgendaItem({
   appointmentId,
+  engagementId,
+  onAgenda,
   onAdded,
   onError,
 }: {
+  /** The engagement, to offer its other topics. */
+  engagementId: number;
+  /** Topic ids already on this agenda. */
+  onAgenda: number[];
   appointmentId: number;
   onAdded: (item: AgendaItem) => void;
   onError: (e: unknown) => void;
@@ -262,6 +271,33 @@ function AddAgendaItem({
   const [title, setTitle] = useState('');
   const [outcome, setOutcome] = useState('');
   const [busy, setBusy] = useState(false);
+  const [existing, setExisting] = useState<Topic[]>([]);
+  const [pick, setPick] = useState('');
+
+  // The engagement's other topics, so one left unfinished in an earlier
+  // meeting can be picked up again here.
+  useEffect(() => {
+    if (!open) return;
+    listTopics(engagementId)
+      .then(setExisting)
+      .catch(() => setExisting([]));
+  }, [open, engagementId]);
+
+  const available = existing.filter((t) => !onAgenda.includes(t.id) && t.status !== 'dropped');
+
+  async function bringBack() {
+    if (!pick) return;
+    setBusy(true);
+    try {
+      onAdded(await carryOverTopic(appointmentId, Number(pick)));
+      setPick('');
+      setOpen(false);
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -288,11 +324,35 @@ function AddAgendaItem({
       <div className="tool-toolbar">
         <button onClick={() => setOpen((v) => !v)}>{open ? 'Cancel' : 'Add agenda item'}</button>
       </div>
+      {open && available.length > 0 && (
+        <div className="stack-form inset">
+          <label>
+            Continue a topic from this engagement
+            <select value={pick} onChange={(e) => setPick(e.target.value)}>
+              <option value="">Select...</option>
+              {available.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.title} ({t.status === 'proposed' ? 'open' : t.status})
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="hint">
+            Notes taken here are added to the topic&rsquo;s thread beside the notes from its earlier
+            meetings.
+          </p>
+          <div className="button-row">
+            <button type="button" className="btn btn-primary" disabled={busy || !pick} onClick={bringBack}>
+              Add to agenda
+            </button>
+          </div>
+        </div>
+      )}
       {open && (
         <form onSubmit={submit} className="stack-form inset">
           <label>
-            Topic
-            <input value={title} required autoFocus maxLength={200} onChange={(e) => setTitle(e.target.value)} />
+            {available.length > 0 ? 'Or add a new topic' : 'Topic'}
+            <input value={title} required maxLength={200} onChange={(e) => setTitle(e.target.value)} />
           </label>
           <label>
             Wanted outcome
@@ -524,6 +584,8 @@ export function MeetingManager({
           {tab === 'agenda' && a.status !== 'cancelled' && (
             <AddAgendaItem
               appointmentId={appointmentId}
+              engagementId={a.engagementId}
+              onAgenda={meeting.agenda.map((x) => x.topicId)}
               onError={onError}
               onAdded={(item) =>
                 setMeeting((m) => (m ? { ...m, agenda: [...m.agenda, item] } : m))

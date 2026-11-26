@@ -980,3 +980,41 @@ Front end only; no migration.
 The thread notification itself was already sending to the topic's owner and
 the engagement's team (and anyone who has posted), with the post followed by
 the reply button; nothing changed there.
+
+## Topics as the one thread; meeting notes in threads; client attachments (V16, 2026-11-26)
+
+- **Portal.** The board-style Topics screen is gone. The screen that was
+  Messages is now Topics and lists every topic the reader can see, not only
+  those with messages, with an engagement filter. Its view id is still
+  `messages` because emailed links use it; `?view=topics` redirects to it.
+  Add topic now asks which engagement.
+- **Portal has no staff controls.** `ThreadView` shows time and the media
+  library only when the console passes `staff`. The portal never does,
+  including for an admin previewing it.
+- **Attachments from anyone.** `POST /api/threads/{topicId}/uploads` hands
+  out an upload slot under `threads/{topicId}/`; the post then names the
+  keys. PDF, images, MP4/WebM. A post can be files only. A key is accepted
+  only on the thread that issued it.
+- **Meeting notes appear in the thread.** Each `meeting_note` on a topic is
+  an entry in its thread with the meeting's date, title and the number of
+  people marked as on the call, ordered by the meeting's start time. In the
+  console the entry can be edited and links to the meeting. **This shows
+  meeting notes to clients in the portal**, which they could not see before
+  (they were only in the summary email).
+- **A topic across several meetings.** `meeting_topic` records the extra
+  meetings a topic is brought back to; `topic.appointment_id` is still the
+  first. Meeting Manager → Add agenda item offers "Continue a topic from
+  this engagement". Each meeting's note is its own entry in the thread.
+- **Engagement Manager.** The old Topics tab (agenda lines) is removed and
+  the Messages tab is renamed Topics, listing every topic. The client's name
+  in the header opens the client record.
+
+Left open:
+
+- Topic counts on the meetings list and calendar count only topics first
+  booked onto a meeting, not ones carried over to it.
+- Saving a meeting note does not send the thread notification email; the
+  summary email on completion is still what tells people.
+- Clients can no longer drop a topic from the portal; the board that had the
+  button is gone. Add it to the thread header if it is missed.
+- Uploaded thread files are not cleaned up if the post is never sent.

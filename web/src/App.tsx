@@ -10,6 +10,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
+import { Paged } from './datagrid';
 import {
   Link,
   Navigate,
@@ -609,7 +610,8 @@ function SignInActivity({ onError }: { onError: (e: unknown) => void }) {
           {loading ? 'Loading...' : 'Nothing recorded yet.'}
         </p>
       ) : (
-        <div className="grid-wrap">
+        <Paged rows={shown} size={25}>{(pageRows) => (
+<div className="grid-wrap">
           <table className="grid">
             <thead>
               <tr>
@@ -621,7 +623,7 @@ function SignInActivity({ onError }: { onError: (e: unknown) => void }) {
               </tr>
             </thead>
             <tbody>
-              {shown.map((e) => (
+              {pageRows.map((e) => (
                 <tr key={e.id} className={e.outcome === 'failure' ? 'row-bad' : undefined}>
                   <td className="nowrap">{formatWhen(e.at)}</td>
                   <td>
@@ -642,6 +644,7 @@ function SignInActivity({ onError }: { onError: (e: unknown) => void }) {
             </tbody>
           </table>
         </div>
+)}</Paged>
       )}
 
       <p className="hint">
@@ -774,7 +777,8 @@ function PortalLogins({
       {users.length === 0 ? (
         <p className="empty">No logins yet.</p>
       ) : (
-        <div className="grid-wrap">
+        <Paged rows={users} size={25}>{(pageRows) => (
+<div className="grid-wrap">
           <table className="grid">
             <thead>
               <tr>
@@ -786,7 +790,7 @@ function PortalLogins({
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
+              {pageRows.map((u) => (
                 <tr key={u.id} className={u.enabled ? undefined : 'row-bad'}>
                   <td>{u.displayName}</td>
                   <td>{u.email}</td>
@@ -800,6 +804,7 @@ function PortalLogins({
             </tbody>
           </table>
         </div>
+)}</Paged>
       )}
     </>
   );

@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { Paged } from './datagrid';
 import {
   addClientTeamMember,
   addEngagementTeamMember,
@@ -295,8 +296,9 @@ export function EngagementsView({
   }
 
   return (
+<Paged rows={engagements}>{(pageRows) => (
     <div className="eng-list">
-      {engagements.map((e) => (
+      {pageRows.map((e) => (
         <article key={e.id} className="eng-card">
           <header>
             <div>
@@ -325,6 +327,7 @@ export function EngagementsView({
         </article>
       ))}
     </div>
+)}</Paged>
   );
 }
 
@@ -465,7 +468,8 @@ export function TeamMembersView({
         </form>
       )}
 
-      <div className="grid-wrap">
+      <Paged rows={team.members} size={15}>{(pageRows) => (
+<div className="grid-wrap">
         <table className="grid">
           <thead>
             <tr>
@@ -477,7 +481,7 @@ export function TeamMembersView({
             </tr>
           </thead>
           <tbody>
-            {team.members.map((m) => {
+            {pageRows.map((m) => {
               const self = m.id === user.id;
               const fixed = m.clientRole === 'owner' || self || !team.canManage;
               return (
@@ -547,6 +551,7 @@ export function TeamMembersView({
           </tbody>
         </table>
       </div>
+)}</Paged>
 
       <div className="role-key">
         {(['owner', 'manager', 'member'] as ClientRole[]).map((r) => (

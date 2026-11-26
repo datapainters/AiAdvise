@@ -1252,7 +1252,8 @@ export function TeamAdmin({
       {!team ? (
         <p className="empty">Loading...</p>
       ) : (
-        <div className="grid-wrap">
+        <Paged rows={team} size={25}>{(pageRows) => (
+<div className="grid-wrap">
           <table className="grid">
             <thead>
               <tr>
@@ -1265,7 +1266,7 @@ export function TeamAdmin({
               </tr>
             </thead>
             <tbody>
-              {team.map((m) => (
+              {pageRows.map((m) => (
                 <tr key={m.id} className="clickable" onClick={() => setEditing(m)}>
                   <td>
                     <strong>{m.displayName}</strong>
@@ -1307,6 +1308,7 @@ export function TeamAdmin({
             </tbody>
           </table>
         </div>
+)}</Paged>
       )}
 
       <div className="role-key">

@@ -3,6 +3,7 @@
  * reporting section's Video conference billing report.
  */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Paged } from './datagrid';
 import { Modal } from './admin-meetings';
 import {
   archiveMedia,
@@ -64,8 +65,9 @@ export function MediaLibrary({ onError, onToast }: { onError: OnError; onToast: 
             ) : list.length === 0 ? (
               <p className="panel-empty">None yet. {k.hint}.</p>
             ) : (
+<Paged rows={list}>{(pageRows) => (
               <ul className="media-list">
-                {list.map((i) => (
+                {pageRows.map((i) => (
                   <li key={i.id}>
                     <div>
                       <strong>{i.title}</strong>
@@ -111,6 +113,7 @@ export function MediaLibrary({ onError, onToast }: { onError: OnError; onToast: 
                   </li>
                 ))}
               </ul>
+)}</Paged>
             )}
           </div>
         );
@@ -339,7 +342,8 @@ export function VideoBillingReportView({ onError }: { onError: OnError }) {
           ) : (
             <>
               <h4 className="subhead">Billed per customer per month</h4>
-              <div className="grid-wrap">
+              <Paged rows={r.clientTotals} size={25}>{(pageRows) => (
+<div className="grid-wrap">
                 <table className="grid report-table">
                   <thead>
                     <tr>
@@ -353,7 +357,7 @@ export function VideoBillingReportView({ onError }: { onError: OnError }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {r.clientTotals.map((c) => (
+                    {pageRows.map((c) => (
                       <tr key={c.clientId}>
                         <td>
                           <strong>{c.clientName}</strong>
@@ -385,9 +389,11 @@ export function VideoBillingReportView({ onError }: { onError: OnError }) {
                   </tfoot>
                 </table>
               </div>
+)}</Paged>
 
               <h4 className="subhead">Detail</h4>
-              <div className="grid-wrap">
+              <Paged rows={r.rows} size={25}>{(pageRows) => (
+<div className="grid-wrap">
                 <table className="grid report-table">
                   <thead>
                     <tr>
@@ -402,7 +408,7 @@ export function VideoBillingReportView({ onError }: { onError: OnError }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {r.rows.map((x) => (
+                    {pageRows.map((x) => (
                       <tr key={`${x.clientId}-${x.month}`}>
                         <td>{x.clientName}</td>
                         <td className="nowrap">{x.month && monthLabel(x.month)}</td>
@@ -417,6 +423,7 @@ export function VideoBillingReportView({ onError }: { onError: OnError }) {
                   </tbody>
                 </table>
               </div>
+)}</Paged>
             </>
           )}
         </>

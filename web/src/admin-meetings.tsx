@@ -837,7 +837,7 @@ export function ClientDetailModal({
                 className={tab === t ? 'tab tab-on' : 'tab'}
                 onClick={() => setTab(t)}
               >
-                {t[0].toUpperCase() + t.slice(1)}
+                {t === 'messages' ? 'Topics' : t[0].toUpperCase() + t.slice(1)}
                 {counts[t] !== null && <span className="tab-count">{counts[t]}</span>}
               </button>
             ))}
@@ -1081,9 +1081,12 @@ export function ClientDetailModal({
           {tab === 'messages' && (
             <MessagesPanel
               scope={{ clientId }}
+              all
+              groupByEngagement
               staff
               onError={onError}
-              empty="No conversations with this client yet. They are collected here from all of its engagements."
+              onOpenMeeting={onOpenMeeting}
+              empty="This client has no topics yet. They are collected here from all of its engagements."
             />
           )}
 

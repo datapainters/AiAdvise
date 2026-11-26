@@ -15,6 +15,7 @@ import {
   editEngagementNote,
   removeEngagementFile,
   chargeMessageTime,
+  downloadStatusReport,
   COMMUNICATION_LABELS,
   closeEngagement,
   type Communication,
@@ -120,6 +121,20 @@ export function EngagementManager({
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
   const [addingMeeting, setAddingMeeting] = useState(false);
+  const [reporting, setReporting] = useState(false);
+
+  async function statusReport() {
+    if (!detail) return;
+    setReporting(true);
+    try {
+      await downloadStatusReport(detail.id, detail.title);
+      onToast('Status report downloaded');
+    } catch (err) {
+      onError(err);
+    } finally {
+      setReporting(false);
+    }
+  }
 
   const reload = useCallback(
     () => getEngagementDetail(engagementId).then(setDetail).catch(onError),
@@ -180,6 +195,19 @@ export function EngagementManager({
       title={detail?.title ?? 'Engagement'}
       badge={detail ? statusLabel(detail.status) : undefined}
       badgeTone={detail ? STATUS_TONE[detail.status] ?? 'neutral' : undefined}
+      toolbar={
+        detail && (
+          <>
+            <button className="btn" onClick={statusReport} disabled={reporting}>
+              {reporting ? 'Preparing report...' : 'Engagement Status Report'}
+            </button>
+            <span className="muted modal-toolbar-note">
+              A PDF of the goal, topics, team and recent activity, written to send to the client. No
+              billing figures or internal notes.
+            </span>
+          </>
+        )
+      }
       onClose={onClose}
       wide
     >

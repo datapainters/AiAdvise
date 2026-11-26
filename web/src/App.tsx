@@ -73,6 +73,7 @@ import { clearToken, getToken, isTeamAdmin, seesMoney, type User } from './auth'
 import { EngagementManager, TeamAdmin } from './engagement-manager';
 import { NewMeetingForm } from './meeting-form';
 import { MessagesPanel } from './threads';
+import { AdminOverviewPage } from './admin-overview';
 import { ClientPortal } from './portal';
 import { MediaLibrary, VideoBillingReportView } from './media';
 import {
@@ -98,7 +99,6 @@ import {
   UnbilledReport,
 } from './billing';
 import {
-  getSnapshot,
   invoiceColumns,
   listInvoices,
   listPayments,
@@ -106,7 +106,6 @@ import {
   paymentColumns,
   type Invoice,
   type Payment,
-  type Snapshot,
 } from './billing-api';
 
 /* ------------------------------------------------------------------ auth */
@@ -830,7 +829,7 @@ const ADMIN_VIEWS: {
     label: 'Overview',
     group: 'Workspace',
     icon: 'home',
-    blurb: 'What needs you today: meetings awaiting confirmation and the week ahead.',
+    blurb: 'What is waiting on the team, how the work stands, and the rest of the system at a glance.',
   },
   {
     id: 'calendar',
@@ -1110,190 +1109,6 @@ function formatDay(value: string | null | undefined): string {
     : new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-/**
- * The admin landing page. Four numbers worth knowing on arrival and the two
- * lists that usually need action: requests to confirm, and what is coming up.
- */
-function Overview({
-  refreshKey,
-  onError,
-  onGo,
-  onOpenMeeting,
-  money: showMoney,
-}: {
-  /** Whether this person handles billing; the figures are left out if not. */
-  money: boolean;
-  refreshKey: number;
-  onError: (e: unknown) => void;
-  onGo: (v: AdminView) => void;
-  onOpenMeeting: (id: number) => void;
-}) {
-  const [data, setData] = useState<{
-    clients: number;
-    active: number;
-    pending: GridPage<AdminAppointment>;
-    upcoming: GridPage<AdminAppointment>;
-    billing: Snapshot | null;
-  } | null>(null);
-
-  useEffect(() => {
-    const now = new Date().toISOString();
-    Promise.all([
-      listClients('size=1'),
-      listAllEngagements('filter=status:eq:active&size=1'),
-      listAdminAppointments('filter=status:eq:requested&sort=startsAt:asc&size=8'),
-      listAdminAppointments(
-        `filter=status:eq:confirmed&filter=startsAt:gte:${encodeURIComponent(now)}&sort=startsAt:asc&size=8`,
-      ),
-      // Billing is additive: the dashboard still renders if it fails.
-      showMoney ? getSnapshot().catch(() => null) : Promise.resolve(null),
-    ])
-      .then(([c, e, pending, upcoming, billing]) =>
-        setData({ clients: c.total, active: e.total, pending, upcoming, billing }),
-      )
-      .catch(onError);
-  }, [refreshKey, onError, showMoney]);
-
-  if (!data) {
-    return (
-      <div className="kpis">
-        {[0, 1, 2, 3].map((i) => (
-          <div className="kpi skeleton" key={i} />
-        ))}
-      </div>
-    );
-  }
-
-  const kpis: { label: string; value: number; hint: string; view: AdminView; tone?: string }[] = [
-    { label: 'Clients', value: data.clients, hint: 'All client companies', view: 'clients' },
-    {
-      label: 'Active engagements',
-      value: data.active,
-      hint: 'Currently open',
-      view: 'engagements',
-    },
-    {
-      label: 'Awaiting confirmation',
-      value: data.pending.total,
-      hint: data.pending.total ? 'Needs your reply' : 'Nothing waiting',
-      view: 'appointments',
-      tone: data.pending.total ? 'warn' : undefined,
-    },
-    {
-      label: 'Upcoming meetings',
-      value: data.upcoming.total,
-      hint: 'Confirmed, from now on',
-      view: 'appointments',
-    },
-  ];
-
-  const b = data.billing;
-  const money2: { label: string; value: string; hint: string; view: AdminView; tone?: string }[] = b
-    ? [
-        {
-          label: 'Accounts receivable',
-          value: money(b.receivableCents),
-          hint: b.overdueCents > 0 ? `${money(b.overdueCents)} past due` : 'Nothing past due',
-          view: 'ar',
-          tone: b.overdueCents > 0 ? 'warn' : undefined,
-        },
-        { label: 'Unbilled', value: money(b.unbilledCents), hint: 'Ready to invoice', view: 'unbilled' },
-        {
-          label: 'Billed this month',
-          value: money(b.billedThisMonthCents),
-          hint: `Collected ${money(b.collectedThisMonthCents)}`,
-          view: 'revenue',
-        },
-        {
-          label: 'New inquiries',
-          value: String(b.openInquiries),
-          hint: b.openInquiries ? 'Free consultations to follow up' : 'None open',
-          view: 'engagements',
-          tone: b.openInquiries ? 'warn' : undefined,
-        },
-      ]
-    : [];
-
-  const list = (rows: AdminAppointment[], empty: string) =>
-    rows.length === 0 ? (
-      <p className="panel-empty">{empty}</p>
-    ) : (
-      <ul className="meeting-list">
-        {rows.map((a) => (
-          <li key={a.id}>
-            <button onClick={() => onOpenMeeting(a.id)}>
-              <span className="ml-date">
-                <b>{new Date(a.startsAt).toLocaleDateString(undefined, { day: 'numeric' })}</b>
-                <small>
-                  {new Date(a.startsAt).toLocaleDateString(undefined, { month: 'short' })}
-                </small>
-              </span>
-              <span className="ml-main">
-                <strong>{a.clientName}</strong>
-                <span className="muted">
-                  {a.engagementTitle} · {formatRange(a.startsAt, a.endsAt)}
-                </span>
-              </span>
-              <span className="ml-meta">
-                {plural(a.topicCount, 'topic')} · {formatLength(a.durationMinutes)}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    );
-
-  return (
-    <>
-      {b && b.hourlyRateCents === 0 && (
-        <div className="notice" role="status">
-          <span>
-            <strong>Set your hourly rate.</strong> Until it is set, completed meetings are charged at
-            $0 and the website shows “contact us for rates”.
-          </span>
-          <button className="btn" onClick={() => onGo('options')}>
-            System options
-          </button>
-        </div>
-      )}
-      <div className="kpis">
-        {[...kpis, ...money2].map((k) => (
-          <button
-            key={k.label}
-            className={k.tone ? `kpi kpi-${k.tone}` : 'kpi'}
-            onClick={() => onGo(k.view)}
-          >
-            <span className="kpi-label">{k.label}</span>
-            <span className="kpi-value">{k.value}</span>
-            <span className="kpi-hint">{k.hint}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="panels">
-        <section className="panel-card">
-          <header>
-            <h2>Awaiting confirmation</h2>
-            <button className="linklike" onClick={() => onGo('appointments')}>
-              All meetings →
-            </button>
-          </header>
-          {list(data.pending.rows, 'No meeting requests waiting. You are all caught up.')}
-        </section>
-        <section className="panel-card">
-          <header>
-            <h2>Coming up</h2>
-            <button className="linklike" onClick={() => onGo('appointments')}>
-              All meetings →
-            </button>
-          </header>
-          {list(data.upcoming.rows, 'No confirmed meetings ahead.')}
-        </section>
-      </div>
-    </>
-  );
 }
 
 /**
@@ -1906,12 +1721,16 @@ function Admin() {
       {issued && <InviteIssued issued={issued} onDismiss={() => setIssued(null)} />}
 
       {view === 'overview' && (
-        <Overview
-          money={showMoney}
+        <AdminOverviewPage
           refreshKey={refresh}
           onError={onError}
           onGo={go}
           onOpenMeeting={(id) => setOpenMeeting(id)}
+          onOpenEngagement={(id) => setOpenEngagement(id)}
+          onOpenThread={(topicId) => {
+            setParams({ view: 'messages', topic: String(topicId) });
+            setError(null);
+          }}
         />
       )}
 

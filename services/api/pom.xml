@@ -111,6 +111,14 @@
       <artifactId>s3</artifactId>
     </dependency>
 
+    <!-- PDF generation for the engagement status report. OpenPDF is the
+         LGPL/MPL fork of iText 4: small, no native code, no headless browser. -->
+    <dependency>
+      <groupId>com.github.librepdf</groupId>
+      <artifactId>openpdf</artifactId>
+      <version>2.0.3</version>
+    </dependency>
+
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>

@@ -1018,3 +1018,36 @@ Left open:
 - Clients can no longer drop a topic from the portal; the board that had the
   button is gone. Add it to the thread header if it is missed.
 - Uploaded thread files are not cleaned up if the post is never sent.
+
+## Admin overview, client Topics tab and the Engagement Status Report (2026-11-26)
+
+No migration. One new dependency: OpenPDF 2.0.3.
+
+- **Overview** is rebuilt as `web/src/admin-overview.tsx` on one endpoint,
+  `GET /api/admin/overview`. Three bands: *Needs attention* (conversations
+  awaiting reply, meetings to confirm, engagements past their target date,
+  and for billing roles overdue receivables and unbilled work), *How the
+  work stands* (active engagements, meetings in the next seven days, open
+  topics, time this month, billed this month), and *Across the system*
+  (clients, team, media, calendar, invoices, reports). Four panels list the
+  conversations awaiting reply, meetings to confirm, what is coming up, and
+  engagements at or near their target date. The money block is null for
+  roles that do not handle billing.
+- **Client record.** The Messages tab is now Topics, lists every topic for
+  the client and sets them out under a heading per engagement.
+- **Engagement Status Report.** A button in the Engagement Manager downloads
+  a PDF from `GET /api/admin/engagements/{id}/status-report`, generated on
+  the server (`StatusReportController`). It covers status and dates, the
+  goal, topic and meeting counts, every topic with its latest update, the
+  meetings, the team from both sides, and the fifteen most recent events.
+  It is written to be sent to the client, so it leaves out billing figures,
+  reply time, internal engagement notes and closure notes.
+
+Left open:
+
+- The report uses the PDF's built-in fonts, which cover Western European
+  text only. Any other character is printed as "?".
+- The report is downloaded, not emailed. Sending it to the engagement's
+  team from the console would be the next step.
+- "Time this month" on the overview counts time by when it was recorded, not
+  by the meeting's date.

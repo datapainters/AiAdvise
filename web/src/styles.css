@@ -5656,7 +5656,7 @@ button:disabled,
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 1rem 1.5rem 0;
+  padding: 1rem 1.5rem;
 }
 
 .modal-foot {
@@ -5788,4 +5788,37 @@ button:disabled,
   .tabs-classic {
     overflow-x: auto;
   }
+}
+
+/* Popups with a toolbar under the title, at the fixed size. */
+.modal-fixed .modal-toolbar {
+  flex: none;
+}
+
+.modal-toolbar-facts {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.modal-fixed .video-panel {
+  flex: none;
+  margin: 0 0 0.9rem;
+}
+
+/* The pager under a table inside a tab. */
+.pager-inline {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.pager-inline .btn {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.pager-narrow {
+  padding: 0.5rem 0.75rem 0.75rem;
+  margin-top: 0;
 }

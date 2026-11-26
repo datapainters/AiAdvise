@@ -1078,3 +1078,30 @@ had the old favicon kept it. Those now get a one-hour cache, the deploy
 invalidates the whole distribution, and `index.html` links the icons with
 `?v=2` so browsers holding the old immutable copy fetch the new one. Bump the
 `v` if the icons change again.
+
+## Fixed-size engagement and meeting popups, paged tab lists, logo on emails and reports, demo data (2026-11-26)
+
+**Engagement Manager and Meeting Manager** now share the client record's
+frame: centred, one fixed size, a single compact row of figures, classic
+boxed tabs, tab content scrolling inside. The meeting's actions (Confirm,
+Mark complete, Summary report) moved to the toolbar under the title.
+
+**Paging inside tabs.** `Paged` in `web/src/datagrid.tsx` pages a list that
+is already in memory, ten rows at a time, and shows its controls only when
+there is more than one page. It wraps the tables under the tabs of the
+client, engagement and meeting popups (engagements, meetings, users, team,
+shared items, files, charges, invoices, payments, time entries), engagement
+notes, and each group in the topics list. The meeting agenda is deliberately
+not paged: it is the working list during a call.
+
+**Logo.** Emails carry the logo in their header, loaded from
+`APP_BASE_URL/brand/logo-horizontal-1200.png`. The Engagement Status Report
+PDF embeds it from the classpath (`resources/brand/logo.png`). The printed
+invoice, statement and meeting summary already used it.
+
+**Demo data (development only).** `SEED_DEMO_DATA=true` in
+`infra/envs/dev` makes `DemoDataSeeder` run `resources/demo/seed.sql` once at
+startup: 60 clients with users, engagements, topics, meetings, time, charges,
+invoices and payments. "Paging Test Co" is the heavy record. Every demo
+client's email ends in `@demo.datapainters.test`; none of the demo users can
+sign in. Production never sets the variable.

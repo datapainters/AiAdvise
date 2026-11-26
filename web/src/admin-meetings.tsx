@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { Paged } from './datagrid';
 import {
   createUser,
   getClientDetail,
@@ -465,56 +466,97 @@ export function MeetingManager({
   const a = meeting?.appointment;
 
   return (
-    <Modal title="Meeting manager" onClose={onClose} wide>
-      {loading || !a ? (
+    <Modal
+      title={a ? (a.title ?? a.clientName) : 'Meeting'}
+      badge={a ? statusLabel(a.status) : undefined}
+      badgeTone={
+        a?.status === 'completed' || a?.status === 'confirmed'
+          ? 'good'
+          : a?.status === 'requested'
+            ? 'warn'
+            : 'neutral'
+      }
+      toolbar={
+        a && (
+          <>
+            {a.status === 'requested' && (
+              <button className="btn" onClick={() => changeStatus('confirmed')}>
+                Confirm
+              </button>
+            )}
+            {a.status !== 'completed' && a.status !== 'cancelled' && (
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'Mark this meeting complete? Recorded time will be compiled into a charge in 30-minute blocks.',
+                    )
+                  ) {
+                    changeStatus('completed');
+                  }
+                }}
+              >
+                Mark complete
+              </button>
+            )}
+            <button
+              className="btn"
+              onClick={() => window.open(`/admin/print/meeting/${appointmentId}`, '_blank')}
+            >
+              Summary report
+            </button>
+            <span className="modal-toolbar-facts">
+              {a.clientName} &middot;{' '}
+              {onOpenEngagement ? (
+                <button className="linklike" onClick={() => onOpenEngagement(a.engagementId)}>
+                  {a.engagementTitle}
+                </button>
+              ) : (
+                a.engagementTitle
+              )}
+            </span>
+          </>
+        )
+      }
+      onClose={onClose}
+      fixed
+    >
+      {loading || !a || !meeting ? (
         <p>Loading...</p>
       ) : (
         <>
-          <div className="meeting-head">
-            <div>
-              <h3>{a.title ?? a.clientName}</h3>
-              <p className="muted">
-                {a.title && <>{a.clientName} &middot; </>}
-                {onOpenEngagement ? (
-                  <button className="linklike" onClick={() => onOpenEngagement(a.engagementId)}>
-                    {a.engagementTitle}
-                  </button>
-                ) : (
-                  a.engagementTitle
-                )}{' '}
-                &middot; {formatRange(a.startsAt, a.endsAt)} &middot;{' '}
-                {formatLength(a.durationMinutes)}
-              </p>
-            </div>
-            <div className="button-row">
-              <span className={`status status-ap-${a.status}`}>{statusLabel(a.status)}</span>
-              {a.status === 'requested' && (
-                <button onClick={() => changeStatus('confirmed')}>Confirm</button>
-              )}
-              {a.status !== 'completed' && a.status !== 'cancelled' && (
-                <button
-                  className="btn btn-primary"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        'Mark this meeting complete? Recorded time will be compiled into a charge in 30-minute blocks.',
-                      )
-                    ) {
-                      changeStatus('completed');
-                    }
-                  }}
-                >
-                  Mark complete
-                </button>
-              )}
-              <button
-                className="btn"
-                onClick={() => window.open(`/admin/print/meeting/${appointmentId}`, '_blank')}
-              >
-                Summary report
-              </button>
-            </div>
-          </div>
+          <Summary
+            compact
+            figures={[
+              {
+                label: 'Date',
+                value: new Date(a.startsAt).toLocaleDateString([], {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                }),
+                hint: new Date(a.startsAt).getFullYear(),
+              },
+              {
+                label: 'Time',
+                value: new Date(a.startsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+                hint: formatLength(a.durationMinutes),
+              },
+              {
+                label: 'Agenda',
+                value: meeting.agenda.length,
+                hint: `${a.notedCount} noted`,
+              },
+              {
+                label: 'People',
+                value: people.length,
+                hint: `${people.filter((x) => x.side === 'client').length} from the client`,
+              },
+              { label: 'Shared items', value: shares.length, hint: 'in the call' },
+            ]}
+            facts={[]}
+          />
 
           <VideoPanel
             appointment={a}
@@ -525,7 +567,7 @@ export function MeetingManager({
             }}
           />
 
-          <div className="tabs" role="tablist">
+          <div className="tabs tabs-classic" role="tablist">
             {(['agenda', 'users', 'time', 'media'] as MeetingTab[]).map((t) => {
               const count =
                 t === 'agenda'
@@ -550,6 +592,7 @@ export function MeetingManager({
             })}
           </div>
 
+          <div className="tab-panel" role="tabpanel">
           {tab === 'time' && (
             <TimeTracker
               appointmentId={appointmentId}
@@ -576,7 +619,8 @@ export function MeetingManager({
                 screen during the call are listed here afterwards.
               </p>
             ) : (
-              <div className="grid-wrap">
+              <Paged rows={shares}>{(pageRows) => (
+<div className="grid-wrap">
                 <table className="grid">
                   <thead>
                     <tr>
@@ -588,7 +632,7 @@ export function MeetingManager({
                     </tr>
                   </thead>
                   <tbody>
-                    {shares.map((s) => (
+                    {pageRows.map((s) => (
                       <tr key={s.id}>
                         <td>
                           <strong>{s.title}</strong>
@@ -611,6 +655,7 @@ export function MeetingManager({
                   </tbody>
                 </table>
               </div>
+)}</Paged>
             ))}
 
           {tab === 'agenda' && a.status !== 'cancelled' && (
@@ -654,6 +699,7 @@ export function MeetingManager({
                 ))}
               </div>
             ))}
+          </div>
         </>
       )}
     </Modal>
@@ -971,7 +1017,8 @@ export function ClientDetailModal({
             (detail.engagements.length === 0 ? (
               <p className="empty">No engagements.</p>
             ) : (
-              <div className="grid-wrap">
+              <Paged rows={detail.engagements}>{(pageRows) => (
+<div className="grid-wrap">
                 <table className="grid">
                   <thead>
                     <tr>
@@ -982,7 +1029,7 @@ export function ClientDetailModal({
                     </tr>
                   </thead>
                   <tbody>
-                    {detail.engagements.map((e) => (
+                    {pageRows.map((e) => (
                       <tr
                         key={e.id}
                         className={onOpenEngagement ? 'clickable' : undefined}
@@ -1001,13 +1048,15 @@ export function ClientDetailModal({
                   </tbody>
                 </table>
               </div>
+)}</Paged>
             ))}
 
           {tab === 'appointments' &&
             (detail.appointments.length === 0 ? (
               <p className="empty">No meetings booked.</p>
             ) : (
-              <div className="grid-wrap">
+              <Paged rows={detail.appointments}>{(pageRows) => (
+<div className="grid-wrap">
                 <table className="grid">
                   <thead>
                     <tr>
@@ -1019,7 +1068,7 @@ export function ClientDetailModal({
                     </tr>
                   </thead>
                   <tbody>
-                    {detail.appointments.map((a) => (
+                    {pageRows.map((a) => (
                       <tr
                         key={a.id}
                         className="clickable"
@@ -1041,6 +1090,7 @@ export function ClientDetailModal({
                   </tbody>
                 </table>
               </div>
+)}</Paged>
             ))}
 
           {tab === 'users' && (
@@ -1130,7 +1180,8 @@ export function ClientDetailModal({
               {detail.users.length === 0 ? (
                 <p className="empty">No portal logins for this client.</p>
               ) : (
-                <div className="grid-wrap">
+                <Paged rows={detail.users}>{(pageRows) => (
+<div className="grid-wrap">
                   <table className="grid">
                     <thead>
                       <tr>
@@ -1143,7 +1194,7 @@ export function ClientDetailModal({
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.users.map((u) => (
+                      {pageRows.map((u) => (
                         <tr key={u.id} className={u.enabled ? undefined : 'row-bad'}>
                           <td>
                             <strong>{u.displayName}</strong>
@@ -1181,6 +1232,7 @@ export function ClientDetailModal({
                     </tbody>
                   </table>
                 </div>
+)}</Paged>
               )}
             </>
           )}

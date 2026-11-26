@@ -272,6 +272,11 @@ module "api" {
     # Daily rooms from every environment share one Daily account; the prefix
     # keeps them apart.
     VIDEO_ROOM_PREFIX = "dev"
+
+    # Loads a set of made-up clients, engagements, meetings and invoices on
+    # startup, once, so lists and tabs have enough rows to page through.
+    # Development only: production never sets this.
+    SEED_DEMO_DATA = "true"
   }
 
   # Both: SendEmail with a configuration set is authorised against the

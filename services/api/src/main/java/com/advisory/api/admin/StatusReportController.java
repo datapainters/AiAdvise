@@ -10,6 +10,7 @@ import com.lowagie.text.Chunk;
 import com.lowagie.text.Document;
 import com.lowagie.text.Element;
 import com.lowagie.text.Font;
+import com.lowagie.text.Image;
 import com.lowagie.text.PageSize;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
@@ -187,7 +188,14 @@ public class StatusReportController {
 
         LocalDate today = LocalDate.now(zone);
 
-        doc.add(new Paragraph("DATA PAINTERS", BRAND));
+        Image logo = logo();
+        if (logo != null) {
+            logo.scaleToFit(170, 34);
+            logo.setSpacingAfter(10);
+            doc.add(logo);
+        } else {
+            doc.add(new Paragraph("DATA PAINTERS", BRAND));
+        }
         Paragraph kind = new Paragraph("Engagement status report", SUBTITLE);
         kind.setSpacingAfter(4);
         doc.add(kind);
@@ -391,6 +399,15 @@ public class StatusReportController {
 
     private static String shorten(String s) {
         return s.length() > 220 ? s.substring(0, 220) + "..." : s;
+    }
+
+    /** The logo from the classpath, or null so the report still renders without it. */
+    private static Image logo() {
+        try (var in = StatusReportController.class.getResourceAsStream("/brand/logo.png")) {
+            return in == null ? null : Image.getInstance(in.readAllBytes());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static Paragraph heading(String text) {

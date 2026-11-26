@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Paged } from './datagrid';
 import { Link, useParams } from 'react-router-dom';
 import { Modal } from './admin-meetings';
 import { HoursEditor } from './hours-editor';
@@ -334,7 +335,8 @@ export function TimeTracker({
       )}
 
       {sheet.entries.length > 0 && (
-        <table className="grid tracker-table">
+        <Paged rows={sheet.entries}>{(pageRows) => (
+<table className="grid tracker-table">
           <thead>
             <tr>
               <th>When</th>
@@ -345,7 +347,7 @@ export function TimeTracker({
             </tr>
           </thead>
           <tbody>
-            {sheet.entries.map((e) => (
+            {pageRows.map((e) => (
               <tr key={e.id}>
                 <td className="nowrap">
                   {e.source === 'video'
@@ -377,6 +379,7 @@ export function TimeTracker({
             ))}
           </tbody>
         </table>
+)}</Paged>
       )}
 
       <form
@@ -776,7 +779,8 @@ export function AccountingTab({
       {acc.invoices.filter((i) => !i.voidedAt).length === 0 ? (
         <p className="empty">No invoices yet.</p>
       ) : (
-        <div className="grid-wrap">
+        <Paged rows={acc.invoices.filter((i) => !i.voidedAt)}>{(pageRows) => (
+<div className="grid-wrap">
           <table className="grid">
             <thead>
               <tr>
@@ -791,9 +795,7 @@ export function AccountingTab({
               </tr>
             </thead>
             <tbody>
-              {acc.invoices
-                .filter((i) => !i.voidedAt)
-                .map((i) => (
+              {pageRows.map((i) => (
                   <tr key={i.id}>
                     <td>
                       <strong>{i.number}</strong>
@@ -840,6 +842,7 @@ export function AccountingTab({
             </tbody>
           </table>
         </div>
+)}</Paged>
       )}
 
       {billed.length > 0 && (
@@ -940,7 +943,8 @@ function ChargeTable({
   onOpenMeeting?: (id: number) => void;
 }) {
   return (
-    <div className="grid-wrap">
+    <Paged rows={charges}>{(pageRows) => (
+<div className="grid-wrap">
       <table className="grid">
         <thead>
           <tr>
@@ -954,7 +958,7 @@ function ChargeTable({
           </tr>
         </thead>
         <tbody>
-          {charges.map((c) => (
+          {pageRows.map((c) => (
             <tr key={c.id}>
               <td className="nowrap">{day(c.serviceDate)}</td>
               <td>
@@ -986,12 +990,14 @@ function ChargeTable({
         </tbody>
       </table>
     </div>
+)}</Paged>
   );
 }
 
 function PaymentTable({ payments, onVoid, showClient }: { payments: Payment[]; onVoid?: (p: Payment) => void; showClient?: boolean }) {
   return (
-    <div className="grid-wrap">
+    <Paged rows={payments}>{(pageRows) => (
+<div className="grid-wrap">
       <table className="grid">
         <thead>
           <tr>
@@ -1005,7 +1011,7 @@ function PaymentTable({ payments, onVoid, showClient }: { payments: Payment[]; o
           </tr>
         </thead>
         <tbody>
-          {payments.map((p) => (
+          {pageRows.map((p) => (
             <tr key={p.id}>
               <td className="nowrap">{day(p.receivedOn)}</td>
               {showClient && <td>{p.clientName}</td>}
@@ -1027,6 +1033,7 @@ function PaymentTable({ payments, onVoid, showClient }: { payments: Payment[]; o
         </tbody>
       </table>
     </div>
+)}</Paged>
   );
 }
 

@@ -32,6 +32,10 @@ public class Client {
     @Column(nullable = false)
     private String source = "admin";
 
+    /** prospect, active, on_hold or former. Set by the firm. */
+    @Column(nullable = false)
+    private String status = "prospect";
+
     /** The first person who signed up for this client; manages its people. */
     @Column(name = "owner_user_id")
     private Long ownerUserId;
@@ -60,6 +64,14 @@ public class Client {
 
     public void setPrimaryEmail(String primaryEmail) {
         this.primaryEmail = primaryEmail == null ? null : primaryEmail.trim().toLowerCase();
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 
     public Instant getCreatedAt() {

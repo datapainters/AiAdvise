@@ -8,6 +8,9 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   createUser,
   getClientDetail,
+  updateClient,
+  CLIENT_STATUS_LABEL,
+  type ClientStatus,
   listCompanies,
   resendInvite,
   getMeeting,
@@ -49,6 +52,8 @@ export function Modal({
   toolbar,
   onClose,
   wide,
+  fixed,
+  footer,
   children,
 }: {
   title: string;
@@ -59,6 +64,10 @@ export function Modal({
   toolbar?: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
+  /** One size whatever the content: centred, with the body scrolling inside. */
+  fixed?: boolean;
+  /** Action row pinned to the bottom edge. */
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
   useEffect(() => {
@@ -76,9 +85,9 @@ export function Modal({
   }, [onClose]);
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <div className={fixed ? 'modal-backdrop modal-backdrop-fixed' : 'modal-backdrop'} onMouseDown={onClose}>
       <div
-        className={wide ? 'modal modal-wide' : 'modal'}
+        className={fixed ? 'modal modal-fixed' : wide ? 'modal modal-wide' : 'modal'}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -95,6 +104,7 @@ export function Modal({
         </header>
         {toolbar && <div className="modal-toolbar">{toolbar}</div>}
         <div className="modal-body">{children}</div>
+        {footer && <footer className="modal-foot">{footer}</footer>}
       </div>
     </div>
   );
@@ -115,7 +125,29 @@ export interface SummaryFigure {
  * in order of importance, and a line of plain facts beneath. Figures first
  * because they are what changes; the facts are for reference.
  */
-export function Summary({ figures, facts }: { figures: SummaryFigure[]; facts: React.ReactNode[] }) {
+export function Summary({
+  figures,
+  facts,
+  compact,
+}: {
+  figures: SummaryFigure[];
+  facts: React.ReactNode[];
+  /** Every figure on one short row, with the hint beside the number. */
+  compact?: boolean;
+}) {
+  if (compact) {
+    return (
+      <dl className="summary summary-compact" style={{ ['--cols' as string]: figures.length }}>
+        {figures.map((f) => (
+          <div key={f.label} className={f.tone ? `summary-figure is-${f.tone}` : 'summary-figure'}>
+            <dt>{f.label}</dt>
+            <dd>{f.value}</dd>
+            {f.hint && <small title={typeof f.hint === 'string' ? f.hint : undefined}>{f.hint}</small>}
+          </div>
+        ))}
+      </dl>
+    );
+  }
   return (
     <div className="summary">
       {/* Up to four sit in one row; more are set three across so the rows
@@ -630,7 +662,7 @@ export function MeetingManager({
 
 /* -------------------------------------------------------------- client detail */
 
-type DetailTab = 'overview' | 'engagements' | 'appointments' | 'messages' | 'users' | 'notes' | 'accounting';
+type DetailTab = 'overview' | 'engagements' | 'appointments' | 'messages' | 'users' | 'accounting';
 
 export function ClientDetailModal({
   clientId,
@@ -642,7 +674,10 @@ export function ClientDetailModal({
   initialTab,
   showAccounting = true,
   onOpenEngagement,
+  onSaved,
 }: {
+  /** Called after the name, email or status is saved, to refresh the list. */
+  onSaved?: () => void;
   /** Opens the Engagement Manager for a row on the Engagements tab. */
   onOpenEngagement?: (engagementId: number) => void;
   /** False for team roles that do not handle billing. */
@@ -683,10 +718,45 @@ export function ClientDetailModal({
   const [companyName, setCompanyName] = useState('');
   const [phone, setPhone] = useState('');
 
+  // The editable part of the record. Held apart from `detail` so the Save
+  // button can tell whether anything has changed.
+  const [name, setName] = useState('');
+  const [primaryEmail, setPrimaryEmail] = useState('');
+  const [status, setStatus] = useState<ClientStatus>('prospect');
+  const [saving, setSaving] = useState(false);
+
   const reload = useCallback(
-    () => getClientDetail(clientId).then(setDetail).catch(onError),
+    () =>
+      getClientDetail(clientId)
+        .then((d) => {
+          setDetail(d);
+          setName(d.name);
+          setPrimaryEmail(d.primaryEmail);
+          setStatus(d.status);
+        })
+        .catch(onError),
     [clientId, onError],
   );
+
+  const dirty =
+    !!detail &&
+    (name.trim() !== detail.name || primaryEmail.trim() !== detail.primaryEmail || status !== detail.status);
+
+  async function onSave(e: FormEvent) {
+    e.preventDefault();
+    if (!dirty) return;
+    setSaving(true);
+    try {
+      await updateClient(clientId, { name: name.trim(), primaryEmail: primaryEmail.trim(), status });
+      await reload();
+      onToast?.(`Saved \u201c${name.trim()}\u201d`);
+      onSaved?.();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     reload().finally(() => setLoading(false));
@@ -718,7 +788,7 @@ export function ClientDetailModal({
     }
   }
 
-  const tabs: DetailTab[] = ['overview', 'engagements', 'appointments', 'messages', 'users', 'notes'];
+  const tabs: DetailTab[] = ['overview', 'engagements', 'appointments', 'messages', 'users'];
   if (showAccounting) tabs.push('accounting');
 
   const counts: Record<DetailTab, number | null> = {
@@ -727,7 +797,6 @@ export function ClientDetailModal({
     appointments: detail?.appointments.length ?? 0,
     messages: null,
     users: detail?.users.length ?? 0,
-    notes: detail?.notes.length ?? 0,
     accounting: null,
   };
 
@@ -746,22 +815,32 @@ export function ClientDetailModal({
   return (
     <Modal
       title={detail?.name ?? 'Client'}
-      badge={
-        active > 0
-          ? 'Active'
-          : detail?.engagements.some((e) => e.status === 'inquiry')
-            ? 'Inquiry'
-            : 'No active engagements'
-      }
+      badge={detail ? CLIENT_STATUS_LABEL[detail.status] : undefined}
       badgeTone={
-        active > 0
+        detail?.status === 'active'
           ? 'good'
-          : detail?.engagements.some((e) => e.status === 'inquiry')
+          : detail?.status === 'prospect' || detail?.status === 'on_hold'
             ? 'warn'
             : 'neutral'
       }
       onClose={onClose}
-      wide
+      fixed
+      footer={
+        <>
+          <span className="modal-foot-note">{dirty ? 'Unsaved changes' : ''}</span>
+          <button type="button" className="btn" onClick={onClose}>
+            Close
+          </button>
+          <button
+            type="submit"
+            form="client-record-form"
+            className="btn btn-primary"
+            disabled={!dirty || saving || !name.trim() || !primaryEmail.trim()}
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </>
+      }
     >
       {loading || !detail ? (
         <p>Loading...</p>
@@ -770,6 +849,7 @@ export function ClientDetailModal({
           {/* Money first where the reader handles it, then what needs doing,
               then what is simply true about the client. */}
           <Summary
+            compact
             figures={[
               ...(account
                 ? [
@@ -828,36 +908,63 @@ export function ClientDetailModal({
             ]}
           />
 
-          <div className="tabs" role="tablist">
+          <div className="tabs tabs-classic" role="tablist">
             {tabs.map((t) => (
               <button
                 key={t}
+                type="button"
                 role="tab"
                 aria-selected={tab === t}
                 className={tab === t ? 'tab tab-on' : 'tab'}
                 onClick={() => setTab(t)}
               >
-                {t === 'messages' ? 'Topics' : t[0].toUpperCase() + t.slice(1)}
+                {t === 'messages' ? 'Topics' : t === 'appointments' ? 'Meetings' : t[0].toUpperCase() + t.slice(1)}
                 {counts[t] !== null && <span className="tab-count">{counts[t]}</span>}
               </button>
             ))}
           </div>
 
+          <div className="tab-panel" role="tabpanel">
           {tab === 'overview' && (
-            <dl className="detail-list">
-              <dt>Client</dt>
-              <dd>{detail.name}</dd>
-              <dt>Primary email</dt>
-              <dd>{detail.primaryEmail}</dd>
-              <dt>Added</dt>
-              <dd>{new Date(detail.createdAt).toLocaleDateString()}</dd>
-              <dt>Engagements</dt>
-              <dd>{detail.engagements.length}</dd>
-              <dt>Meetings</dt>
-              <dd>{detail.appointments.length}</dd>
-              <dt>Portal users</dt>
-              <dd>{detail.users.length}</dd>
-            </dl>
+            <>
+              <form id="client-record-form" className="stack-form record-form" onSubmit={onSave}>
+                <div className="field-row">
+                  <label>
+                    Client name
+                    <input value={name} required onChange={(e) => setName(e.target.value)} />
+                  </label>
+                  <label>
+                    Status
+                    <select value={status} onChange={(e) => setStatus(e.target.value as ClientStatus)}>
+                      {(Object.keys(CLIENT_STATUS_LABEL) as ClientStatus[]).map((v) => (
+                        <option key={v} value={v}>
+                          {CLIENT_STATUS_LABEL[v]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Primary email
+                  <input
+                    type="email"
+                    value={primaryEmail}
+                    required
+                    onChange={(e) => setPrimaryEmail(e.target.value)}
+                  />
+                </label>
+              </form>
+              <dl className="detail-list">
+                <dt>Added</dt>
+                <dd>{new Date(detail.createdAt).toLocaleDateString()}</dd>
+                <dt>Engagements</dt>
+                <dd>{detail.engagements.length}</dd>
+                <dt>Meetings</dt>
+                <dd>{detail.appointments.length}</dd>
+                <dt>Portal users</dt>
+                <dd>{detail.users.length}</dd>
+              </dl>
+            </>
           )}
 
           {tab === 'engagements' &&
@@ -1099,24 +1206,7 @@ export function ClientDetailModal({
             />
           )}
 
-          {tab === 'notes' &&
-            (detail.notes.length === 0 ? (
-              <p className="empty">No meeting notes yet.</p>
-            ) : (
-              <div className="notes-list">
-                {detail.notes.map((n, i) => (
-                  <article key={`${n.appointmentId}-${i}`} className="note-entry">
-                    <header>
-                      <strong>{n.topicTitle}</strong>
-                      <span className="muted">
-                        {new Date(n.meetingAt).toLocaleDateString()}
-                      </span>
-                    </header>
-                    <p>{n.body}</p>
-                  </article>
-                ))}
-              </div>
-            ))}
+          </div>
         </>
       )}
     </Modal>

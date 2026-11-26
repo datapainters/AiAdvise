@@ -391,7 +391,7 @@ public class MeetingController {
             String body, Instant updatedAt) {}
 
     public record ClientDetail(
-            Long id, String name, String primaryEmail, Instant createdAt,
+            Long id, String name, String primaryEmail, String status, Instant createdAt,
             List<ClientEngagement> engagements,
             List<AppointmentRow> appointments,
             List<ClientUser> users,
@@ -425,6 +425,7 @@ public class MeetingController {
                 client.getId(),
                 client.getName(),
                 client.getPrimaryEmail(),
+                client.getStatus(),
                 client.getCreatedAt(),
                 clientEngagements.stream()
                         .map(e -> new ClientEngagement(e.getId(), e.getTitle(), e.getStatus(),

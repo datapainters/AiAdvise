@@ -44,6 +44,7 @@ import {
   type AdminEngagement,
   type AdminUser,
   type Client,
+  CLIENT_STATUS_LABEL,
   type CreatedUser,
   type AdminAppointment,
   type InviteView,
@@ -850,7 +851,7 @@ const ADMIN_VIEWS: {
     label: 'Clients',
     group: 'Workspace',
     icon: 'building',
-    blurb: 'Every client company. Click a row for its engagements, meetings, users and notes.',
+    blurb: 'Every client company. Click a row to open the client record: engagements, meetings, topics, users and accounting.',
   },
   {
     id: 'engagements',
@@ -1746,7 +1747,36 @@ function Admin() {
           empty="No clients yet."
           gridColumns={[
             { field: 'name', label: 'Client', render: (c) => <strong>{c.name}</strong> },
+            {
+              field: 'status',
+              label: 'Status',
+              render: (c) => (
+                <span className={`status status-client-${c.status}`}>{CLIENT_STATUS_LABEL[c.status]}</span>
+              ),
+            },
             { field: 'primaryEmail', label: 'Primary email' },
+            { field: 'engagements', label: 'Engagements', type: 'number' },
+            { field: 'topics', label: 'Topics', type: 'number' },
+            { field: 'meetings', label: 'Meetings', type: 'number' },
+            {
+              field: 'hoursWorked',
+              label: 'Hours worked',
+              type: 'number',
+              render: (c) => c.hoursWorked.toFixed(1),
+            },
+            // The server leaves the balance out for staff who do not handle
+            // money, so the column goes with it.
+            ...(showMoney
+              ? [
+                  {
+                    field: 'balance',
+                    label: 'Balance',
+                    type: 'number' as const,
+                    render: (c: Client) =>
+                      c.balanceCents === null ? '' : <strong>{money(c.balanceCents)}</strong>,
+                  },
+                ]
+              : []),
             {
               field: 'createdAt',
               label: 'Added',
@@ -1754,24 +1784,6 @@ function Admin() {
                 <span className="nowrap">
                   {formatDay(c.createdAt)}
                 </span>
-              ),
-            },
-            {
-              field: 'actions',
-              label: '',
-              sortable: false,
-              render: (c) => (
-                <button
-                  className="linklike"
-                  onClick={(e) => {
-                    // Without this the row's own click handler also fires
-                    // and the detail popup opens behind the editor.
-                    e.stopPropagation();
-                    setEditClient(c);
-                  }}
-                >
-                  Edit
-                </button>
               ),
             },
           ]}
@@ -2078,6 +2090,7 @@ function Admin() {
           clientId={openClient.id}
           initialTab={openClient.tab}
           showAccounting={showMoney}
+          onSaved={() => setRefresh((n) => n + 1)}
           onOpenEngagement={(id) => {
             // One popup at a time: the engagement replaces the client record.
             setOpenClient(null);

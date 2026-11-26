@@ -6,6 +6,7 @@ import com.advisory.api.auth.AppUserRepository;
 import com.advisory.api.auth.LoginEvent;
 import com.advisory.api.auth.InviteService;
 import com.advisory.api.auth.LoginEventRepository;
+import com.advisory.api.auth.Staff;
 import com.advisory.api.mail.Notifications;
 import com.advisory.api.portal.Client;
 import com.advisory.api.portal.Company;
@@ -30,6 +31,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,6 +73,7 @@ public class AdminController {
     private final Notifications notifications;
     private final InviteService invites;
     private final CompanyRepository companies;
+    private final JdbcClient jdbc;
 
     /** Where the invite link points. Same origin the SPA is served from. */
     private final String appBaseUrl;
@@ -87,7 +91,7 @@ public class AdminController {
     public AdminController(ClientRepository clients, EngagementRepository engagements,
             AppUserRepository users, LoginEventRepository loginEvents,
             Notifications notifications, InviteService invites,
-            CompanyRepository companies,
+            CompanyRepository companies, JdbcClient jdbc,
             @Value("${APP_BASE_URL:https://ai.datapainters.com}") String appBaseUrl) {
         this.clients = clients;
         this.engagements = engagements;
@@ -96,6 +100,7 @@ public class AdminController {
         this.notifications = notifications;
         this.invites = invites;
         this.companies = companies;
+        this.jdbc = jdbc;
         this.appBaseUrl = appBaseUrl;
     }
 
@@ -105,41 +110,100 @@ public class AdminController {
             @NotBlank String name,
             @NotBlank @Email String primaryEmail) {}
 
-    public record ClientView(Long id, String name, String primaryEmail, Instant createdAt) {
+    /**
+     * A client row. The counts are for the list; balanceCents is null for
+     * staff who do not handle money, and on the single-row responses to
+     * create and update, where the caller already has the row's figures.
+     */
+    public record ClientView(Long id, String name, String primaryEmail, String status,
+            Instant createdAt, int engagements, int topics, int meetings,
+            double hoursWorked, Long balanceCents) {
 
         static ClientView of(Client c) {
-            return new ClientView(c.getId(), c.getName(), c.getPrimaryEmail(), c.getCreatedAt());
+            return new ClientView(c.getId(), c.getName(), c.getPrimaryEmail(), c.getStatus(),
+                    c.getCreatedAt(), 0, 0, 0, 0, null);
         }
     }
 
+    private static final List<String> CLIENT_STATUSES =
+            List.of("prospect", "active", "on_hold", "former");
+
     /** Whitelist of filterable and sortable columns, shared with the UI. */
-    private static Grid.Spec<ClientView> clientSpec() {
-        return new Grid.Spec<ClientView>()
+    private static Grid.Spec<ClientView> clientSpec(boolean money) {
+        Grid.Spec<ClientView> spec = new Grid.Spec<ClientView>()
                 .add("name", "Client", "text", ClientView::name)
+                .add("status", "Status", "text", ClientView::status)
                 .add("primaryEmail", "Primary email", "text", ClientView::primaryEmail)
-                .add("createdAt", "Added", "date", ClientView::createdAt);
+                .add("engagements", "Engagements", "number", ClientView::engagements)
+                .add("topics", "Topics", "number", ClientView::topics)
+                .add("meetings", "Meetings", "number", ClientView::meetings)
+                .add("hoursWorked", "Hours worked", "number", ClientView::hoursWorked);
+        if (money) {
+            // In dollars, so "balance greater than 500" means what it says.
+            spec.add("balance", "Balance", "number",
+                    c -> c.balanceCents() == null ? null : c.balanceCents() / 100.0);
+        }
+        return spec.add("createdAt", "Added", "date", ClientView::createdAt);
     }
 
     @GetMapping("/clients/columns")
-    public List<Grid.Column> clientColumns() {
-        return clientSpec().columns();
+    public List<Grid.Column> clientColumns(Authentication auth) {
+        return clientSpec(Staff.seesMoney(auth)).columns();
     }
+
+    /**
+     * Every client with its counts, in one query. Hours are the time recorded
+     * against meetings plus the time recorded on replies. The balance is
+     * charges less payments, the same sum the client's account shows.
+     */
+    private static final String CLIENT_ROWS = """
+            SELECT c.id, c.name, c.primary_email, c.status, c.created_at,
+              (SELECT count(*) FROM engagement e WHERE e.client_id = c.id) AS engagements,
+              (SELECT count(*) FROM topic t JOIN engagement e ON e.id = t.engagement_id
+                WHERE e.client_id = c.id) AS topics,
+              (SELECT count(*) FROM appointment a WHERE a.client_id = c.id) AS meetings,
+              COALESCE((SELECT sum(COALESCE(te.minutes,
+                               EXTRACT(EPOCH FROM (te.ended_at - te.started_at)) / 60))
+                 FROM time_entry te JOIN appointment a ON a.id = te.appointment_id
+                WHERE a.client_id = c.id
+                  AND (te.minutes IS NOT NULL OR te.ended_at IS NOT NULL)), 0)
+              + COALESCE((SELECT sum(m.minutes) FROM topic_message m
+                 JOIN topic t ON t.id = m.topic_id
+                 JOIN engagement e ON e.id = t.engagement_id
+                WHERE e.client_id = c.id), 0) AS minutes,
+              COALESCE((SELECT sum(ch.amount_cents) FROM charge ch
+                WHERE ch.client_id = c.id AND ch.voided_at IS NULL), 0)
+              - COALESCE((SELECT sum(p.amount_cents) FROM payment p
+                WHERE p.client_id = c.id AND p.voided_at IS NULL), 0) AS balance
+            FROM client c ORDER BY c.name
+            """;
 
     @GetMapping("/clients")
     public Grid.Page<ClientView> listClients(
+            Authentication auth,
             @RequestParam(name = "filter", required = false) List<String> filter,
             @RequestParam(defaultValue = "name:asc") String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int size) {
 
-        List<ClientView> all =
-                clients.findAllByOrderByNameAsc().stream().map(ClientView::of).toList();
-        return Grid.apply(all, clientSpec().accessors(), Grid.parse(filter), sort, page, size);
+        boolean money = Staff.seesMoney(auth);
+        List<ClientView> all = jdbc.sql(CLIENT_ROWS)
+                .query((rs, i) -> new ClientView(rs.getLong("id"), rs.getString("name"),
+                        rs.getString("primary_email"), rs.getString("status"),
+                        rs.getTimestamp("created_at").toInstant(),
+                        rs.getInt("engagements"), rs.getInt("topics"), rs.getInt("meetings"),
+                        Math.round(rs.getDouble("minutes") / 6.0) / 10.0,
+                        money ? rs.getLong("balance") : null))
+                .list();
+        return Grid.apply(all, clientSpec(money).accessors(), Grid.parse(filter), sort, page,
+                size);
     }
 
+    /** Status is optional so a caller that only renames leaves it alone. */
     public record UpdateClient(
             @NotBlank String name,
-            @NotBlank @Email String primaryEmail) {}
+            @NotBlank @Email String primaryEmail,
+            String status) {}
 
     @PutMapping("/clients/{id}")
     @Transactional
@@ -159,6 +223,13 @@ public class AdminController {
                             "Another client already uses that primary email");
                 });
 
+        if (request.status() != null) {
+            if (!CLIENT_STATUSES.contains(request.status())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Status must be one of " + String.join(", ", CLIENT_STATUSES));
+            }
+            client.setStatus(request.status());
+        }
         client.setName(request.name().trim());
         client.setPrimaryEmail(email);
         log.info("Updated client {}", id);

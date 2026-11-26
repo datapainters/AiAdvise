@@ -10,7 +10,7 @@
  * `staff`. The portal never passes it, whoever is signed in.
  */
 
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Paged } from './datagrid';
 import {
   getThread,
@@ -165,6 +165,8 @@ export function ThreadView({
   const [thread, setThread] = useState<Thread | null>(null);
   const [body, setBody] = useState('');
   const [minutes, setMinutes] = useState('');
+  // Checked for every new reply: posting quietly is the exception.
+  const [notify, setNotify] = useState(true);
   const [attached, setAttached] = useState<MediaItem[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [library, setLibrary] = useState<MediaItem[] | null>(null);
@@ -220,6 +222,7 @@ export function ThreadView({
           minutes: staff && spent > 0 ? spent : undefined,
           mediaItemIds: staff && attached.length ? attached.map((a) => a.id) : undefined,
           uploads: uploads.length ? uploads : undefined,
+          notifyTeam: staff ? notify : undefined,
         }),
       );
       setBody('');
@@ -227,6 +230,7 @@ export function ThreadView({
       setAttached([]);
       setFiles([]);
       setPicking(false);
+      setNotify(true);
       onPosted?.();
     } catch (err) {
       onError(err);
@@ -403,6 +407,12 @@ export function ThreadView({
                 {picking ? 'Hide media library' : 'Attach from media library'}
               </button>
             )}
+            {staff && (
+              <label className="check-row thread-notify">
+                <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+                Notify Topic Team
+              </label>
+            )}
             <button className="btn btn-primary" type="submit" disabled={busy || (!body.trim() && files.length === 0)}>
               {busy ? 'Sending...' : 'Send'}
             </button>
@@ -432,6 +442,8 @@ export function MessagesPanel({
   all = false,
   staff = false,
   groupByEngagement = false,
+  filters = false,
+  fill = false,
   initialTopicId,
   refreshKey,
   onOpenMeeting,
@@ -443,6 +455,10 @@ export function MessagesPanel({
   staff?: boolean;
   /** Sets the list out under a heading per engagement. */
   groupByEngagement?: boolean;
+  /** Client, engagement and search controls above the list. */
+  filters?: boolean;
+  /** Fills its container: the list and the thread each scroll on their own. */
+  fill?: boolean;
   /** Opens this topic first, as when arriving from an email. */
   initialTopicId?: number | null;
   /** Bumped by the parent to reload, as after a topic is added. */
@@ -455,6 +471,9 @@ export function MessagesPanel({
   const [open, setOpen] = useState<number | null>(initialTopicId ?? null);
   const engagementId = scope?.engagementId;
   const clientId = scope?.clientId;
+  const [pickClient, setPickClient] = useState<number | ''>('');
+  const [pickEngagement, setPickEngagement] = useState<number | ''>('');
+  const [search, setSearch] = useState('');
 
   const reload = useCallback(
     () => listThreads({ engagementId, clientId, all }).then(setThreads).catch(onError),
@@ -465,18 +484,52 @@ export function MessagesPanel({
     reload();
   }, [reload, refreshKey]);
 
-  // Follow the list: with nothing chosen, or after the scope changes to one
-  // that no longer holds the open topic, show the most recent.
+  const everything = threads ?? [];
+
+  // The choices come from the topics themselves, so a client or engagement
+  // with nothing to show is never offered.
+  const clientOptions = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const t of everything) seen.set(t.clientId, t.clientName);
+    return [...seen.entries()].sort((x, y) => x[1].localeCompare(y[1]));
+  }, [everything]);
+  const engagementOptions = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const t of everything) {
+      if (pickClient === '' || t.clientId === pickClient) seen.set(t.engagementId, t.engagementTitle);
+    }
+    return [...seen.entries()].sort((x, y) => x[1].localeCompare(y[1]));
+  }, [everything, pickClient]);
+
+  const words = search.trim().toLowerCase();
+  const shown = useMemo(
+    () =>
+      everything.filter(
+        (t) =>
+          (pickClient === '' || t.clientId === pickClient) &&
+          (pickEngagement === '' || t.engagementId === pickEngagement) &&
+          (words === '' ||
+            [t.title, t.lastSnippet, t.lastAuthor, t.raisedBy, t.engagementTitle, t.clientName].some((v) =>
+              (v ?? '').toLowerCase().includes(words),
+            )),
+      ),
+    [everything, pickClient, pickEngagement, words],
+  );
+  const filtering = pickClient !== '' || pickEngagement !== '' || words !== '';
+
+  // Follow the list: with nothing chosen, or after the filters change to a
+  // set that no longer holds the open topic, show the most recent. A topic
+  // arrived at by link stays open until the reader filters.
   useEffect(() => {
     if (!threads) return;
-    if (threads.length === 0) {
-      if (open !== null && open !== initialTopicId) setOpen(null);
+    if (shown.length === 0) {
+      if (open !== null && (open !== initialTopicId || filtering)) setOpen(null);
       return;
     }
-    if (open === null || (open !== initialTopicId && !threads.some((t) => t.topicId === open))) {
-      setOpen(threads[0].topicId);
+    if (open === null || ((open !== initialTopicId || filtering) && !shown.some((t) => t.topicId === open))) {
+      setOpen(shown[0].topicId);
     }
-  }, [threads, open, initialTopicId]);
+  }, [threads, shown, open, initialTopicId, filtering]);
 
   if (!threads) return <p className="empty">Loading...</p>;
 
@@ -486,19 +539,27 @@ export function MessagesPanel({
 
   // Under a heading per engagement the name is not repeated on every row.
   const showEngagement = !engagementId && !groupByEngagement;
+  // Across clients, the heading has to say whose engagement it is.
+  const headingNamesClient = groupByEngagement && !clientId && pickClient === '';
 
   // Engagements in order of their most recent activity, each with its topics.
   const groups: { id: number; title: string; items: ThreadSummary[] }[] = [];
-  for (const t of threads) {
+  for (const t of shown) {
     const g = groups.find((x) => x.id === t.engagementId);
     if (g) g.items.push(t);
-    else groups.push({ id: t.engagementId, title: t.engagementTitle, items: [t] });
+    else
+      groups.push({
+        id: t.engagementId,
+        title: headingNamesClient ? `${t.clientName} \u00b7 ${t.engagementTitle}` : t.engagementTitle,
+        items: [t],
+      });
   }
-  const sections = groupByEngagement ? groups : [{ id: 0, title: '', items: threads }];
+  const sections = groupByEngagement ? groups : [{ id: 0, title: '', items: shown }];
 
-  return (
-    <div className="inbox">
+  const inbox = (
+    <div className={fill ? 'inbox inbox-fill' : 'inbox'}>
       <div className="inbox-list" aria-label="Topics">
+        {shown.length === 0 && <p className="panel-empty">No topics match.</p>}
         {sections.map((section) => (
           <section key={section.id}>
             {groupByEngagement && (
@@ -524,7 +585,7 @@ export function MessagesPanel({
                   <strong>{t.title}</strong>
                   <span className="muted">{stamp(t.lastActivityAt)}</span>
                 </span>
-                {(showEngagement || (staff && !clientId && !engagementId)) && (
+                {(showEngagement || (staff && !clientId && !engagementId && !groupByEngagement)) && (
                   <span className="muted inbox-item-where">
                     {staff && !clientId ? `${t.clientName} · ` : ''}
                     {showEngagement ? t.engagementTitle : ''}
@@ -562,6 +623,59 @@ export function MessagesPanel({
           <ThreadView topicId={open} staff={staff} onError={onError} onPosted={reload} onOpenMeeting={onOpenMeeting} />
         )}
       </div>
+    </div>
+  );
+
+  if (!filters) return inbox;
+
+  return (
+    <div className={fill ? 'topics-screen topics-screen-fill' : 'topics-screen'}>
+      <div className="topics-filters">
+        <label>
+          Client
+          <select
+            value={pickClient}
+            onChange={(e) => {
+              setPickClient(e.target.value === '' ? '' : Number(e.target.value));
+              setPickEngagement('');
+            }}
+          >
+            <option value="">All clients</option>
+            {clientOptions.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Engagement
+          <select
+            value={pickEngagement}
+            onChange={(e) => setPickEngagement(e.target.value === '' ? '' : Number(e.target.value))}
+          >
+            <option value="">{pickClient === '' ? 'All engagements' : 'All of this client\u2019s engagements'}</option>
+            {engagementOptions.map(([id, title]) => (
+              <option key={id} value={id}>
+                {title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="topics-search">
+          Search topics
+          <input
+            type="search"
+            value={search}
+            placeholder="Title, message or person"
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
+        <span className="muted topics-count">
+          {shown.length} of {everything.length} topics
+        </span>
+      </div>
+      {inbox}
     </div>
   );
 }

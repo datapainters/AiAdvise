@@ -352,7 +352,7 @@ public class ThreadService {
 
     @Transactional
     public Thread post(AppUser author, Long topicId, String text, Integer minutes,
-            List<Long> mediaItemIds, List<Upload> uploads) {
+            List<Long> mediaItemIds, List<Upload> uploads, boolean notify) {
         TopicRow t = visible(author, topicId);
         String reason = closedReason(t);
         if (reason != null) {
@@ -429,7 +429,13 @@ public class ThreadService {
         }
 
         log.info("Message {} posted on topic {} by user {}", messageId, topicId, author.getId());
-        afterCommit(() -> notifyPost(t, author, body, attached));
+        // Only the firm can post quietly. A client's message always reaches
+        // the team, or a question could sit unseen.
+        if (notify || !author.isAdmin()) {
+            afterCommit(() -> notifyPost(t, author, body, attached));
+        } else {
+            log.info("Message {} posted without notifying the topic team", messageId);
+        }
         return thread(author, topicId);
     }
 

@@ -5955,3 +5955,151 @@ button:disabled,
     min-width: 0;
   }
 }
+
+/* =====================================================================
+   Topics screen: filters, and a list and thread that scroll on their own
+   ===================================================================== */
+
+/* The window holds exactly this screen. Nothing below scrolls the page;
+   the list and the open thread each scroll inside their own frame. */
+.admin-shell-fill {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.admin-shell-fill .admin-main {
+  min-height: 0;
+  height: 100%;
+}
+
+.admin-shell-fill .admin-top {
+  flex: none;
+  padding-top: 1rem;
+  padding-bottom: 0.85rem;
+}
+
+.admin-shell-fill .admin-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+.topics-screen-fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topics-filters {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.topics-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 1 1 13rem;
+  max-width: 22rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.topics-filters .topics-search {
+  flex: 2 1 16rem;
+  max-width: 30rem;
+}
+
+.topics-filters select,
+.topics-filters input {
+  margin: 0;
+  width: 100%;
+}
+
+.topics-count {
+  margin-left: auto;
+  padding-bottom: 0.6rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.inbox-fill {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.inbox-fill .inbox-list,
+.inbox-fill .inbox-thread {
+  max-height: none;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.thread-notify {
+  margin: 0;
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+
+@media (max-width: 900px) {
+  /* The console's navigation sits above the screen here, so the shell is a
+     column and the screen takes what is left. */
+  .admin-shell-fill {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .admin-shell-fill .admin-main {
+    flex: 1;
+    height: auto;
+  }
+
+  .admin-shell-fill .admin-top .muted {
+    display: none;
+  }
+
+  .admin-shell-fill .admin-content {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .topics-filters {
+    padding: 0.6rem 0.75rem;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .topics-filters label {
+    flex: 1 1 9rem;
+    max-width: none;
+  }
+
+  .topics-count {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  /* Stacked: the list takes the top third, the thread the rest. */
+  .inbox-fill {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 0.75rem;
+  }
+}

@@ -430,6 +430,7 @@ export function MessagesPanel({
   scope,
   all = false,
   staff = false,
+  groupByEngagement = false,
   initialTopicId,
   refreshKey,
   onOpenMeeting,
@@ -439,6 +440,8 @@ export function MessagesPanel({
   scope?: { engagementId?: number; clientId?: number };
   all?: boolean;
   staff?: boolean;
+  /** Sets the list out under a heading per engagement. */
+  groupByEngagement?: boolean;
   /** Opens this topic first, as when arriving from an email. */
   initialTopicId?: number | null;
   /** Bumped by the parent to reload, as after a topic is added. */
@@ -480,12 +483,31 @@ export function MessagesPanel({
     return <p className="empty">{empty ?? 'No topics yet.'}</p>;
   }
 
-  const showEngagement = !engagementId;
+  // Under a heading per engagement the name is not repeated on every row.
+  const showEngagement = !engagementId && !groupByEngagement;
+
+  // Engagements in order of their most recent activity, each with its topics.
+  const groups: { id: number; title: string; items: ThreadSummary[] }[] = [];
+  for (const t of threads) {
+    const g = groups.find((x) => x.id === t.engagementId);
+    if (g) g.items.push(t);
+    else groups.push({ id: t.engagementId, title: t.engagementTitle, items: [t] });
+  }
+  const sections = groupByEngagement ? groups : [{ id: 0, title: '', items: threads }];
 
   return (
     <div className="inbox">
-      <ul className="inbox-list" aria-label="Topics">
-        {threads.map((t) => {
+      <div className="inbox-list" aria-label="Topics">
+        {sections.map((section) => (
+          <section key={section.id}>
+            {groupByEngagement && (
+              <h4 className="inbox-group">
+                {section.title}
+                <span className="tab-count">{section.items.length}</span>
+              </h4>
+            )}
+            <ul>
+              {section.items.map((t) => {
           // Who is being waited on: a client post with no answer yet, or a
           // topic nobody has replied to.
           const waiting = staff ? t.open && t.lastSide !== 'team' : t.open && t.lastSide === 'team';
@@ -526,7 +548,10 @@ export function MessagesPanel({
             </li>
           );
         })}
-      </ul>
+            </ul>
+          </section>
+        ))}
+      </div>
       <div className="inbox-thread">
         {open === null ? (
           <p className="empty">Choose a topic.</p>

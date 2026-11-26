@@ -1175,3 +1175,77 @@ export function invoiceEngagement(id: number): Promise<{ id: number; number: str
 export function listMeetingShares(appointmentId: number): Promise<SharedItem[]> {
   return request<SharedItem[]>(`/api/admin/appointments/${appointmentId}/shares`);
 }
+
+/* ---------------------------------------------------------- admin overview */
+
+export interface AdminOverview {
+  work: {
+    clients: number;
+    activeEngagements: number;
+    inquiries: number;
+    openTopics: number;
+    meetingsToConfirm: number;
+    meetingsNext7Days: number;
+    meetingsToday: number;
+    minutesThisMonth: number;
+    replyMinutesThisMonth: number;
+  };
+  people: {
+    team: number;
+    teamInvitesPending: number;
+    clientUsers: number;
+    clientInvitesPending: number;
+  };
+  /** Conversations where the client spoke last. */
+  awaitingReply: number;
+  waiting: {
+    topicId: number;
+    title: string;
+    clientName: string;
+    engagementTitle: string;
+    lastAuthor: string | null;
+    lastSnippet: string | null;
+    since: string;
+  }[];
+  /** Open engagements whose target date has passed. */
+  pastDue: number;
+  /** Open engagements with a target date passed or within two weeks. */
+  due: { id: number; title: string; clientName: string; dueOn: string; daysLeft: number }[];
+  mediaItems: number;
+  /** Null for roles that do not handle billing. */
+  money: {
+    receivableCents: number;
+    overdueCents: number;
+    unbilledCents: number;
+    billedThisMonthCents: number;
+    collectedThisMonthCents: number;
+    hourlyRateCents: number;
+    unchargedReplyMinutes: number;
+  } | null;
+}
+
+export function getAdminOverview(): Promise<AdminOverview> {
+  return request<AdminOverview>('/api/admin/overview');
+}
+
+/**
+ * Fetches the engagement's status report and hands it to the browser as a
+ * download. A plain link cannot be used: the request needs the sign-in token.
+ */
+export async function downloadStatusReport(engagementId: number, title: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}/api/admin/engagements/${engagementId}/status-report`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (res.status === 401) throw new Unauthorized();
+  if (!res.ok) throw new Error(`The report could not be created (${res.status}). Try again.`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Status report - ${title.replace(/[^A-Za-z0-9 _.-]/g, '').trim()} - ${new Date().toISOString().slice(0, 10)}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Paged } from './datagrid';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   cancelAppointment,
@@ -977,7 +978,8 @@ function MeetingsView({
   onError: (e: unknown) => void;
 }) {
   const table = (rows: Appointment[], allowCancel: boolean) => (
-    <div className="grid-wrap">
+    <Paged rows={rows} size={15}>{(pageRows) => (
+<div className="grid-wrap">
       <table className="grid">
         <thead>
           <tr>
@@ -991,7 +993,7 @@ function MeetingsView({
           </tr>
         </thead>
         <tbody>
-          {rows.map((a) => (
+          {pageRows.map((a) => (
             <tr key={a.id} className={a.status === 'cancelled' ? 'row-bad' : undefined}>
               <td className="nowrap">
                 <strong>{formatRange(a.startsAt, a.endsAt)}</strong>
@@ -1025,6 +1027,7 @@ function MeetingsView({
         </tbody>
       </table>
     </div>
+)}</Paged>
   );
 
   return (
@@ -1062,7 +1065,8 @@ function MeetingsView({
 function InvoiceTable({ invoices }: { invoices: ClientBilling['invoices'] }) {
   return (
     <div className="grid-wrap flush">
-      <table className="grid">
+      <Paged rows={invoices} size={15}>{(pageRows) => (
+<table className="grid">
         <thead>
           <tr>
             <th>Invoice</th>
@@ -1075,7 +1079,7 @@ function InvoiceTable({ invoices }: { invoices: ClientBilling['invoices'] }) {
           </tr>
         </thead>
         <tbody>
-          {invoices.map((i) => (
+          {pageRows.map((i) => (
             <tr key={i.id}>
               <td className="nowrap">
                 <strong>{i.number}</strong>
@@ -1101,6 +1105,7 @@ function InvoiceTable({ invoices }: { invoices: ClientBilling['invoices'] }) {
           ))}
         </tbody>
       </table>
+)}</Paged>
     </div>
   );
 }
@@ -1197,7 +1202,8 @@ function BillingView({ billing }: { billing: ClientBilling | null }) {
               </div>
             ) : (
               <div className="grid-wrap flush">
-                <table className="grid">
+                <Paged rows={billing.payments} size={15}>{(pageRows) => (
+<table className="grid">
                   <thead>
                     <tr>
                       <th>Received</th>
@@ -1208,7 +1214,7 @@ function BillingView({ billing }: { billing: ClientBilling | null }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {billing.payments.map((p) => (
+                    {pageRows.map((p) => (
                       <tr key={p.id}>
                         <td className="nowrap">{day(p.receivedOn)}</td>
                         <td>{p.invoiceNumber ?? <span className="muted">On account</span>}</td>
@@ -1221,6 +1227,7 @@ function BillingView({ billing }: { billing: ClientBilling | null }) {
                     ))}
                   </tbody>
                 </table>
+)}</Paged>
               </div>
             ))}
 
@@ -1249,7 +1256,8 @@ function BillingView({ billing }: { billing: ClientBilling | null }) {
                   ))}
                 </div>
                 <div className="grid-wrap flush">
-                  <table className="grid">
+                  <Paged rows={billing.billed} size={15}>{(pageRows) => (
+<table className="grid">
                     <thead>
                       <tr>
                         <th>Date</th>
@@ -1261,7 +1269,7 @@ function BillingView({ billing }: { billing: ClientBilling | null }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {billing.billed.map((b) => (
+                      {pageRows.map((b) => (
                         <tr key={b.id}>
                           <td className="nowrap">{day(b.serviceDate)}</td>
                           <td>{b.description}</td>
@@ -1275,6 +1283,7 @@ function BillingView({ billing }: { billing: ClientBilling | null }) {
                       ))}
                     </tbody>
                   </table>
+)}</Paged>
                 </div>
               </>
             ))}

@@ -1207,7 +1207,8 @@ export function AgingReport({ onError, onOpenClient }: { onError: OnError; onOpe
           <p className="muted">Every client is paid up.</p>
         </div>
       ) : (
-        <div className="grid-wrap">
+        <Paged rows={r.rows} size={25}>{(pageRows) => (
+<div className="grid-wrap">
           <table className="grid report-table">
             <thead>
               <tr>
@@ -1221,7 +1222,7 @@ export function AgingReport({ onError, onOpenClient }: { onError: OnError; onOpe
               </tr>
             </thead>
             <tbody>
-              {r.rows.map((x) => (
+              {pageRows.map((x) => (
                 <tr key={x.clientId} className="clickable" onClick={() => x.clientId && onOpenClient(x.clientId)}>
                   <td>
                     <strong>{x.clientName}</strong>
@@ -1248,6 +1249,7 @@ export function AgingReport({ onError, onOpenClient }: { onError: OnError; onOpe
             </tfoot>
           </table>
         </div>
+)}</Paged>
       )}
     </section>
   );
@@ -1363,7 +1365,8 @@ export function RevenueReport({ onError }: { onError: OnError }) {
           {r.clients.length === 0 ? (
             <p className="empty">No client activity in this range.</p>
           ) : (
-            <div className="grid-wrap">
+            <Paged rows={r.clients} size={25}>{(pageRows) => (
+<div className="grid-wrap">
               <table className="grid report-table">
                 <thead>
                   <tr>
@@ -1375,7 +1378,7 @@ export function RevenueReport({ onError }: { onError: OnError }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {r.clients.map((c: RevenueRow) => (
+                  {pageRows.map((c: RevenueRow) => (
                     <tr key={c.clientId}>
                       <td>
                         <strong>{c.clientName}</strong>
@@ -1389,6 +1392,7 @@ export function RevenueReport({ onError }: { onError: OnError }) {
                 </tbody>
               </table>
             </div>
+)}</Paged>
           )}
         </>
       )}
@@ -1437,7 +1441,8 @@ export function UnbilledReport({
       {r.attention.length === 0 ? (
         <p className="empty">Every past meeting is completed and billed.</p>
       ) : (
-        <div className="grid-wrap">
+        <Paged rows={r.attention} size={25}>{(pageRows) => (
+<div className="grid-wrap">
           <table className="grid">
             <thead>
               <tr>
@@ -1449,7 +1454,7 @@ export function UnbilledReport({
               </tr>
             </thead>
             <tbody>
-              {r.attention.map((a) => (
+              {pageRows.map((a) => (
                 <tr key={a.appointmentId} className="clickable" onClick={() => onOpenMeeting(a.appointmentId)}>
                   <td className="nowrap">{new Date(a.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</td>
                   <td>
@@ -1466,13 +1471,15 @@ export function UnbilledReport({
             </tbody>
           </table>
         </div>
+)}</Paged>
       )}
 
       <h4 className="subhead">Unbilled charges by client</h4>
       {byClient.size === 0 ? (
         <p className="empty">Nothing unbilled.</p>
       ) : (
-        [...byClient.entries()].map(([cid, list]) => (
+<Paged rows={[...byClient.entries()]}>{(pageGroups) => (
+        <>{pageGroups.map(([cid, list]) => (
           <div key={cid} className="client-block">
             <div className="client-block-head">
               <strong>{list[0].clientName}</strong>
@@ -1485,7 +1492,8 @@ export function UnbilledReport({
             </div>
             <ChargeTable charges={list} />
           </div>
-        ))
+        ))}</>
+)}</Paged>
       )}
     </section>
   );
@@ -1979,7 +1987,8 @@ export function EngagementCostsReport({ onError, onToast }: { onError: OnError; 
               </p>
             </div>
           ) : (
-            <div className="grid-wrap">
+            <Paged rows={r.rows} size={25}>{(pageRows) => (
+<div className="grid-wrap">
               <table className="grid report-table">
                 <thead>
                   <tr>
@@ -1994,7 +2003,7 @@ export function EngagementCostsReport({ onError, onToast }: { onError: OnError; 
                   </tr>
                 </thead>
                 <tbody>
-                  {r.rows.map((x) => (
+                  {pageRows.map((x) => (
                     <tr key={x.engagementId} className="clickable" onClick={() => setOpen(x.engagementId)}>
                       <td>
                         <strong>{x.engagementTitle}</strong>
@@ -2034,6 +2043,7 @@ export function EngagementCostsReport({ onError, onToast }: { onError: OnError; 
                 </tfoot>
               </table>
             </div>
+)}</Paged>
           )}
         </>
       )}
@@ -2105,7 +2115,8 @@ function CostDetailModal({
           {d.video.length === 0 ? (
             <p className="empty">No video calls recorded. Use “Sync video usage” on the report to pull them from Daily.</p>
           ) : (
-            <div className="grid-wrap">
+            <Paged rows={d.video}>{(pageRows) => (
+<div className="grid-wrap">
               <table className="grid">
                 <thead>
                   <tr>
@@ -2117,7 +2128,7 @@ function CostDetailModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {d.video.map((v) => (
+                  {pageRows.map((v) => (
                     <tr key={v.sessionId}>
                       <td className="nowrap">{new Date(v.startedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</td>
                       <td className="num">{Math.ceil(v.durationSeconds / 60)} min</td>
@@ -2135,13 +2146,15 @@ function CostDetailModal({
                 </tfoot>
               </table>
             </div>
+)}</Paged>
           )}
 
           <h4 className="subhead">Other costs</h4>
           {live.length === 0 ? (
             <p className="empty">None recorded.</p>
           ) : (
-            <div className="grid-wrap">
+            <Paged rows={live}>{(pageRows) => (
+<div className="grid-wrap">
               <table className="grid">
                 <thead>
                   <tr>
@@ -2153,7 +2166,7 @@ function CostDetailModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {live.map((c) => (
+                  {pageRows.map((c) => (
                     <tr key={c.id}>
                       <td className="nowrap">{day(c.incurredOn)}</td>
                       <td>{COST_CATEGORIES.find((k) => k.value === c.category)?.label ?? c.category}</td>
@@ -2181,6 +2194,7 @@ function CostDetailModal({
                 </tbody>
               </table>
             </div>
+)}</Paged>
           )}
 
           <form className="cost-form" onSubmit={add}>

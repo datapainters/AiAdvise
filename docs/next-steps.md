@@ -1119,3 +1119,23 @@ keep is missing, nothing is deleted.
 
 Not touched: files in the production media bucket and rooms at Daily. A
 database snapshot was taken before the release.
+
+## Layout review across screen sizes (2026-11-26)
+
+Every public, admin and portal screen and the three record popups were
+checked with the demo data at 1920x1080, 1366x768, 1180x820, 820x1180,
+744x1010, 402x874 and 360x800 for anything wider than the screen.
+
+- **Full width.** The admin and portal content area no longer stops at
+  88rem; lists and reports use the whole window. The settings cards do too.
+- **Paging everywhere.** `Paged` now also wraps portal logins, sign-in
+  activity, team, the aging, revenue-by-client, unbilled, costs and video
+  billing reports, the media library lists, and the portal's engagements,
+  meetings, team members, invoices, payments and billed time.
+- **Phones.** Record popups take the whole screen under 700px. The row of
+  figures stays on one line and scrolls sideways when it will not fit, at
+  any width under 1000px. Tabs scroll sideways. The engagement toolbar
+  wraps. System options stack text above input, and the hours table wraps.
+
+Tables still scroll sideways inside their own frame on phones; the page
+itself never does.

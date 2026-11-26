@@ -34,8 +34,13 @@ public class Notifications {
     private final AppUserRepository users;
     private final ZoneId displayZone;
 
+    /** Absolute address of the logo: mail clients cannot resolve a relative one. */
+    private final String logoUrl;
+
     public Notifications(MailSender mail, AppUserRepository users,
-            @Value("${MAIL_DISPLAY_TIMEZONE:America/Chicago}") String zone) {
+            @Value("${MAIL_DISPLAY_TIMEZONE:America/Chicago}") String zone,
+            @Value("${APP_BASE_URL:https://ai.datapainters.com}") String appBaseUrl) {
+        this.logoUrl = appBaseUrl.replaceAll("/+$", "") + "/brand/logo-horizontal-1200.png";
         this.mail = mail;
         this.users = users;
         // Times in email have to be absolute -- the reader has no browser to
@@ -602,17 +607,18 @@ Review and confirm</a>
      * blocks with enough regularity that inline attributes are the only
      * thing that reliably survives.
      */
-    private static String wrap(String inner) {
+    private String wrap(String inner) {
         return """
                 <!doctype html>
                 <html><body style="margin:0;padding:24px;background:#fcfcfd">
                 <div style="max-width:560px;margin:0 auto;font-family:Helvetica,Arial,sans-serif;\
                 font-size:15px;line-height:1.55;color:#16181d">
-                <p style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;\
-                color:#595f6b;margin:0 0 24px">Data Painters</p>
+                <p style="margin:0 0 24px;padding:0 0 16px;border-bottom:1px solid #e3e5ea">\
+                <img src="%s" alt="DataPainters" width="186" height="36" \
+                style="display:block;border:0;height:36px;width:186px"></p>
                 %s
                 </div></body></html>
-                """.formatted(inner);
+                """.formatted(logoUrl, inner);
     }
 
     /** Escapes interpolated values so a client name cannot inject markup. */

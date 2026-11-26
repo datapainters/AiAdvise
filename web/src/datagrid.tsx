@@ -360,3 +360,61 @@ export function Pager({
     </div>
   );
 }
+
+
+/**
+ * Pages a list that is already in memory: the tables inside the record
+ * popups, which arrive whole with the record. Shows nothing extra until the
+ * list is longer than one page.
+ */
+export function Paged<T>({
+  rows,
+  size = 10,
+  narrow,
+  children,
+}: {
+  rows: T[];
+  size?: number;
+  /** For a slim column: drops the "Page x of y" text. */
+  narrow?: boolean;
+  children: (pageRows: T[], offset: number) => ReactNode;
+}) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(rows.length / size));
+  // A shrinking list (a row deleted on the last page) must not strand the
+  // reader on a page that no longer exists.
+  const safePage = Math.min(page, totalPages - 1);
+  const from = safePage * size;
+  const pageRows = rows.slice(from, from + size);
+
+  return (
+    <>
+      {children(pageRows, from)}
+      {rows.length > size && (
+        <div className={narrow ? 'pager pager-inline pager-narrow' : 'pager pager-inline'}>
+          <span className="muted">
+            {from + 1}&ndash;{from + pageRows.length} of {rows.length}
+          </span>
+          <div className="pager-controls">
+            <button type="button" className="btn" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
+              Previous
+            </button>
+            {!narrow && (
+              <span className="muted">
+                Page {safePage + 1} of {totalPages}
+              </span>
+            )}
+            <button
+              type="button"
+              className="btn"
+              disabled={safePage >= totalPages - 1}
+              onClick={() => setPage(safePage + 1)}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

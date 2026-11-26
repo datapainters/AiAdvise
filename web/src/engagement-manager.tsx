@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { Paged } from './datagrid';
 import {
   addEngagementNote,
   attachLibraryItem,
@@ -202,20 +203,33 @@ export function EngagementManager({
               {reporting ? 'Preparing report...' : 'Engagement Status Report'}
             </button>
             <span className="muted modal-toolbar-note">
-              A PDF of the goal, topics, team and recent activity, written to send to the client. No
-              billing figures or internal notes.
+              A PDF for the client: goal, topics, team and recent activity. No billing or internal
+              notes.
+            </span>
+            <span className="modal-toolbar-facts">
+              Client{' '}
+              {onOpenClient ? (
+                <button className="linklike" onClick={() => onOpenClient(detail.clientId)}>
+                  {detail.clientName}
+                </button>
+              ) : (
+                <strong>{detail.clientName}</strong>
+              )}{' '}
+              &middot; by {COMMUNICATION_LABELS[detail.communication].toLowerCase()} &middot; started{' '}
+              {day(detail.startedOn)}
             </span>
           </>
         )
       }
       onClose={onClose}
-      wide
+      fixed
     >
       {loading || !detail ? (
         <p>Loading...</p>
       ) : (
         <>
           <Summary
+            compact
             figures={[
               {
                 label: 'Target date',
@@ -253,34 +267,14 @@ export function EngagementManager({
                   ]
                 : []),
             ]}
-            facts={[
-              <>
-                Client{' '}
-                {onOpenClient ? (
-                  <button className="linklike" onClick={() => onOpenClient(detail.clientId)}>
-                    {detail.clientName}
-                  </button>
-                ) : (
-                  <strong>{detail.clientName}</strong>
-                )}
-              </>,
-              <>
-                Run by <strong>{COMMUNICATION_LABELS[detail.communication].toLowerCase()}</strong>
-              </>,
-              <>
-                Started <strong>{day(detail.startedOn)}</strong>
-              </>,
-              <>
-                <strong>{detail.team.length}</strong> {detail.team.length === 1 ? 'person' : 'people'} on
-                the team
-              </>,
-            ]}
+            facts={[]}
           />
 
-          <div className="tabs" role="tablist">
+          <div className="tabs tabs-classic" role="tablist">
             {tabs.map((t) => (
               <button
                 key={t}
+                type="button"
                 role="tab"
                 aria-selected={tab === t}
                 className={tab === t ? 'tab tab-on' : 'tab'}
@@ -292,6 +286,7 @@ export function EngagementManager({
             ))}
           </div>
 
+          <div className="tab-panel" role="tabpanel">
           {tab === 'overview' && (
             <OverviewTab
               detail={detail}
@@ -318,7 +313,8 @@ export function EngagementManager({
                 No meetings yet. Add one here, or the client can book one from their portal.
               </p>
             ) : (
-              <div className="grid-wrap">
+              <Paged rows={detail.meetings}>{(pageRows) => (
+<div className="grid-wrap">
                 <table className="grid">
                   <thead>
                     <tr>
@@ -331,7 +327,7 @@ export function EngagementManager({
                     </tr>
                   </thead>
                   <tbody>
-                    {detail.meetings.map((m) => (
+                    {pageRows.map((m) => (
                       <tr key={m.id} className="clickable" onClick={() => onOpenMeeting(m.id)}>
                         <td>
                           {m.title ? <strong>{m.title}</strong> : <span className="muted">Booked by client</span>}
@@ -350,6 +346,7 @@ export function EngagementManager({
                   </tbody>
                 </table>
               </div>
+)}</Paged>
             ))}
 
           {tab === 'messages' && (
@@ -389,7 +386,8 @@ export function EngagementManager({
                 and screenshots put on screen during a call are collected here.
               </p>
             ) : (
-              <div className="grid-wrap">
+              <Paged rows={detail.media}>{(pageRows) => (
+<div className="grid-wrap">
                 <table className="grid">
                   <thead>
                     <tr>
@@ -401,7 +399,7 @@ export function EngagementManager({
                     </tr>
                   </thead>
                   <tbody>
-                    {detail.media.map((s) => (
+                    {pageRows.map((s) => (
                       <tr key={s.id}>
                         <td>
                           <strong>{s.title}</strong>
@@ -423,6 +421,7 @@ export function EngagementManager({
                   </tbody>
                 </table>
               </div>
+)}</Paged>
             ))}
 
           {tab === 'team' && (
@@ -453,6 +452,7 @@ export function EngagementManager({
               }}
             />
           )}
+          </div>
         </>
       )}
     </Modal>
@@ -705,8 +705,9 @@ function NotesTab({
           No notes yet. Notes taken on a topic in a meeting appear in that topic&rsquo;s thread, under Topics.
         </p>
       ) : (
+<Paged rows={notes}>{(pageNotes) => (
         <div className="notes-list">
-          {notes.map((n) => (
+          {pageNotes.map((n) => (
             <article key={n.id} className="note-entry">
               <header>
                 <strong>{n.authorName ?? 'Former team member'}</strong>
@@ -769,6 +770,7 @@ function NotesTab({
             </article>
           ))}
         </div>
+)}</Paged>
       )}
     </div>
   );
@@ -907,7 +909,8 @@ function FilesSection({
       {detail.files.length === 0 ? (
         <p className="empty">No files attached to this engagement yet.</p>
       ) : (
-        <div className="grid-wrap">
+        <Paged rows={detail.files}>{(pageRows) => (
+<div className="grid-wrap">
           <table className="grid">
             <thead>
               <tr>
@@ -919,7 +922,7 @@ function FilesSection({
               </tr>
             </thead>
             <tbody>
-              {detail.files.map((f) => (
+              {pageRows.map((f) => (
                 <tr key={f.id}>
                   <td>
                     <strong>{f.title}</strong>
@@ -949,6 +952,7 @@ function FilesSection({
             </tbody>
           </table>
         </div>
+)}</Paged>
       )}
     </div>
   );
@@ -1029,7 +1033,8 @@ function BillingTab({
       {b.charges.length === 0 ? (
         <p className="empty">No charges yet. Complete a meeting to compile its time into a charge.</p>
       ) : (
-        <div className="grid-wrap">
+        <Paged rows={b.charges}>{(pageRows) => (
+<div className="grid-wrap">
           <table className="grid">
             <thead>
               <tr>
@@ -1041,7 +1046,7 @@ function BillingTab({
               </tr>
             </thead>
             <tbody>
-              {b.charges.map((c) => (
+              {pageRows.map((c) => (
                 <tr
                   key={c.id}
                   className={c.appointmentId ? 'clickable' : undefined}
@@ -1073,6 +1078,7 @@ function BillingTab({
             </tbody>
           </table>
         </div>
+)}</Paged>
       )}
     </>
   );

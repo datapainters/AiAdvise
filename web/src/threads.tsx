@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { Paged } from './datagrid';
 import {
   getThread,
   listThreads,
@@ -506,8 +507,9 @@ export function MessagesPanel({
                 <span className="tab-count">{section.items.length}</span>
               </h4>
             )}
+            <Paged rows={section.items} narrow>{(pageItems) => (
             <ul>
-              {section.items.map((t) => {
+              {pageItems.map((t) => {
           // Who is being waited on: a client post with no answer yet, or a
           // topic nobody has replied to.
           const waiting = staff ? t.open && t.lastSide !== 'team' : t.open && t.lastSide === 'team';
@@ -549,6 +551,7 @@ export function MessagesPanel({
           );
         })}
             </ul>
+            )}</Paged>
           </section>
         ))}
       </div>

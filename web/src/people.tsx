@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Paged } from './datagrid';
 import {
   addEngagementTeamToMeeting,
   addPerson,
@@ -179,7 +180,8 @@ export function PeopleList({
                 {side === 'team' ? SIDE_TITLE.team : clientName}
                 <span className="tab-count">{rows.length}</span>
               </h4>
-              <div className="grid-wrap">
+              <Paged rows={rows}>{(pageRows) => (
+<div className="grid-wrap">
                 <table className="grid">
                   <thead>
                     <tr>
@@ -192,7 +194,7 @@ export function PeopleList({
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((p) => (
+                    {pageRows.map((p) => (
                       <tr key={p.id} className={p.enabled ? undefined : 'row-bad'}>
                         <td>
                           <strong>{p.name}</strong>
@@ -277,6 +279,7 @@ export function PeopleList({
                   </tbody>
                 </table>
               </div>
+)}</Paged>
             </section>
           );
         })

@@ -31,13 +31,25 @@ public class ThreadController {
         this.threads = threads;
     }
 
-    public record PostMessage(String body, Integer minutes, List<Long> mediaItemIds) {}
+    public record PostMessage(String body, Integer minutes, List<Long> mediaItemIds,
+            List<ThreadService.Upload> uploads) {}
+
+    public record UploadRequest(String fileName, String contentType, long sizeBytes) {}
+
+    @PostMapping("/{topicId}/uploads")
+    public ThreadService.UploadSlot startUpload(@AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long topicId, @RequestBody UploadRequest r) {
+        return threads.startUpload(threads.reader(CurrentUser.from(jwt).id()), topicId,
+                r.contentType(), r.sizeBytes());
+    }
 
     @GetMapping
     public List<Summary> list(@AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) Long engagementId,
-            @RequestParam(required = false) Long clientId) {
-        return threads.list(threads.reader(CurrentUser.from(jwt).id()), engagementId, clientId);
+            @RequestParam(required = false) Long clientId,
+            @RequestParam(defaultValue = "false") boolean all) {
+        return threads.list(threads.reader(CurrentUser.from(jwt).id()), engagementId, clientId,
+                all);
     }
 
     @GetMapping("/{topicId}")
@@ -49,6 +61,6 @@ public class ThreadController {
     public Thread post(@AuthenticationPrincipal Jwt jwt, @PathVariable Long topicId,
             @RequestBody PostMessage r) {
         return threads.post(threads.reader(CurrentUser.from(jwt).id()), topicId, r.body(),
-                r.minutes(), r.mediaItemIds());
+                r.minutes(), r.mediaItemIds(), r.uploads());
     }
 }

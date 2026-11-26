@@ -263,6 +263,13 @@ export interface ThreadAttachment {
 
 export interface ThreadMessage {
   id: number;
+  /** A post, or the notes taken on this topic in one meeting. */
+  kind: 'message' | 'meeting';
+  /** Meeting entries only. */
+  appointmentId: number | null;
+  meetingTitle: string | null;
+  /** Meeting entries only: how many people were listed as on the call. */
+  participants: number | null;
   authorName: string;
   side: 'team' | 'client';
   body: string;
@@ -292,8 +299,12 @@ export interface Thread {
   messages: ThreadMessage[];
 }
 
-export function listThreads(scope: { engagementId?: number; clientId?: number } = {}): Promise<ThreadSummary[]> {
+export function listThreads(
+  scope: { engagementId?: number; clientId?: number; all?: boolean } = {},
+): Promise<ThreadSummary[]> {
   const q = new URLSearchParams();
+  // Every topic, not only those with a conversation.
+  if (scope.all) q.set('all', 'true');
   if (scope.engagementId) q.set('engagementId', String(scope.engagementId));
   if (scope.clientId) q.set('clientId', String(scope.clientId));
   const qs = q.toString();
@@ -304,9 +315,32 @@ export function getThread(topicId: number): Promise<Thread> {
   return request<Thread>(`/api/threads/${topicId}`);
 }
 
+/** Sends a file from this machine to storage, ready to attach to a post. */
+export async function uploadThreadFile(topicId: number, file: File): Promise<{ uploadKey: string; title: string }> {
+  const slot = await request<{ uploadUrl: string; contentType: string; uploadKey: string }>(
+    `/api/threads/${topicId}/uploads`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ fileName: file.name, contentType: file.type, sizeBytes: file.size }),
+    },
+  );
+  const put = await fetch(slot.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': slot.contentType },
+    body: file,
+  });
+  if (!put.ok) throw new Error(`“${file.name}” did not upload (${put.status}). Try again.`);
+  return { uploadKey: slot.uploadKey, title: file.name };
+}
+
 export function postThreadMessage(
   topicId: number,
-  input: { body: string; minutes?: number; mediaItemIds?: number[] },
+  input: {
+    body: string;
+    minutes?: number;
+    mediaItemIds?: number[];
+    uploads?: { uploadKey: string; title: string }[];
+  },
 ): Promise<Thread> {
   return request<Thread>(`/api/threads/${topicId}/messages`, {
     method: 'POST',
@@ -623,6 +657,13 @@ export function createAdminAppointment(input: {
   return request<AdminAppointment>('/api/admin/appointments', {
     method: 'POST',
     body: JSON.stringify(input),
+  });
+}
+
+/** Brings a topic the engagement already has onto this meeting's agenda. */
+export function carryOverTopic(appointmentId: number, topicId: number): Promise<AgendaItem> {
+  return request<AgendaItem>(`/api/admin/appointments/${appointmentId}/topics/${topicId}`, {
+    method: 'POST',
   });
 }
 

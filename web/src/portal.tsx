@@ -15,7 +15,6 @@ import {
   listAppointments,
   listEngagements,
   listTopics,
-  updateTopicStatus,
   COMMUNICATION_LABELS,
   getClientTeam,
   listThreads,
@@ -42,10 +41,11 @@ import {
 import { BookingForm, formatLength, formatRange, plural, statusLabel } from './scheduling';
 import { JoinCallButton } from './video';
 
-type View = 'overview' | 'engagements' | 'topics' | 'meetings' | 'messages' | 'team' | 'billing';
+/** `messages` is the Topics screen; the id is kept because emailed links use it. */
+type View = 'overview' | 'engagements' | 'meetings' | 'messages' | 'team' | 'billing';
 
 /** Views that are about one engagement, and so show the engagement picker. */
-const PER_ENGAGEMENT: View[] = ['overview', 'topics', 'meetings'];
+const PER_ENGAGEMENT: View[] = ['overview', 'meetings'];
 
 const VIEWS: { id: View; label: string; blurb: string; icon: ReactNode }[] = [
   {
@@ -61,12 +61,6 @@ const VIEWS: { id: View; label: string; blurb: string; icon: ReactNode }[] = [
     icon: <path d="M3 8h18v12H3zM8 8V5h8v3M3 13h18" />,
   },
   {
-    id: 'topics',
-    label: 'Topics',
-    blurb: 'What you want covered. Say what a good answer looks like and we can prepare before the call.',
-    icon: <path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" />,
-  },
-  {
     id: 'meetings',
     label: 'Meetings',
     blurb: 'Request a meeting for your open topics, and see what is booked.',
@@ -79,8 +73,8 @@ const VIEWS: { id: View; label: string; blurb: string; icon: ReactNode }[] = [
   },
   {
     id: 'messages',
-    label: 'Messages',
-    blurb: 'Conversations on your topics. Everyone on the engagement is emailed when someone posts.',
+    label: 'Topics',
+    blurb: 'Everything you want covered, with the conversation and meeting notes on each.',
     icon: <path d="M4 5h16v11H9l-5 4zM8 9h8M8 12.5h5" />,
   },
   {
@@ -131,9 +125,9 @@ const PRIORITY: Record<number, string> = {
 
 export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () => void }) {
   const [params, setParams] = useSearchParams();
-  const view: View = VIEWS.some((v) => v.id === params.get('view'))
-    ? (params.get('view') as View)
-    : 'overview';
+  // Bookmarks to the old Topics screen land on its replacement.
+  const asked = params.get('view') === 'topics' ? 'messages' : params.get('view');
+  const view: View = VIEWS.some((v) => v.id === asked) ? (asked as View) : 'overview';
 
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
@@ -150,6 +144,9 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
   const [roster, setRoster] = useState<ClientTeamMember[] | null>(null);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [openThread, setOpenThread] = useState<number | null>(null);
+  /** Narrows the Topics screen to one engagement; null shows them all. */
+  const [topicFilter, setTopicFilter] = useState<number | null>(null);
+  const [topicsVersion, setTopicsVersion] = useState(0);
   // An admin previewing the portal has no client account; the client-only
   // endpoints would answer 403, which signs them out.
   const isClient = user.role === 'CLIENT';
@@ -227,7 +224,6 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
 
   // A message-only engagement has no meetings to book.
   const bookable = engagements.filter((e) => e.status === 'active' && e.communication !== 'message');
-  const selectedEngagement = engagements.find((e) => e.id === selected);
   const waitingReplies = threads.filter((t) => t.open && t.lastSide === 'team').length;
   const openTopics = topics.filter((t) => t.status === 'proposed');
   const now = new Date();
@@ -246,16 +242,6 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
       setAppointments((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
       await reloadTopics();
       setToast('Meeting cancelled. Its topics are back in your list.');
-    } catch (e) {
-      onError(e);
-    }
-  }
-
-  async function onDropTopic(t: Topic) {
-    if (!window.confirm(`Drop “${t.title}”? It will not go on a meeting.`)) return;
-    try {
-      const updated = await updateTopicStatus(t.id, 'dropped');
-      setTopics((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
     } catch (e) {
       onError(e);
     }
@@ -291,7 +277,6 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
               >
                 <Icon>{v.icon}</Icon>
                 {v.label}
-                {v.id === 'topics' && openTopics.length > 0 && <span className="nav-badge">{openTopics.length}</span>}
                 {v.id === 'messages' && waitingReplies > 0 && <span className="nav-badge">{waitingReplies}</span>}
                 {v.id === 'billing' && billing && billing.summary.amountDueCents > 0 && (
                   <span className={billing.summary.overdueCents > 0 ? 'nav-badge bad' : 'nav-badge'}>
@@ -387,7 +372,8 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
               onError={onError}
               onOpenTopics={(id) => {
                 setSelected(id);
-                go('topics');
+                setTopicFilter(id);
+                go('messages');
               }}
             />
           ) : view === 'team' ? (
@@ -397,12 +383,33 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
               <p className="empty">Team members are managed by each client&rsquo;s own account owner.</p>
             )
           ) : view === 'messages' ? (
-            <MessagesPanel
-              staff={!isClient}
-              onError={onError}
-              initialTopicId={Number(params.get('topic')) || null}
-              empty="No conversations yet. Add a topic to an engagement that is run by message and we will answer it here."
-            />
+            <>
+              {engagements.length > 1 && (
+                <label className="engagement-switch">
+                  Engagement
+                  <select
+                    value={topicFilter ?? ''}
+                    onChange={(e) => setTopicFilter(e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">All engagements</option>
+                    {engagements.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.title}
+                        {e.status !== 'active' ? ` (${e.status})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <MessagesPanel
+                all
+                scope={topicFilter ? { engagementId: topicFilter } : undefined}
+                refreshKey={topicsVersion}
+                onError={onError}
+                initialTopicId={Number(params.get('topic')) || null}
+                empty="No topics yet. Add the first thing you want covered."
+              />
+            </>
           ) : engagements.length === 0 ? (
             <div className="empty-state">
               <p>
@@ -422,7 +429,7 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
             </div>
           ) : (
             <>
-              {engagements.length > 1 && (view === 'topics' || view === 'meetings') && (
+              {engagements.length > 1 && view === 'meetings' && (
                 <label className="engagement-switch">
                   Engagement
                   <select value={selected ?? ''} onChange={(e) => setSelected(Number(e.target.value))}>
@@ -454,21 +461,9 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
                   onNewEngagement={() => setOpening(true)}
                   onOpenEngagement={(id) => {
                     setSelected(id);
-                    go('topics');
+                    setTopicFilter(id);
+                    go('messages');
                   }}
-                />
-              )}
-
-              {view === 'topics' && (
-                <TopicsView
-                  topics={topics}
-                  threads={threads}
-                  messaging={selectedEngagement ? selectedEngagement.communication !== 'video' : false}
-                  onOpenThread={(id) => setOpenThread(id)}
-                  onDrop={onDropTopic}
-                  onAdd={() => setAdding(true)}
-                  onBook={startBooking}
-                  canBook={bookable.some((e) => e.id === selected)}
                 />
               )}
 
@@ -484,12 +479,13 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
 
       {adding && selected !== null && (
         <AddTopicModal
-          engagementId={selected}
-          engagementTitle={engagementTitle}
+          engagements={engagements.filter((e) => e.status !== 'closed')}
+          initialEngagementId={view === 'messages' && topicFilter ? topicFilter : selected}
           onCancel={() => setAdding(false)}
           onError={onError}
           onAdded={(t) => {
-            setTopics((prev) => [...prev, t]);
+            if (t.engagementId === selected) setTopics((prev) => [...prev, t]);
+            setTopicsVersion((n) => n + 1);
             setAdding(false);
             setToast(`Topic “${t.title}” added`);
           }}
@@ -511,7 +507,7 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
 
       {openThread !== null && (
         <Modal title="Conversation" onClose={() => setOpenThread(null)} wide>
-          <ThreadView topicId={openThread} staff={!isClient} onError={onError} onPosted={reloadThreads} />
+          <ThreadView topicId={openThread} onError={onError} onPosted={reloadThreads} />
         </Modal>
       )}
 
@@ -635,7 +631,7 @@ function Overview({
             {engagements.length > active.length ? `${engagements.length - active.length} closed or paused` : 'All in progress'}
           </span>
         </button>
-        <button className="kpi" onClick={() => onGo('topics')}>
+        <button className="kpi" onClick={() => onGo('messages')}>
           <span className="kpi-label">Open topics</span>
           <span className="kpi-value">{openTopics.length}</span>
           <span className="kpi-hint">{engagementTitle ? `In ${engagementTitle}` : 'Add what you want covered'}</span>
@@ -820,7 +816,7 @@ function Overview({
         <section className="panel-card">
           <header>
             <h2>Open topics</h2>
-            <button className="linklike" onClick={() => onGo('topics')}>
+            <button className="linklike" onClick={() => onGo('messages')}>
               All topics →
             </button>
           </header>
@@ -861,132 +857,29 @@ function Overview({
 
 /* ----------------------------------------------------------------- topics */
 
-function TopicsView({
-  topics,
-  threads,
-  messaging,
-  onOpenThread,
-  onDrop,
-  onAdd,
-  onBook,
-  canBook,
-}: {
-  /** Conversations, to show how many messages each topic has. */
-  threads: ThreadSummary[];
-  /** Whether this engagement's topics take messages. */
-  messaging: boolean;
-  onOpenThread: (topicId: number) => void;
-  topics: Topic[];
-  onDrop: (t: Topic) => void;
-  onAdd: () => void;
-  onBook: () => void;
-  canBook: boolean;
-}) {
-  const [showClosed, setShowClosed] = useState(false);
-  const open = topics.filter((t) => t.status === 'proposed').sort((a, b) => a.priority - b.priority);
-  const scheduled = topics.filter((t) => t.status === 'scheduled');
-  const closed = topics.filter((t) => t.status === 'discussed' || t.status === 'dropped');
-
-  if (topics.length === 0) {
-    return (
-      <div className="empty-state">
-        <p>
-          <strong>No topics yet.</strong>
-        </p>
-        <p className="muted">Add the first thing you want covered. A clear desired outcome helps us prepare before the call.</p>
-        <p>
-          <button className="btn btn-primary" onClick={onAdd}>
-            + Add topic
-          </button>
-        </p>
-      </div>
-    );
-  }
-
-  const card = (t: Topic) => (
-    <article key={t.id} className={`topic-card topic-${t.status}`}>
-      <header>
-        <span className={`prio prio-${t.priority}`}>{PRIORITY[t.priority] ?? `P${t.priority}`}</span>
-        <h3>{t.title}</h3>
-        <span className={`status status-${t.status}`}>{t.status === 'scheduled' ? 'on a meeting' : t.status}</span>
-      </header>
-      {t.detail && <p className="muted">{t.detail}</p>}
-      {t.desiredOutcome && (
-        <p className="topic-outcome">
-          <strong>Good outcome:</strong> {t.desiredOutcome}
-        </p>
-      )}
-      {(t.status === 'proposed' || messaging || threads.some((x) => x.topicId === t.id)) && (
-        <footer>
-          {(messaging || threads.some((x) => x.topicId === t.id)) && (
-            <button className="btn btn-sm" onClick={() => onOpenThread(t.id)}>
-              {(() => {
-                const n = threads.find((x) => x.topicId === t.id)?.messageCount ?? 0;
-                return n === 0 ? 'Start the conversation' : `Messages (${n})`;
-              })()}
-            </button>
-          )}
-          {t.status === 'proposed' && (
-            <button className="linklike danger" onClick={() => onDrop(t)}>
-              Drop
-            </button>
-          )}
-        </footer>
-      )}
-    </article>
-  );
-
-  return (
-    <div className="topic-board">
-      <section>
-        <div className="board-head">
-          <h2>Open</h2>
-          <span className="tab-count">{open.length}</span>
-          {open.length > 0 && canBook && (
-            <button className="btn btn-sm" onClick={onBook}>
-              Put on a meeting
-            </button>
-          )}
-        </div>
-        {open.length === 0 ? <p className="empty">No open topics.</p> : open.map(card)}
-      </section>
-      <section>
-        <div className="board-head">
-          <h2>On a meeting</h2>
-          <span className="tab-count">{scheduled.length}</span>
-        </div>
-        {scheduled.length === 0 ? <p className="empty">Nothing scheduled.</p> : scheduled.map(card)}
-      </section>
-      {closed.length > 0 && (
-        <section className="board-closed">
-          <button className="linklike" onClick={() => setShowClosed((v) => !v)}>
-            {showClosed ? 'Hide' : 'Show'} {closed.length} discussed or dropped
-          </button>
-          {showClosed && closed.map(card)}
-        </section>
-      )}
-    </div>
-  );
-}
-
 function AddTopicModal({
-  engagementId,
-  engagementTitle,
+  engagements,
+  initialEngagementId,
   onAdded,
   onCancel,
   onError,
 }: {
-  engagementId: number;
-  engagementTitle?: string;
+  /** The engagements a topic can be added to. */
+  engagements: Engagement[];
+  initialEngagementId: number;
   onAdded: (t: Topic) => void;
   onCancel: () => void;
   onError: (e: unknown) => void;
 }) {
+  const [engagementId, setEngagementId] = useState(
+    engagements.some((e) => e.id === initialEngagementId) ? initialEngagementId : engagements[0]?.id ?? initialEngagementId,
+  );
   const [title, setTitle] = useState('');
   const [detail, setDetail] = useState('');
   const [outcome, setOutcome] = useState('');
   const [priority, setPriority] = useState(3);
   const [busy, setBusy] = useState(false);
+  const chosen = engagements.find((e) => e.id === engagementId);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -1011,7 +904,27 @@ function AddTopicModal({
   return (
     <Modal title="New topic" onClose={onCancel}>
       <form className="stack-form" onSubmit={submit}>
-        {engagementTitle && <p className="muted">For {engagementTitle}</p>}
+        {engagements.length > 1 ? (
+          <label>
+            Engagement
+            <select value={engagementId} onChange={(e) => setEngagementId(Number(e.target.value))}>
+              {engagements.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          chosen && <p className="muted">For {chosen.title}</p>
+        )}
+        {chosen && (
+          <p className="hint">
+            {chosen.communication === 'video'
+              ? 'This engagement is run by video meetings: the topic goes on a meeting, and the notes from it appear in its thread.'
+              : 'We will answer in the topic’s thread, and you can reply there.'}
+          </p>
+        )}
         <label>
           Title
           <input value={title} required autoFocus maxLength={200} onChange={(e) => setTitle(e.target.value)} placeholder="Short name for the topic" />

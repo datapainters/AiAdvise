@@ -1,25 +1,31 @@
 /**
- * Topic threads: the written conversation on a topic, used by both the
- * client portal and the admin console.
+ * Topic threads: everything said about a topic, in order. Posts from both
+ * sides, and the notes taken on the topic in each meeting it was brought to.
+ * Used by the client portal and the admin console.
  *
- * One component for both sides because it is the same conversation. A Data
- * Painters reader gets two extra controls on the reply box -- how long the
- * reply took, and attachments from the media library -- and sees the time
- * recorded on past replies. The server decides which of those it honours;
- * the `staff` flag here only decides what to draw.
+ * One component for both because it is the same conversation. Anyone on the
+ * thread can attach files from their own machine. A Data Painters reader in
+ * the console gets three more things -- how long a reply took, attachments
+ * from the media library, and editing a meeting's notes -- switched on by
+ * `staff`. The portal never passes it, whoever is signed in.
  */
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   getThread,
   listThreads,
   postThreadMessage,
+  saveMeetingNote,
+  uploadThreadFile,
   type Thread,
+  type ThreadMessage,
   type ThreadSummary,
 } from './api';
 import { listMedia, type MediaItem } from './billing-api';
 
 type OnError = (e: unknown) => void;
+
+const ACCEPT = 'application/pdf,image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm';
 
 function stamp(iso: string): string {
   const d = new Date(iso);
@@ -29,40 +35,156 @@ function stamp(iso: string): string {
     : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+const TOPIC_STATUS: Record<string, string> = {
+  proposed: 'Open',
+  scheduled: 'On a meeting',
+  discussed: 'Discussed',
+  dropped: 'Dropped',
+};
+
+/* ---------------------------------------------------------- meeting entry */
+
+/** The notes taken on this topic in one meeting, set apart from the posts. */
+function MeetingEntry({
+  entry,
+  topicId,
+  staff,
+  onSaved,
+  onOpenMeeting,
+  onError,
+}: {
+  entry: ThreadMessage;
+  topicId: number;
+  staff: boolean;
+  onSaved: () => void;
+  onOpenMeeting?: (appointmentId: number) => void;
+  onError: OnError;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(entry.body);
+  const [busy, setBusy] = useState(false);
+  const when = new Date(entry.createdAt).toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  const people = entry.participants ?? 0;
+
+  async function save() {
+    if (entry.appointmentId === null) return;
+    setBusy(true);
+    try {
+      await saveMeetingNote(entry.appointmentId, topicId, draft);
+      setEditing(false);
+      onSaved();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <article className="thread-message is-meeting">
+      <header>
+        <strong>Meeting on {when}</strong>
+        {entry.meetingTitle && <span>{entry.meetingTitle}</span>}
+        <span className="muted">
+          {people > 0 ? `${people} ${people === 1 ? 'participant' : 'participants'}` : 'Participants not recorded'}
+        </span>
+        {staff && onOpenMeeting && entry.appointmentId !== null && (
+          <button className="linklike thread-time" onClick={() => onOpenMeeting(entry.appointmentId!)}>
+            Open meeting
+          </button>
+        )}
+      </header>
+      {editing ? (
+        <div className="note-edit">
+          <textarea
+            rows={4}
+            value={draft}
+            autoFocus
+            aria-label="Meeting notes"
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <div className="button-row">
+            <button className="btn btn-primary" onClick={save} disabled={busy || !draft.trim()}>
+              {busy ? 'Saving...' : 'Save notes'}
+            </button>
+            <button
+              className="linklike"
+              onClick={() => {
+                setDraft(entry.body);
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p>{entry.body}</p>
+          <footer className="muted">
+            Notes by {entry.authorName}
+            {staff && (
+              <>
+                {' '}
+                <button className="linklike" onClick={() => setEditing(true)}>
+                  Edit notes
+                </button>
+              </>
+            )}
+          </footer>
+        </>
+      )}
+    </article>
+  );
+}
+
 /* ------------------------------------------------------------------ thread */
 
 export function ThreadView({
   topicId,
-  staff,
+  staff = false,
   onPosted,
+  onOpenMeeting,
   onError,
 }: {
   topicId: number;
-  /** A Data Painters reader: shows time and media library controls. */
-  staff: boolean;
+  /** The admin console: time, the media library and editing meeting notes. */
+  staff?: boolean;
   /** Called after a post, so a list beside this can refresh. */
   onPosted?: () => void;
+  /** Console only: opens the meeting an entry came from. */
+  onOpenMeeting?: (appointmentId: number) => void;
   onError: OnError;
 }) {
   const [thread, setThread] = useState<Thread | null>(null);
   const [body, setBody] = useState('');
   const [minutes, setMinutes] = useState('');
   const [attached, setAttached] = useState<MediaItem[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
   const [library, setLibrary] = useState<MediaItem[] | null>(null);
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const reload = useCallback(() => getThread(topicId).then(setThread).catch(onError), [topicId, onError]);
 
   useEffect(() => {
     setThread(null);
     setBody('');
     setMinutes('');
     setAttached([]);
+    setFiles([]);
     setPicking(false);
-    getThread(topicId).then(setThread).catch(onError);
-  }, [topicId, onError]);
+    reload();
+  }, [topicId, reload]);
 
-  // Keep the newest post in view, as a chat does.
+  // Keep the newest entry in view, as a chat does.
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'nearest' });
   }, [thread?.messages.length]);
@@ -76,22 +198,33 @@ export function ThreadView({
     }
   }
 
+  function pickFiles(e: ChangeEvent<HTMLInputElement>) {
+    const chosen = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    setFiles((prev) => [...prev, ...chosen].slice(0, 10));
+  }
+
   async function send(e: FormEvent) {
     e.preventDefault();
-    if (!body.trim() || busy) return;
+    if ((!body.trim() && files.length === 0) || busy) return;
     setBusy(true);
     try {
+      // Files go to storage first; the post then names them.
+      const uploads = [];
+      for (const f of files) uploads.push(await uploadThreadFile(topicId, f));
       const spent = Number(minutes);
       setThread(
         await postThreadMessage(topicId, {
           body: body.trim(),
           minutes: staff && spent > 0 ? spent : undefined,
           mediaItemIds: staff && attached.length ? attached.map((a) => a.id) : undefined,
+          uploads: uploads.length ? uploads : undefined,
         }),
       );
       setBody('');
       setMinutes('');
       setAttached([]);
+      setFiles([]);
       setPicking(false);
       onPosted?.();
     } catch (err) {
@@ -106,7 +239,10 @@ export function ThreadView({
   return (
     <div className="thread">
       <header className="thread-head">
-        <h3>{thread.title}</h3>
+        <h3>
+          {thread.title}
+          <span className={`status status-${thread.status}`}>{TOPIC_STATUS[thread.status] ?? thread.status}</span>
+        </h3>
         <p className="muted">
           {staff && <>{thread.clientName} &middot; </>}
           {thread.engagementTitle}
@@ -123,35 +259,47 @@ export function ThreadView({
 
       <div className="thread-messages" aria-live="polite">
         {thread.messages.length === 0 && (
-          <p className="empty">No replies yet. {thread.canPost ? 'Write the first one below.' : ''}</p>
+          <p className="empty">Nothing yet. {thread.canPost ? 'Write the first message below.' : ''}</p>
         )}
-        {thread.messages.map((m) => (
-          <article key={m.id} className={`thread-message is-${m.side}`}>
-            <header>
-              <strong>{m.authorName}</strong>
-              {m.side === 'team' && <span className="pill pill-neutral">Data Painters</span>}
-              <span className="muted">{stamp(m.createdAt)}</span>
-              {m.minutes !== null && (
-                <span className="muted thread-time">
-                  {m.minutes} min{m.charged ? ', charged' : ''}
-                </span>
+        {thread.messages.map((m) =>
+          m.kind === 'meeting' ? (
+            <MeetingEntry
+              key={`meeting-${m.id}`}
+              entry={m}
+              topicId={topicId}
+              staff={staff}
+              onSaved={reload}
+              onOpenMeeting={onOpenMeeting}
+              onError={onError}
+            />
+          ) : (
+            <article key={m.id} className={`thread-message is-${m.side}`}>
+              <header>
+                <strong>{m.authorName}</strong>
+                {m.side === 'team' && <span className="pill pill-neutral">Data Painters</span>}
+                <span className="muted">{stamp(m.createdAt)}</span>
+                {m.minutes !== null && (
+                  <span className="muted thread-time">
+                    {m.minutes} min{m.charged ? ', charged' : ''}
+                  </span>
+                )}
+              </header>
+              <p>{m.body}</p>
+              {m.attachments.length > 0 && (
+                <ul className="thread-attachments">
+                  {m.attachments.map((a, i) => (
+                    <li key={i}>
+                      <a href={a.url} target="_blank" rel="noreferrer">
+                        {a.title}
+                      </a>
+                      <span className="muted"> {a.kind === 'pdf' ? 'PDF' : a.kind}</span>
+                    </li>
+                  ))}
+                </ul>
               )}
-            </header>
-            <p>{m.body}</p>
-            {m.attachments.length > 0 && (
-              <ul className="thread-attachments">
-                {m.attachments.map((a, i) => (
-                  <li key={i}>
-                    <a href={a.url} target="_blank" rel="noreferrer">
-                      {a.title}
-                    </a>
-                    <span className="muted"> {a.kind === 'pdf' ? 'PDF' : a.kind}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </article>
-        ))}
+            </article>
+          ),
+        )}
         <div ref={end} />
       </div>
 
@@ -167,20 +315,33 @@ export function ThreadView({
             />
           </label>
 
-          {staff && attached.length > 0 && (
+          {(files.length > 0 || (staff && attached.length > 0)) && (
             <ul className="thread-chips">
-              {attached.map((a) => (
-                <li key={a.id}>
-                  {a.title}
+              {files.map((f, i) => (
+                <li key={`${f.name}-${i}`}>
+                  {f.name}
                   <button
                     type="button"
-                    aria-label={`Remove ${a.title}`}
-                    onClick={() => setAttached((prev) => prev.filter((x) => x.id !== a.id))}
+                    aria-label={`Remove ${f.name}`}
+                    onClick={() => setFiles((prev) => prev.filter((_, x) => x !== i))}
                   >
                     &times;
                   </button>
                 </li>
               ))}
+              {staff &&
+                attached.map((a) => (
+                  <li key={a.id}>
+                    {a.title}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${a.title}`}
+                      onClick={() => setAttached((prev) => prev.filter((x) => x.id !== a.id))}
+                    >
+                      &times;
+                    </button>
+                  </li>
+                ))}
             </ul>
           )}
 
@@ -219,34 +380,37 @@ export function ThreadView({
 
           <div className="thread-compose-row">
             {staff && (
-              <>
-                <label className="thread-minutes">
-                  Time spent
-                  <input
-                    type="number"
-                    min={1}
-                    max={1440}
-                    inputMode="numeric"
-                    value={minutes}
-                    placeholder="min"
-                    onChange={(e) => setMinutes(e.target.value)}
-                  />
-                </label>
-                <button type="button" className="btn" onClick={openLibrary}>
-                  {picking ? 'Hide media library' : 'Attach from media library'}
-                </button>
-              </>
+              <label className="thread-minutes">
+                Time spent
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  inputMode="numeric"
+                  value={minutes}
+                  placeholder="min"
+                  onChange={(e) => setMinutes(e.target.value)}
+                />
+              </label>
             )}
-            <button className="btn btn-primary" type="submit" disabled={busy || !body.trim()}>
-              {busy ? 'Sending...' : 'Send reply'}
+            <button type="button" className="btn" onClick={() => fileInput.current?.click()}>
+              Attach a file
+            </button>
+            <input ref={fileInput} type="file" multiple hidden accept={ACCEPT} onChange={pickFiles} />
+            {staff && (
+              <button type="button" className="btn" onClick={openLibrary}>
+                {picking ? 'Hide media library' : 'Attach from media library'}
+              </button>
+            )}
+            <button className="btn btn-primary" type="submit" disabled={busy || (!body.trim() && files.length === 0)}>
+              {busy ? 'Sending...' : 'Send'}
             </button>
           </div>
-          {staff && (
-            <p className="hint">
-              Time spent is billed to the engagement with its meetings, in 30-minute blocks across
-              all replies. Clients do not see it.
-            </p>
-          )}
+          <p className="hint">
+            Attach PDFs, images, or MP4 and WebM video from your computer.
+            {staff &&
+              ' Time spent is billed to the engagement with its meetings, in 30-minute blocks across all replies; clients do not see it.'}
+          </p>
         </form>
       ) : (
         <p className="notice thread-closed">{thread.closedReason}</p>
@@ -255,23 +419,31 @@ export function ThreadView({
   );
 }
 
-/* ------------------------------------------------------------------- inbox */
+/* ------------------------------------------------------------------- list */
 
 /**
- * A list of threads beside the open one. `scope` narrows it to one
- * engagement or one client; with neither it is everything the reader may see.
+ * A list of topics beside the open one. `scope` narrows it to one engagement
+ * or one client; with neither it is everything the reader may see. `all`
+ * lists every topic; without it, only those that have or can take messages.
  */
 export function MessagesPanel({
   scope,
-  staff,
+  all = false,
+  staff = false,
   initialTopicId,
+  refreshKey,
+  onOpenMeeting,
   onError,
   empty,
 }: {
   scope?: { engagementId?: number; clientId?: number };
-  staff: boolean;
-  /** Opens this thread first, as when arriving from an email. */
+  all?: boolean;
+  staff?: boolean;
+  /** Opens this topic first, as when arriving from an email. */
   initialTopicId?: number | null;
+  /** Bumped by the parent to reload, as after a topic is added. */
+  refreshKey?: number;
+  onOpenMeeting?: (appointmentId: number) => void;
   onError: OnError;
   empty?: string;
 }) {
@@ -281,35 +453,38 @@ export function MessagesPanel({
   const clientId = scope?.clientId;
 
   const reload = useCallback(
-    () => listThreads({ engagementId, clientId }).then(setThreads).catch(onError),
-    [engagementId, clientId, onError],
+    () => listThreads({ engagementId, clientId, all }).then(setThreads).catch(onError),
+    [engagementId, clientId, all, onError],
   );
 
   useEffect(() => {
     reload();
-  }, [reload]);
+  }, [reload, refreshKey]);
 
-  // With nothing chosen, start on the most recent conversation.
+  // Follow the list: with nothing chosen, or after the scope changes to one
+  // that no longer holds the open topic, show the most recent.
   useEffect(() => {
-    if (open === null && threads && threads.length > 0) setOpen(threads[0].topicId);
-  }, [threads, open]);
+    if (!threads) return;
+    if (threads.length === 0) {
+      if (open !== null && open !== initialTopicId) setOpen(null);
+      return;
+    }
+    if (open === null || (open !== initialTopicId && !threads.some((t) => t.topicId === open))) {
+      setOpen(threads[0].topicId);
+    }
+  }, [threads, open, initialTopicId]);
 
   if (!threads) return <p className="empty">Loading...</p>;
 
   if (threads.length === 0 && open === null) {
-    return (
-      <p className="empty">
-        {empty ??
-          'No conversations yet. A topic on an engagement run by message, or by both message and video, starts one.'}
-      </p>
-    );
+    return <p className="empty">{empty ?? 'No topics yet.'}</p>;
   }
 
   const showEngagement = !engagementId;
 
   return (
     <div className="inbox">
-      <ul className="inbox-list" aria-label="Conversations">
+      <ul className="inbox-list" aria-label="Topics">
         {threads.map((t) => {
           // Who is being waited on: a client post with no answer yet, or a
           // topic nobody has replied to.
@@ -337,12 +512,12 @@ export function MessagesPanel({
                       <b>{t.lastAuthor ?? 'Someone'}:</b> {t.lastSnippet}
                     </>
                   ) : (
-                    <span className="muted">No replies yet</span>
+                    <span className="muted">No messages yet</span>
                   )}
                 </span>
                 <span className="inbox-item-meta">
                   {waiting && <span className="pill pill-warn">{staff ? 'Needs a reply' : 'New reply'}</span>}
-                  {!t.open && <span className="pill pill-neutral">Closed</span>}
+                  <span className={`status status-${t.status}`}>{TOPIC_STATUS[t.status] ?? t.status}</span>
                   <span className="muted">
                     {t.messageCount} {t.messageCount === 1 ? 'message' : 'messages'}
                   </span>
@@ -354,9 +529,9 @@ export function MessagesPanel({
       </ul>
       <div className="inbox-thread">
         {open === null ? (
-          <p className="empty">Choose a conversation.</p>
+          <p className="empty">Choose a topic.</p>
         ) : (
-          <ThreadView topicId={open} staff={staff} onError={onError} onPosted={reload} />
+          <ThreadView topicId={open} staff={staff} onError={onError} onPosted={reload} onOpenMeeting={onOpenMeeting} />
         )}
       </div>
     </div>

@@ -2328,6 +2328,11 @@ function Admin() {
           onToast={(m) => setToast(m)}
           onOpenMeeting={(id) => setOpenMeeting(id)}
           onOpenInvoice={(id) => setOpenInvoice(id)}
+          onOpenClient={(id) => {
+            // One popup at a time: the client record replaces the engagement.
+            setOpenEngagement(null);
+            setOpenClient({ id });
+          }}
         />
       )}
         </div>

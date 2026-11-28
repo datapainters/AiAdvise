@@ -99,6 +99,17 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** Asks for a password reset link. Succeeds whether or not the address has an account. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const response = await fetch(`${BASE_URL}/api/public/password-reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (response.status === 429) throw new Error('Too many requests. Please try again later.');
+  if (!response.ok) throw new Error('We could not send the link just now. Please try again.');
+}
+
 export function getPublicInfo(): Promise<PublicInfo> {
   return call<PublicInfo>('/api/public/info');
 }

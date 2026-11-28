@@ -354,9 +354,9 @@ export function TimeTracker({
                     ? 'Video call'
                     : e.manual
                     ? 'Manual entry'
-                    : `${new Date(e.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${
+                    : `${new Date(e.startedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}${
                         e.endedAt
-                          ? ` – ${new Date(e.endedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                          ? ` – ${new Date(e.endedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
                           : ' – running'
                       }`}
                 </td>
@@ -1269,7 +1269,7 @@ export function RevenueReport({ onError }: { onError: OnError }) {
 
   const monthLabel = (m: string) => {
     const [y, mo] = m.split('-').map(Number);
-    return new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    return new Date(y, mo - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   };
 
   return (
@@ -1456,7 +1456,7 @@ export function UnbilledReport({
             <tbody>
               {pageRows.map((a) => (
                 <tr key={a.appointmentId} className="clickable" onClick={() => onOpenMeeting(a.appointmentId)}>
-                  <td className="nowrap">{new Date(a.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</td>
+                  <td className="nowrap">{new Date(a.startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</td>
                   <td>
                     <strong>{a.clientName}</strong>
                     <div className="muted small">{a.engagementTitle}</div>
@@ -1513,7 +1513,7 @@ function PrintShell({
   back?: { to: string; label: string };
 }) {
   useEffect(() => {
-    document.title = `${title} · Data Painters`;
+    document.title = `${title} · DataPainters`;
   }, [title]);
   return (
     <div className="print-page">
@@ -1529,7 +1529,7 @@ function PrintShell({
         <header className="doc-head">
           <div>
             <div className="doc-brand">
-            <img src="/brand/logo-horizontal.svg" alt="Data Painters" />
+            <img src="/brand/logo-horizontal.svg" alt="DataPainters" />
           </div>
             <div className="doc-sub">Enterprise AI consulting</div>
           </div>
@@ -1632,8 +1632,8 @@ export function PrintMeeting() {
                         ? 'Video call'
                         : t.manual
                         ? 'Manual entry'
-                        : `${new Date(t.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} – ${
-                            t.endedAt ? new Date(t.endedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'running'
+                        : `${new Date(t.startedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – ${
+                            t.endedAt ? new Date(t.endedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'running'
                           }`}
                     </td>
                     <td>{t.note ?? ''}</td>
@@ -2130,7 +2130,7 @@ function CostDetailModal({
                 <tbody>
                   {pageRows.map((v) => (
                     <tr key={v.sessionId}>
-                      <td className="nowrap">{new Date(v.startedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</td>
+                      <td className="nowrap">{new Date(v.startedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</td>
                       <td className="num">{Math.ceil(v.durationSeconds / 60)} min</td>
                       <td className="num">{v.maxParticipants}</td>
                       <td className="num">{v.participantMinutes}</td>

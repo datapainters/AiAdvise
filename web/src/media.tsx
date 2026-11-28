@@ -236,7 +236,7 @@ function AddMediaModal({
 
 const monthLabel = (m: string) => {
   const [y, mo] = m.split('-').map(Number);
-  return new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+  return new Date(y, mo - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 };
 
 export function VideoBillingReportView({ onError }: { onError: OnError }) {

@@ -71,7 +71,7 @@ export function JoinCallButton({
     return (
       <button className={cls} disabled title={`The room opens ${JOIN_EARLY_MINUTES} minutes before the start`}>
         <VideoIcon /> Opens{' '}
-        {new Date(opens).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+        {new Date(opens).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
       </button>
     );
   }
@@ -137,7 +137,7 @@ export function VideoPanel({
             <strong>Video room ready</strong>
             <span className="muted">
               Private Daily room. The client can join from{' '}
-              {new Date(opens).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}; you can
+              {new Date(opens).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}; you can
               join any time.
             </span>
           </>

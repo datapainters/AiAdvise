@@ -119,13 +119,13 @@ public class StatusReportController {
         List<Activity> activity = jdbc.sql("""
                 SELECT at, kind, who, what FROM (
                     SELECT m.created_at AS at, 'Message' AS kind,
-                           COALESCE(u.display_name, 'Data Painters') AS who, t.title AS what
+                           COALESCE(u.display_name, 'DataPainters') AS who, t.title AS what
                     FROM topic_message m
                     JOIN topic t ON t.id = m.topic_id
                     LEFT JOIN app_user u ON u.id = m.author_user_id
                     WHERE t.engagement_id = :id
                     UNION ALL
-                    SELECT a.starts_at, 'Meeting notes', COALESCE(u.display_name, 'Data Painters'),
+                    SELECT a.starts_at, 'Meeting notes', COALESCE(u.display_name, 'DataPainters'),
                            t.title
                     FROM meeting_note n
                     JOIN appointment a ON a.id = n.appointment_id
@@ -183,7 +183,7 @@ public class StatusReportController {
         PdfWriter writer = PdfWriter.getInstance(doc, out);
         writer.setPageEvent(new Footer(d.title()));
         doc.addTitle("Engagement status report: " + d.title());
-        doc.addAuthor("Data Painters");
+        doc.addAuthor("DataPainters");
         doc.open();
 
         LocalDate today = LocalDate.now(zone);
@@ -319,7 +319,7 @@ public class StatusReportController {
         doc.add(heading("Team"));
         PdfPTable team = new PdfPTable(2);
         team.setWidthPercentage(100);
-        team.addCell(people("Data Painters", d.team().stream()
+        team.addCell(people("DataPainters", d.team().stream()
                 .filter(p -> "team".equals(p.side())).toList()));
         team.addCell(people(clean(d.clientName()), d.team().stream()
                 .filter(p -> "client".equals(p.side())).toList()));
@@ -536,7 +536,7 @@ public class StatusReportController {
             cb.lineTo(document.right(), y + 12);
             cb.stroke();
             ColumnText.showTextAligned(cb, Element.ALIGN_LEFT,
-                    new Phrase("Data Painters  |  " + title, SMALL), document.left(), y, 0);
+                    new Phrase("DataPainters  |  " + title, SMALL), document.left(), y, 0);
             ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT,
                     new Phrase("Page " + writer.getPageNumber(), SMALL), document.right(), y, 0);
         }

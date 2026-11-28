@@ -16,7 +16,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Link, NavLink, useLocation, useSearchParams } from 'react-router-dom';
-import { PilotToProduction, SourcesToOutput, Timeline } from './graphics';
+import { PilotToProduction, SessionLoop, SourcesToOutput, Timeline } from './graphics';
 import {
   bookConsultation,
   formatRate,
@@ -50,7 +50,7 @@ export const SEGMENTS: SegmentInfo[] = [
     name: 'Corporate AI Development',
     audience: 'For senior leaders and managers',
     summary:
-      'Company-wide AI enablement, decided at the level where budgets and accountability sit. We help leadership choose where AI will move a number, sequence the work, and put the governance in place before the first pilot becomes a liability.',
+      'Company-wide AI strategy and governance, decided at the level where budgets and accountability sit. We help leadership choose where AI will move a number, sequence the work, and put the governance in place before the first pilot becomes a liability.',
     covers: [
       'AI strategy and a ranked opportunity portfolio, with effort and payback against each item',
       'Operating model: who owns models, data, risk and spend once the pilots end',
@@ -94,7 +94,7 @@ export const SEGMENTS: SegmentInfo[] = [
       'Team skills, tooling choices and a practical adoption plan',
     ],
     outcomes: [
-      'A working AI delivery pipeline your team owns and understands',
+      'A delivery pipeline for AI features that your team builds with our guidance, and owns and understands',
       'Faster delivery with the same standards for quality and security',
     ],
   },
@@ -117,9 +117,13 @@ const CLIENTS = [
 
 let infoCache: Promise<PublicInfo | null> | null = null;
 
-/** Published pricing, fetched once per page load and shared. */
-function usePublicInfo(): PublicInfo | null {
-  const [info, setInfo] = useState<PublicInfo | null>(null);
+/**
+ * Published pricing, fetched once per page load and shared. Undefined while
+ * it is still loading, so a page can hold back the "contact us for rates"
+ * wording until it knows there really is no published rate.
+ */
+function usePublicInfo(): PublicInfo | null | undefined {
+  const [info, setInfo] = useState<PublicInfo | null | undefined>(undefined);
   useEffect(() => {
     if (!infoCache) {
       infoCache = getPublicInfo().catch(() => {
@@ -139,10 +143,10 @@ function usePublicInfo(): PublicInfo | null {
 /** Tab title for a marketing page; the home page passes nothing. */
 function usePageTitle(title?: string) {
   useEffect(() => {
-    document.title = title ? `${title} · Data Painters` : 'Data Painters · Enterprise AI advisory';
+    document.title = title ? `${title} · DataPainters` : 'DataPainters · Enterprise AI advisory';
     // Signed-in screens do not set a title, so hand back the plain one.
     return () => {
-      document.title = 'Data Painters';
+      document.title = 'DataPainters';
     };
   }, [title]);
 }
@@ -176,8 +180,8 @@ export function SiteNav({ account }: { account?: ReactNode }) {
   return (
     <header className="mk-header">
       <div className="mk-header-inner">
-        <Link to="/" className="mk-brand" aria-label="Data Painters home">
-          <img className="mk-brand-logo" src="/brand/logo-horizontal.svg" alt="Data Painters" />
+        <Link to="/" className="mk-brand" aria-label="DataPainters home">
+          <img className="mk-brand-logo" src="/brand/logo-horizontal.svg" alt="DataPainters" />
         </Link>
 
         <button
@@ -200,6 +204,7 @@ export function SiteNav({ account }: { account?: ReactNode }) {
           <NavLink to="/services">Services</NavLink>
           <NavLink to="/approach">Approach</NavLink>
           <Link to="/#pricing">Pricing</Link>
+          <NavLink to="/contact">Contact</NavLink>
           {account ?? <NavLink to="/login">Client sign-in</NavLink>}
           <Link to="/book" className="btn btn-primary mk-nav-cta">
             Book a free consultation
@@ -216,7 +221,7 @@ export function SiteFooter() {
       <div className="mk-footer-inner">
         <div className="mk-footer-brand">
           <span className="mk-brand">
-            <img className="mk-brand-logo" src="/brand/logo-horizontal-on-dark.svg" alt="Data Painters" />
+            <img className="mk-brand-logo" src="/brand/logo-horizontal-on-dark.svg" alt="DataPainters" />
           </span>
           <p>
             Enterprise AI advisory from engineers with twenty-five years in enterprise
@@ -239,11 +244,21 @@ export function SiteFooter() {
             <Link to="/book">Book a consultation</Link>
             <Link to="/login">Client sign-in</Link>
           </div>
+          <div>
+            <h2>Contact</h2>
+            <a href="mailto:info@datapainters.com">info@datapainters.com</a>
+            <Link to="/contact">Contact us</Link>
+            <Link to="/privacy">Privacy policy</Link>
+            <Link to="/terms">Terms of service</Link>
+          </div>
         </div>
       </div>
       <div className="mk-footer-base">
-        <span>&copy; {new Date().getFullYear()} Data Painters</span>
-        <span>Hourly consulting, billed in 30-minute increments.</span>
+        <span>&copy; {new Date().getFullYear()} DataPainters &middot; Austin, Texas</span>
+        <span>
+          <Link to="/privacy">Privacy</Link> &middot; <Link to="/terms">Terms</Link> &middot;{' '}
+          <Link to="/contact">Contact</Link>
+        </span>
       </div>
     </footer>
   );
@@ -313,14 +328,23 @@ function CtaBand({ title, text }: { title: string; text: string }) {
   );
 }
 
-function RateLine({ info }: { info: PublicInfo | null }) {
-  const rate = formatRate(info);
-  return rate ? (
+/** A full sentence about the rate, so it can follow a full stop anywhere. */
+function RateLine({ info }: { info: PublicInfo | null | undefined }) {
+  const rate = formatRate(info ?? null);
+  if (rate) {
+    return (
+      <>
+        The rate is <strong>{rate} per hour</strong>, billed in 30-minute increments.
+      </>
+    );
+  }
+  // Still loading: say only what is true whatever the rate turns out to be.
+  if (info === undefined) return <>Time is billed in 30-minute increments.</>;
+  return (
     <>
-      <strong>{rate} per hour</strong>, billed in 30-minute increments.
+      Time is billed in 30-minute increments. <Link to="/contact">Contact us</Link> for current
+      rates.
     </>
-  ) : (
-    <>Billed hourly in 30-minute increments. Contact us for current rates.</>
   );
 }
 
@@ -330,7 +354,7 @@ export function Home() {
   usePageTitle();
   useScrollToHash();
   const info = usePublicInfo();
-  const rate = formatRate(info);
+  const rate = formatRate(info ?? null);
 
   return (
     <main className="mk">
@@ -342,7 +366,7 @@ export function Home() {
             <p className="mk-lede">
               We advise leadership, data and engineering teams on getting AI into
               production &mdash; and keeping it there. Twenty-five years of making data
-              trustworthy inside large organisations, applied to the tools that changed.
+              trustworthy inside large organizations, applied to the tools that changed.
             </p>
             <CtaButtons
               secondary={
@@ -437,16 +461,16 @@ export function Home() {
           <div>
             <h2 id="why-h">Why the scaling problem is the familiar one</h2>
             <p>
-              Most AI pilots work. Most AI programmes stall anyway, and they stall on
+              Most AI pilots work. Most AI programs stall anyway, and they stall on
               things an enterprise data team has seen before: lineage nobody can trace,
               access controls that do not survive an audit, a pipeline that was never
               going to run twice, an output no owner will sign off on.
             </p>
             <p>
-              We recognise those failures because we spent a career fixing the business
+              We recognize those failures because we spent a career fixing the business
               intelligence versions of them &mdash; and we moved into AI the way we moved
-              into everything else: by shipping it inside organisations where it had to
-              integrate with what already existed, clear review, and keep working after
+              into everything else: by shipping it inside organizations where it had to
+              integrate with what already existed, pass review, and keep working after
               we left.
             </p>
             <dl className="mk-stats">
@@ -468,7 +492,7 @@ export function Home() {
             <PilotToProduction />
             <figcaption>
               A pilot is one workload that worked once. Production is the same workload,
-              replicated, observed and on somebody&rsquo;s rota.
+              replicated, observed and on somebody&rsquo;s on-call schedule.
             </figcaption>
           </figure>
         </div>
@@ -499,7 +523,7 @@ export function Home() {
               <h3>Advisory sessions</h3>
               <p className="mk-price">
                 {rate ?? 'Hourly'}
-                <span>{rate ? 'per hour' : 'contact us for rates'}</span>
+                <span>{rate ? 'per hour' : info === undefined ? 'billed in 30-minute increments' : 'contact us for rates'}</span>
               </p>
               <ul>
                 <li>Billed in 30-minute increments</li>
@@ -520,7 +544,7 @@ export function Home() {
           <div className="mk-section-head">
             <h2 id="clients-h">Where our team has worked</h2>
             <p>
-              Data Painters is a small group of engineers. Between us, our work has been
+              DataPainters is a small group of engineers. Between us, our work has been
               delivered for:
             </p>
           </div>
@@ -553,13 +577,13 @@ export function Home() {
   );
 }
 
-function Faq({ info }: { info: PublicInfo | null }) {
+function Faq({ info }: { info: PublicInfo | null | undefined }) {
   const items: { q: string; a: ReactNode }[] = [
     {
       q: 'How does billing work?',
       a: (
         <>
-          All work is hourly consulting: <RateLine info={info} /> Time is tracked
+          All work is hourly consulting. <RateLine info={info} /> Time is tracked
           during each meeting and rounded up to the next 30-minute block. You receive a
           meeting summary with the time recorded, and invoices list every session.
         </>
@@ -575,11 +599,18 @@ function Faq({ info }: { info: PublicInfo | null }) {
     },
     {
       q: 'Is what we discuss confidential?',
-      a: 'Yes. We treat everything shared in a consultation as confidential and are happy to sign your NDA before any detailed work begins.',
+      a: (
+        <>
+          Yes. We treat everything shared in a consultation as confidential and are happy to sign
+          your NDA before any detailed work begins. Video meetings are recorded and transcribed so
+          our notes are accurate; recordings are covered by the same confidentiality, and you can
+          ask us not to record. See our <Link to="/privacy#recording">privacy policy</Link>.
+        </>
+      ),
     },
     {
       q: 'Do you build, or only advise?',
-      a: 'Our engagements are advisory: we work alongside your team or your vendor so that what ships can be operated by the people who own it after we step back.',
+      a: 'We advise; your team or your vendor builds. We work alongside them on design, review and the hard decisions, so that what ships can be operated by the people who own it after we step back.',
     },
   ];
   return (
@@ -608,8 +639,8 @@ export function Services() {
           <p className="mk-eyebrow">Services</p>
           <h1>AI advisory across strategy, data and engineering</h1>
           <p className="mk-lede">
-            Three practices for the three places AI programmes succeed or stall. Every
-            engagement is hourly consulting, <RateLine info={info} />
+            Three practices for the three places AI programs succeed or stall. Every
+            engagement is hourly consulting. <RateLine info={info} />
           </p>
           <nav className="mk-jump" aria-label="Practices">
             {SEGMENTS.map((s) => (
@@ -723,8 +754,8 @@ export function Approach() {
             <li>
               <h3>Leave it operable.</h3>
               <p>
-                The test of an engagement is what still works six months after the
-                consultant stops answering the phone.
+                The test of an engagement is what still works six months after it ends,
+                run by your own people without us.
               </p>
             </li>
           </ol>
@@ -736,11 +767,11 @@ export function Approach() {
           <div>
             <h2 id="years-h">What twenty-five years actually buys you</h2>
             <p>
-              Pattern recognition, mostly. An enterprise AI programme fails in a small
-              number of recognisable ways, and nearly all of them are data and
-              organisational problems wearing new vocabulary. Having watched the business
-              intelligence generation of the same mistakes, we tend to know which corner a
-              project is about to turn before it turns it.
+              Pattern recognition, mostly. An enterprise AI program fails in a small
+              number of recognizable ways, and nearly all of them are data and
+              organizational problems wearing new vocabulary. Having watched the business
+              intelligence generation make the same mistakes, we can usually see where a
+              project is heading before it gets there.
             </p>
             <h2>How engagements run</h2>
             <p>
@@ -750,8 +781,11 @@ export function Approach() {
             </p>
           </div>
           <figure className="mk-figure">
-            <PilotToProduction />
-            <figcaption>From one workload that worked once to one that runs on a rota.</figcaption>
+            <SessionLoop />
+            <figcaption>
+              Every session runs the same way, so progress is visible and spend is never a
+              surprise.
+            </figcaption>
           </figure>
         </div>
       </section>
@@ -801,8 +835,8 @@ function overlaps(start: Date, minutes: number, busy: BusyInterval[]): boolean {
 }
 
 const fmtDayLong = (d: Date) =>
-  d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-const fmtTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+const fmtTime = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 const tzName = () => {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -822,7 +856,7 @@ export function BookConsultation() {
   usePageTitle('Book a free consultation');
   useScrollToHash();
   const info = usePublicInfo();
-  const rate = formatRate(info);
+  const rate = formatRate(info ?? null);
   const [params] = useSearchParams();
   const initialSegment = SEGMENTS.some((s) => s.id === params.get('segment'))
     ? (params.get('segment') as Segment)
@@ -1163,7 +1197,7 @@ export function BookConsultation() {
                     </button>
                     <span className="mk-help">
                       {visibleDays.length > 0 &&
-                        `${parseDay(visibleDays[0]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${parseDay(visibleDays[visibleDays.length - 1]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`}
+                        `${parseDay(visibleDays[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${parseDay(visibleDays[visibleDays.length - 1]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
                     </span>
                     <button
                       type="button"
@@ -1189,9 +1223,9 @@ export function BookConsultation() {
                             setSlot(null);
                           }}
                         >
-                          <small>{d.toLocaleDateString(undefined, { weekday: 'short' })}</small>
+                          <small>{d.toLocaleDateString('en-US', { weekday: 'short' })}</small>
                           <b>{d.getDate()}</b>
-                          <small>{d.toLocaleDateString(undefined, { month: 'short' })}</small>
+                          <small>{d.toLocaleDateString('en-US', { month: 'short' })}</small>
                         </button>
                       );
                     })}
@@ -1384,13 +1418,18 @@ export function BookConsultation() {
                 <span>When</span>
                 <b>
                   {slotDate
-                    ? `${slotDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}, ${fmtTime(slotDate)}`
+                    ? `${slotDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}, ${fmtTime(slotDate)}`
                     : '—'}
                 </b>
               </li>
             </ul>
             <p className="mk-aside-note">{priceNote}</p>
-            <p className="mk-aside-note">Everything you share is treated as confidential.</p>
+            <p className="mk-aside-note">
+              Everything you share is treated as confidential. The call is recorded and
+              transcribed so our notes are accurate; tell us beforehand if you would rather it
+              was not. By booking you agree to our <Link to="/privacy">privacy policy</Link> and{' '}
+              <Link to="/terms">terms</Link>.
+            </p>
           </aside>
         </div>
       </div>

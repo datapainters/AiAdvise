@@ -1157,3 +1157,33 @@ Staff replies carry a **Notify Topic Team** checkbox, checked by default.
 Unchecked, the post is saved without the update email (`notifyTeam: false`
 on `POST /api/threads/{id}/messages`). The server ignores the flag from
 client accounts: a client's message always reaches the team.
+
+## Website review fixes (2026-11-28)
+
+From an outside review of the public site.
+
+- **Contact.** `/contact` offers two routes: email `info@datapainters.com`
+  or book the free consultation. Linked from the header, the footer and the
+  sign-in page. The mailbox has to exist and be read.
+- **Privacy and terms.** `/privacy` and `/terms` (`web/src/site-pages.tsx`),
+  written from what the system actually keeps and who it is sent to. They
+  are a plain-language draft and have not been reviewed by a lawyer.
+- **Recording.** Calls are recorded and transcribed by a tool outside this
+  system. The booking form, the confidentiality FAQ, the privacy policy and
+  the terms say so, and say a client can ask beforehand not to be recorded.
+- **Rate text.** The published rate is `undefined` while loading, so pages
+  no longer flash "contact us for rates" before the rate arrives.
+- **Name.** "DataPainters", one word, everywhere: site, console, portal,
+  emails, PDF, and `mail_from_name` in both environments.
+- **American English** in the copy, and dates formatted as `en-US`
+  regardless of the browser's locale. Email dates read "Monday, November 30".
+- **Forgot password.** `/forgot-password` posts to
+  `POST /api/public/password-reset`, which emails the same single-use link an
+  invitation uses. The response is identical whether or not the address has
+  an account, the current password keeps working until the link is used, and
+  requests are rate limited per address.
+- **Not found.** A proper page with links back, in place of a bare heading.
+- **Copy.** "pass review"; the Corporate practice described as strategy and
+  governance; the Development practice's outcome and the build-or-advise FAQ
+  now agree that we advise and the client's team builds; two Approach lines
+  reworded; the Approach page's second diagram is new (`SessionLoop`).

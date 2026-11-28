@@ -120,7 +120,7 @@ variable "mail_from" {
 
 variable "mail_from_name" {
   type    = string
-  default = "Data Painters"
+  default = "DataPainters"
 }
 
 variable "mail_admin_recipient" {

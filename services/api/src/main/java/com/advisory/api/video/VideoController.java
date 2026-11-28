@@ -73,8 +73,8 @@ public class VideoController {
         Appointment a = appointments.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         String name = users.findById(user.id()).map(u -> u.getDisplayName())
-                .orElse("Data Painters");
-        return new JoinLink(video.joinUrl(a, name + " (Data Painters)", true),
+                .orElse("DataPainters");
+        return new JoinLink(video.joinUrl(a, name + " (DataPainters)", true),
                 VideoService.opensAt(a), VideoService.roomExpiry(a));
     }
 

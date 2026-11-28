@@ -1,7 +1,7 @@
 /**
  * The list of people on an engagement (its Team tab) or in a meeting (its
  * Users tab). One component for both, because they are the same idea at two
- * sizes: people from Data Painters and people from the client, each with the
+ * sizes: people from DataPainters and people from the client, each with the
  * part they play.
  *
  * A meeting adds two switches per person -- whether they are on the call and
@@ -27,7 +27,7 @@ import {
 type Scope = { kind: 'engagement' | 'meeting'; id: number };
 
 const SIDE_TITLE: Record<PersonSide, string> = {
-  team: 'Data Painters',
+  team: 'DataPainters',
   client: 'Client',
 };
 
@@ -126,7 +126,7 @@ export function PeopleList({
                 {sides.map((side) => {
                   const options = available.filter((c) => c.side === side);
                   return options.length === 0 ? null : (
-                    <optgroup key={side} label={side === 'team' ? 'Data Painters' : clientName}>
+                    <optgroup key={side} label={side === 'team' ? 'DataPainters' : clientName}>
                       {options.map((c) => (
                         <option key={c.userId} value={c.userId}>
                           {c.name} ({c.email})
@@ -168,7 +168,7 @@ export function PeopleList({
         <p className="empty">
           {isMeeting
             ? 'Nobody is listed for this meeting yet. Add the engagement team, or add people one at a time.'
-            : 'Nobody is on this engagement yet. Add the Data Painters people working on it and the client contacts involved.'}
+            : 'Nobody is on this engagement yet. Add the DataPainters people working on it and the client contacts involved.'}
         </p>
       ) : (
         sides.map((side) => {

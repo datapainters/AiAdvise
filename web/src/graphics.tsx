@@ -287,3 +287,64 @@ export function ServiceIcon({ name }: { name: 'assess' | 'data' | 'scale' | 'ove
     </svg>
   );
 }
+
+
+/**
+ * How one session runs, as a loop: you set the agenda, we meet, notes are
+ * kept against each topic, a summary and the time recorded follow, and the
+ * open topics carry into the next agenda.
+ */
+export function SessionLoop() {
+  const steps = [
+    { x: 6, label: 'Agenda', sub: 'you set it' },
+    { x: 116, label: 'Session', sub: 'video or message' },
+    { x: 226, label: 'Notes', sub: 'per topic' },
+    { x: 336, label: 'Summary', sub: 'with time used' },
+  ];
+
+  return (
+    <svg
+      viewBox="0 0 440 200"
+      className="figure"
+      role="img"
+      aria-label="Four steps in a loop: agenda, session, notes, summary, then back to the next agenda"
+    >
+      {steps.map((s, i) => (
+        <g key={s.label}>
+          <rect
+            x={s.x}
+            y={58}
+            width={98}
+            height={60}
+            rx={3}
+            fill="none"
+            stroke={i === 0 ? ACCENT : RULE}
+            strokeWidth={i === 0 ? 2 : 1.5}
+          />
+          <text x={s.x + 49} y={84} textAnchor="middle" fontSize={13} fontWeight={600} fill={INK}>
+            {s.label}
+          </text>
+          <text x={s.x + 49} y={102} textAnchor="middle" fontSize={10} fill={SOFT}>
+            {s.sub}
+          </text>
+          {i < steps.length - 1 && (
+            <path d={`M ${s.x + 100} 88 L ${s.x + 108} 88`} fill="none" stroke={SOFT} strokeWidth={1.5} />
+          )}
+        </g>
+      ))}
+
+      {/* What is still open goes back onto the next agenda. */}
+      <path
+        d="M 385 120 L 385 158 L 55 158 L 55 124"
+        fill="none"
+        stroke={SOFT}
+        strokeWidth={1.5}
+        strokeDasharray="4 4"
+      />
+      <path d="M 50 130 L 55 121 L 60 130 Z" fill={SOFT} />
+      <text x={220} y={178} textAnchor="middle" fontSize={10} fill={SOFT}>
+        open topics carry into the next session
+      </text>
+    </svg>
+  );
+}

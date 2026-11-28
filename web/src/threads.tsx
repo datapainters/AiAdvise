@@ -4,7 +4,7 @@
  * Used by the client portal and the admin console.
  *
  * One component for both because it is the same conversation. Anyone on the
- * thread can attach files from their own machine. A Data Painters reader in
+ * thread can attach files from their own machine. A DataPainters reader in
  * the console gets three more things -- how long a reply took, attachments
  * from the media library, and editing a meeting's notes -- switched on by
  * `staff`. The portal never passes it, whoever is signed in.
@@ -32,8 +32,8 @@ function stamp(iso: string): string {
   const d = new Date(iso);
   const sameDay = d.toDateString() === new Date().toDateString();
   return sameDay
-    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 const TOPIC_STATUS: Record<string, string> = {
@@ -64,7 +64,7 @@ function MeetingEntry({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(entry.body);
   const [busy, setBusy] = useState(false);
-  const when = new Date(entry.createdAt).toLocaleDateString([], {
+  const when = new Date(entry.createdAt).toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
@@ -252,7 +252,7 @@ export function ThreadView({
           {staff && <>{thread.clientName} &middot; </>}
           {thread.engagementTitle}
           {thread.raisedBy && <> &middot; raised by {thread.raisedBy}</>} on{' '}
-          {new Date(thread.raisedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+          {new Date(thread.raisedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
         </p>
         {thread.detail && <p className="thread-opening">{thread.detail}</p>}
         {thread.desiredOutcome && (
@@ -281,7 +281,7 @@ export function ThreadView({
             <article key={m.id} className={`thread-message is-${m.side}`}>
               <header>
                 <strong>{m.authorName}</strong>
-                {m.side === 'team' && <span className="pill pill-neutral">Data Painters</span>}
+                {m.side === 'team' && <span className="pill pill-neutral">DataPainters</span>}
                 <span className="muted">{stamp(m.createdAt)}</span>
                 {m.minutes !== null && (
                   <span className="muted thread-time">

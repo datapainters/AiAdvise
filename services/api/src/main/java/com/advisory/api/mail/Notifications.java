@@ -28,7 +28,7 @@ public class Notifications {
     private static final Logger log = LoggerFactory.getLogger(Notifications.class);
 
     private static final DateTimeFormatter WHEN =
-            DateTimeFormatter.ofPattern("EEEE d MMMM, h:mm a");
+            DateTimeFormatter.ofPattern("EEEE, MMMM d, h:mm a", java.util.Locale.US);
 
     private final MailSender mail;
     private final AppUserRepository users;
@@ -71,7 +71,7 @@ public class Notifications {
         String plain = """
                 Hello %s,
 
-                You have been invited to the Data Painters client portal for %s.
+                You have been invited to the DataPainters client portal for %s.
 
                 Set your password and sign in:
                 %s
@@ -82,13 +82,13 @@ public class Notifications {
                 If you were not expecting this, you can ignore it -- the account
                 cannot be used until someone follows that link.
 
-                Data Painters
+                DataPainters
                 """.formatted(displayName, clientName, inviteUrl, expires,
                 displayZone.getId());
 
         String html = wrap("""
                 <p>Hello %s,</p>
-                <p>You have been invited to the Data Painters client portal for
+                <p>You have been invited to the DataPainters client portal for
                 <strong>%s</strong>.</p>
                 <p style="margin:24px 0">
                   <a href="%s" style="background:#16181d;color:#fcfcfd;\
@@ -104,7 +104,52 @@ Set your password</a>
                 """.formatted(esc(displayName), esc(clientName), esc(inviteUrl),
                 esc(expires), esc(displayZone.getId())));
 
-        return mail.send(email, "Your Data Painters portal invitation", plain, html);
+        return mail.send(email, "Your DataPainters portal invitation", plain, html);
+    }
+
+    /**
+     * Sends a link to choose a new password, asked for from the sign-in page.
+     * The same single-use link an invitation carries, worded for someone who
+     * already has an account.
+     */
+    public boolean passwordReset(String email, String displayName, String resetUrl,
+            Instant expiresAt) {
+
+        String expires = when(expiresAt);
+
+        String plain = """
+                Hello %s,
+
+                Someone asked to reset the password for your DataPainters account.
+
+                Choose a new password:
+                %s
+
+                The link works once and expires on %s (%s).
+
+                If this was not you, ignore this email. Your current password
+                keeps working until the link is used.
+
+                DataPainters
+                """.formatted(displayName, resetUrl, expires, displayZone.getId());
+
+        String html = wrap("""
+                <p>Hello %s,</p>
+                <p>Someone asked to reset the password for your DataPainters account.</p>
+                <p style="margin:24px 0">
+                  <a href="%s" style="background:#16181d;color:#fcfcfd;\
+text-decoration:none;padding:11px 20px;border-radius:2px;display:inline-block">\
+Choose a new password</a>
+                </p>
+                <p style="color:#595f6b;font-size:13px">The link works once and
+                expires on %s (%s).</p>
+                <p style="color:#595f6b;font-size:13px">If this was not you, ignore
+                this email. Your current password keeps working until the link is
+                used.</p>
+                """.formatted(esc(displayName), esc(resetUrl), esc(expires),
+                esc(displayZone.getId())));
+
+        return mail.send(email, "Reset your DataPainters password", plain, html);
     }
 
     /**
@@ -120,7 +165,7 @@ Set your password</a>
         String plain = """
                 Hello %s,
 
-                You have been added to the Data Painters team console as %s.
+                You have been added to the DataPainters team console as %s.
 
                 Set your password and sign in:
                 %s
@@ -128,12 +173,12 @@ Set your password</a>
                 The link works once and expires on %s (%s). If it has already
                 expired, ask an administrator to send another.
 
-                Data Painters
+                DataPainters
                 """.formatted(displayName, roleLabel, inviteUrl, expires, displayZone.getId());
 
         String html = wrap("""
                 <p>Hello %s,</p>
-                <p>You have been added to the Data Painters team console as
+                <p>You have been added to the DataPainters team console as
                 <strong>%s</strong>.</p>
                 <p style="margin:24px 0">
                   <a href="%s" style="background:#16181d;color:#fcfcfd;\
@@ -146,7 +191,7 @@ Set your password</a>
                 """.formatted(esc(displayName), esc(roleLabel), esc(inviteUrl),
                 esc(expires), esc(displayZone.getId())));
 
-        return mail.send(email, "Your Data Painters team invitation", plain, html);
+        return mail.send(email, "Your DataPainters team invitation", plain, html);
     }
 
     /** One agenda line of a meeting write-up: what it was, where it ended up, the note. */
@@ -185,7 +230,7 @@ Set your password</a>
         }
 
         String plain = """
-                Summary of your meeting with Data Painters.
+                Summary of your meeting with DataPainters.
 
                 Client:      %s
                 Engagement:  %s
@@ -193,12 +238,12 @@ Set your password</a>
                 Time:        %d minutes recorded
 
                 %s
-                Data Painters
+                DataPainters
                 """.formatted(clientName, engagementTitle, when, displayZone.getId(),
                 recordedMinutes, plainItems);
 
         String html = wrap("""
-                <p>Summary of your meeting with Data Painters.</p>
+                <p>Summary of your meeting with DataPainters.</p>
                 <table cellpadding="4" style="border-collapse:collapse;font-size:14px">
                   <tr><td style="color:#595f6b">Client</td><td>%s</td></tr>
                   <tr><td style="color:#595f6b">Engagement</td><td>%s</td></tr>
@@ -234,7 +279,7 @@ Set your password</a>
                 Read the thread and reply:
                 %s
 
-                Data Painters
+                DataPainters
                 """.formatted(authorName, topicTitle, clientName, engagementTitle, body, files,
                 threadUrl);
 
@@ -281,7 +326,7 @@ Reply in the thread</a>
 
                 %s/admin?view=engagements
 
-                Data Painters
+                DataPainters
                 """.formatted(openedBy, clientName, title, how,
                 goal == null || goal.isBlank() ? "(none given)" : goal, mail.baseUrl());
         String html = wrap("""
@@ -327,7 +372,7 @@ Reply in the thread</a>
                 Open it in the admin tools to confirm and work the agenda:
                 %s/admin
 
-                Data Painters
+                DataPainters
                 """.formatted(requestedBy, clientName, engagementTitle, when,
                 displayZone.getId(), durationMinutes, topicCount, mail.baseUrl());
 
@@ -374,7 +419,7 @@ Reply in the thread</a>
                 %s
                 %s/portal?view=meetings
 
-                Data Painters
+                DataPainters
                 """.formatted(engagementTitle, when, displayZone.getId(),
                 durationMinutes, topicCount,
                 video ? "This is a video meeting. Join from your portal; the room opens\n"
@@ -421,7 +466,7 @@ Reply in the thread</a>
         String plain = """
                 Hello %s,
 
-                Your meeting with Data Painters is confirmed.
+                Your meeting with DataPainters is confirmed.
 
                 Meeting:  %s
                 When:     %s (%s)
@@ -430,7 +475,7 @@ Reply in the thread</a>
 
                 %s
 
-                Data Painters
+                DataPainters
                 """.formatted(name, engagementTitle, when, displayZone.getId(), durationMinutes,
                 topicCount,
                 joinUrl == null ? "We will send joining details before the meeting."
@@ -439,7 +484,7 @@ Reply in the thread</a>
 
         String html = wrap("""
                 <p>Hello %s,</p>
-                <p>Your meeting with Data Painters is confirmed.</p>
+                <p>Your meeting with DataPainters is confirmed.</p>
                 <table cellpadding="4" style="border-collapse:collapse;font-size:14px">
                   <tr><td style="color:#595f6b">Meeting</td><td>%s</td></tr>
                   <tr><td style="color:#595f6b">When</td><td>%s (%s)</td></tr>
@@ -503,7 +548,7 @@ Reply in the thread</a>
                 Confirm it in the admin console (Meetings, or the client's record):
                 %s/admin?view=appointments
 
-                Data Painters
+                DataPainters
                 """.formatted(reference, contactName, role == null ? "" : ", " + role,
                 clientName, email, phone == null ? "-" : phone, segment, when,
                 displayZone.getId(), topicLines,
@@ -558,7 +603,7 @@ Review and confirm</a>
         String plain = """
                 Hello %s,
 
-                Thank you for requesting a free 30-minute consultation with Data Painters.
+                Thank you for requesting a free 30-minute consultation with DataPainters.
 
                 Reference:  %s
                 Area:       %s
@@ -570,7 +615,7 @@ Review and confirm</a>
                 We will confirm the time by email, or suggest another if that slot
                 does not work. There is no charge for this call and no obligation.
 
-                Data Painters
+                DataPainters
                 """.formatted(name, reference, segment, when, displayZone.getId(),
                 topicLines);
 
@@ -580,7 +625,7 @@ Review and confirm</a>
         }
         String html = wrap("""
                 <p>Hello %s,</p>
-                <p>Thank you for requesting a free 30-minute consultation with Data Painters.</p>
+                <p>Thank you for requesting a free 30-minute consultation with DataPainters.</p>
                 <table cellpadding="4" style="border-collapse:collapse;font-size:14px">
                   <tr><td style="color:#595f6b">Reference</td><td>%s</td></tr>
                   <tr><td style="color:#595f6b">Area</td><td>%s</td></tr>

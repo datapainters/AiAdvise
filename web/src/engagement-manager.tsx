@@ -73,7 +73,7 @@ function day(iso: string): string {
   // A bare date has no zone; parsed as-is it is read as UTC midnight and
   // shows as the day before anywhere west of Greenwich.
   const value = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00` : iso;
-  return new Date(value).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+  return new Date(value).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 /* -------------------------------------------------------- engagement manager */
@@ -602,7 +602,7 @@ function OverviewTab({
         <dd>{detail.media.length}</dd>
         <dt>People</dt>
         <dd>
-          {detail.team.filter((p) => p.side === 'team').length} from Data Painters,{' '}
+          {detail.team.filter((p) => p.side === 'team').length} from DataPainters,{' '}
           {detail.team.filter((p) => p.side === 'client').length} from {detail.clientName}
         </dd>
       </dl>
@@ -642,7 +642,7 @@ function OverviewTab({
 /* ---------------------------------------------------------- engagement notes */
 
 function when(iso: string): string {
-  return new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function NotesTab({

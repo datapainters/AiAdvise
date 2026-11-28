@@ -531,7 +531,7 @@ export function MeetingManager({
             figures={[
               {
                 label: 'Date',
-                value: new Date(a.startsAt).toLocaleDateString([], {
+                value: new Date(a.startsAt).toLocaleDateString('en-US', {
                   weekday: 'short',
                   month: 'short',
                   day: 'numeric',
@@ -540,7 +540,7 @@ export function MeetingManager({
               },
               {
                 label: 'Time',
-                value: new Date(a.startsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+                value: new Date(a.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
                 hint: formatLength(a.durationMinutes),
               },
               {
@@ -640,7 +640,7 @@ export function MeetingManager({
                         <td>{s.kind === 'pdf' ? 'PDF' : s.kind === 'video' ? 'Video' : 'Image'}</td>
                         <td>{s.sharedByName}</td>
                         <td className="nowrap">
-                          {new Date(s.sharedAt).toLocaleTimeString([], {
+                          {new Date(s.sharedAt).toLocaleTimeString('en-US', {
                             hour: 'numeric',
                             minute: '2-digit',
                           })}
@@ -927,7 +927,7 @@ export function ClientDetailModal({
               {
                 label: 'Next meeting',
                 value: next
-                  ? new Date(next.startsAt).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                  ? new Date(next.startsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                   : 'None',
                 hint: next
                   ? `${upcoming} upcoming${toConfirm > 0 ? `, ${toConfirm} to confirm` : ''}`

@@ -30,7 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
  *
  * <p>A topic is the thing a client wants covered. Where an engagement is run
  * by message, or by both message and video, each topic carries a thread: the
- * client's people and Data Painters post back and forth on it.
+ * client's people and DataPainters post back and forth on it.
  *
  * <p>Who may read a thread from the client side: the person who raised the
  * topic, anyone on the engagement's team, and the client account's owner and
@@ -76,7 +76,7 @@ public class ThreadService {
      * One entry in a thread. {@code kind} is {@code message} for a post, or
      * {@code meeting} for the notes taken on this topic in one meeting; the
      * three meeting fields are only set for the latter. {@code minutes} is
-     * only ever filled for a Data Painters reader.
+     * only ever filled for a DataPainters reader.
      */
     public record Message(Long id, String kind, String authorName, String side, String body,
             Instant createdAt, Integer minutes, boolean charged, List<Attachment> attachments,
@@ -266,7 +266,7 @@ public class ThreadService {
                 """).param(topicId).query((rs, i) -> new Message(rs.getLong("id"), "message",
                 rs.getString("display_name") == null
                         ? ("team".equals(rs.getString("author_side"))
-                                ? "Data Painters" : "Former team member")
+                                ? "DataPainters" : "Former team member")
                         : rs.getString("display_name"),
                 rs.getString("author_side"), rs.getString("body"),
                 rs.getTimestamp("created_at").toInstant(),
@@ -291,7 +291,7 @@ public class ThreadService {
                 LEFT JOIN app_user u ON u.id = n.author_user_id
                 WHERE n.topic_id = ?
                 """).param(topicId).query((rs, i) -> new Message(rs.getLong("id"), "meeting",
-                rs.getString("display_name") == null ? "Data Painters"
+                rs.getString("display_name") == null ? "DataPainters"
                         : rs.getString("display_name"),
                 "team", rs.getString("body"), rs.getTimestamp("starts_at").toInstant(),
                 null, false, List.of(), rs.getLong("appointment_id"), rs.getString("title"),
@@ -309,8 +309,8 @@ public class ThreadService {
     /**
      * Adds a post to a topic's thread and tells everyone else on it.
      *
-     * @param minutes      time the reply took; honoured for Data Painters only
-     * @param mediaItemIds library items to attach; honoured for Data Painters only
+     * @param minutes      time the reply took; honoured for DataPainters only
+     * @param mediaItemIds library items to attach; honoured for DataPainters only
      */
     /**
      * Step one of attaching a file from someone's own machine: where their
@@ -440,7 +440,7 @@ public class ThreadService {
     }
 
     /**
-     * Tells the engagement's Data Painters people that a client has raised a
+     * Tells the engagement's DataPainters people that a client has raised a
      * topic on a message engagement. The topic is the opening post of its
      * thread, so it is announced like one.
      */
@@ -459,7 +459,7 @@ public class ThreadService {
     /**
      * Mails everyone on the thread except the author: the engagement's team
      * from both sides, the person who raised the topic, and anyone who has
-     * already posted. If that leaves nobody from Data Painters -- an
+     * already posted. If that leaves nobody from DataPainters -- an
      * engagement with no team yet -- the firm's inbox gets it, so a client's
      * message is never posted into a void.
      */
@@ -490,7 +490,7 @@ public class ThreadService {
             }
 
             String authorName = author.isAdmin()
-                    ? author.getDisplayName() + " (Data Painters)" : author.getDisplayName();
+                    ? author.getDisplayName() + " (DataPainters)" : author.getDisplayName();
             for (Map.Entry<String, Boolean> r : recipients.entrySet()) {
                 String url = mail.baseUrl() + (r.getValue()
                         ? "/admin?view=messages&topic=" : "/portal?view=messages&topic=")

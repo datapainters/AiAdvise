@@ -38,7 +38,7 @@ export function formatLength(minutes: number): string {
 export function formatWhen(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
+  return d.toLocaleString('en-US', {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -50,7 +50,7 @@ export function formatWhen(iso: string): string {
 export function formatRange(startIso: string, endIso: string): string {
   const end = new Date(endIso);
   if (Number.isNaN(end.getTime())) return formatWhen(startIso);
-  return `${formatWhen(startIso)} – ${end.toLocaleTimeString(undefined, {
+  return `${formatWhen(startIso)} – ${end.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
   })}`;
@@ -78,7 +78,7 @@ export function slotsForDay(dayIso: string): { label: string; value: string }[] 
     // there without changing the storage rule.
     if (cursor.getUTCMinutes() % BLOCK_MINUTES === 0 && cursor.getUTCSeconds() === 0) {
       out.push({
-        label: cursor.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+        label: cursor.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
         value: cursor.toISOString(),
       });
     }
@@ -155,7 +155,7 @@ export function BookingForm({
 
   const slots = useMemo(() => {
     const all = openSlots(day, length, hours).map((d) => ({
-      label: d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+      label: d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
       value: d.toISOString(),
     }));
     // Hide times already gone, so today behaves like every other day.

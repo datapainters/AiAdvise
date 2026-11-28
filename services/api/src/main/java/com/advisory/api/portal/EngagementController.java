@@ -149,7 +149,7 @@ public class EngagementController {
             @Valid @RequestBody AddMember request) {
         AppUser reader = reader(jwt);
         Engagement e = staffable(reader, id);
-        // From the client's own people only: never a Data Painters account,
+        // From the client's own people only: never a DataPainters account,
         // and PeopleService refuses anyone from a different client.
         AppUser target = users.findById(request.userId())
                 .filter(u -> !u.isAdmin() && u.isEnabled())

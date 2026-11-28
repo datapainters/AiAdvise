@@ -23,7 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
  * from the client side must belong to the client the engagement is for, so
  * one client's contact can never be attached to another client's work. And
  * the role has to suit the side: a client contact is not an "engineer", and
- * a Data Painters engineer is not the "executive sponsor".
+ * a DataPainters engineer is not the "executive sponsor".
  */
 @Service
 public class PeopleService {
@@ -96,7 +96,7 @@ public class PeopleService {
         if (user.isAdmin()) {
             if (!TEAM_ROLES.contains(role)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Choose a Data Painters role for a team member");
+                        "Choose a DataPainters role for a team member");
             }
         } else {
             if (!clientId.equals(user.getClientId())) {

@@ -31,7 +31,7 @@ type OnError = (e: unknown) => void;
 
 function day(iso: string): string {
   const value = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00` : iso;
-  return new Date(value).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+  return new Date(value).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 const COMMUNICATION_HELP: Record<Communication, string> = {
@@ -188,7 +188,7 @@ function EngagementTeam({
           )}
         </div>
         <div>
-          <h4>Data Painters</h4>
+          <h4>DataPainters</h4>
           {ours.length === 0 ? (
             <p className="muted">We will assign your team shortly.</p>
           ) : (

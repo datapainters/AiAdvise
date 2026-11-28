@@ -39,7 +39,7 @@ function isoDay(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const time = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const time = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
 export function CalendarView({
   onOpenMeeting,
@@ -100,8 +100,8 @@ export function CalendarView({
 
   const title =
     mode === 'month'
-      ? anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-      : `${from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${addDays(from, 6).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      ? anchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : `${from.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${addDays(from, 6).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
   const counts = {
     requested: visible.filter((a) => a.status === 'requested').length,
@@ -255,7 +255,7 @@ function WeekGrid({
         <div />
         {days.map((d) => (
           <div key={isoDay(d)} className={isoDay(d) === isoDay(now) ? 'today' : undefined}>
-            <span>{d.toLocaleDateString(undefined, { weekday: 'short' })}</span>
+            <span>{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
             <b>{d.getDate()}</b>
           </div>
         ))}
@@ -264,7 +264,7 @@ function WeekGrid({
         <div className="cal-hours">
           {hourMarks.map((m) => (
             <span key={m} style={{ top: px(m) }}>
-              {new Date(2000, 0, 1, m / 60).toLocaleTimeString([], { hour: 'numeric' })}
+              {new Date(2000, 0, 1, m / 60).toLocaleTimeString('en-US', { hour: 'numeric' })}
             </span>
           ))}
         </div>

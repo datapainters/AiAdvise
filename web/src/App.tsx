@@ -75,6 +75,7 @@ import { clearToken, getToken, isTeamAdmin, seesMoney, type User } from './auth'
 import { EngagementManager, TeamAdmin } from './engagement-manager';
 import { NewMeetingForm } from './meeting-form';
 import { MessagesPanel } from './threads';
+import { Contact, ForgotPassword, NotFound, Privacy, Terms } from './site-pages';
 import { AdminOverviewPage } from './admin-overview';
 import { ClientPortal } from './portal';
 import { MediaLibrary, VideoBillingReportView } from './media';
@@ -308,7 +309,7 @@ function Login() {
     <main className="page narrow">
       <h1>Client sign-in</h1>
       <p className="lede">
-        Accounts are created by us. If you need access, get in touch.
+        Accounts are created by us. If you need access, <Link to="/contact">get in touch</Link>.
       </p>
 
       {error && <div className="error">{error}</div>}
@@ -338,6 +339,9 @@ function Login() {
           {busy ? 'Signing in...' : 'Sign in'}
         </button>
       </form>
+      <p className="login-forgot">
+        <Link to="/forgot-password">Forgot password?</Link>
+      </p>
     </main>
   );
 }
@@ -933,7 +937,7 @@ const ADMIN_VIEWS: {
     label: 'Team',
     group: 'System',
     icon: 'users',
-    blurb: 'Data Painters people with a console account, and what each one can do.',
+    blurb: 'DataPainters people with a console account, and what each one can do.',
   },
   {
     id: 'logins',
@@ -1114,7 +1118,7 @@ function formatDay(value: string | null | undefined): string {
     ? new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, Number(value.slice(8, 10)))
     : new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 /**
@@ -1638,8 +1642,8 @@ function Admin() {
     <div className={view === 'messages' ? 'admin-shell admin-shell-fill' : 'admin-shell'}>
       <aside className={navOpen ? 'admin-side open' : 'admin-side'}>
         <div className="admin-brand">
-          <Link to="/" className="admin-brand-mark" aria-label="Data Painters home">
-            <img className="brand-logo" src="/brand/logo-horizontal-on-dark.svg" alt="Data Painters" />
+          <Link to="/" className="admin-brand-mark" aria-label="DataPainters home">
+            <img className="brand-logo" src="/brand/logo-horizontal-on-dark.svg" alt="DataPainters" />
           </Link>
           <span className="admin-brand-sub">Admin console</span>
         </div>
@@ -2347,6 +2351,10 @@ export default function App() {
           <Route path="/approach" element={<Approach />} />
           <Route path="/book" element={<BookConsultation />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/contact" element={<Contact />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
           {/* Not wrapped in RequireAuth: that would bounce straight back
               here, since the whole point is that this user must change
               their password before anything else. */}
@@ -2420,7 +2428,7 @@ export default function App() {
               </RequireAdmin>
             }
           />
-          <Route path="*" element={<main className="page"><h1>Not found</h1></main>} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
         {!isConsole && <SiteFooter />}
       </div>

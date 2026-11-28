@@ -52,7 +52,7 @@ function hours(minutes: number): string {
 
 function shortDay(iso: string): string {
   const value = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00` : iso;
-  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function Figures({ items, onGo }: { items: Figure[]; onGo: (v: Target) => void }) {
@@ -208,8 +208,8 @@ export function AdminOverviewPage({
           <li key={a.id}>
             <button onClick={() => onOpenMeeting(a.id)}>
               <span className="ml-date">
-                <b>{new Date(a.startsAt).toLocaleDateString(undefined, { day: 'numeric' })}</b>
-                <small>{new Date(a.startsAt).toLocaleDateString(undefined, { month: 'short' })}</small>
+                <b>{new Date(a.startsAt).toLocaleDateString('en-US', { day: 'numeric' })}</b>
+                <small>{new Date(a.startsAt).toLocaleDateString('en-US', { month: 'short' })}</small>
               </span>
               <span className="ml-main">
                 <strong>{a.title ?? a.clientName}</strong>

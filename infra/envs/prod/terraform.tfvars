@@ -55,5 +55,5 @@ bootstrap_admin_email = "wes@schiesz.com"
 # client-facing half simply starts arriving.
 mail_enabled         = true
 mail_from            = "notifications@datapainters.com"
-mail_from_name       = "Data Painters"
+mail_from_name       = "DataPainters"
 mail_admin_recipient = "wes@schiesz.com"

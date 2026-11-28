@@ -274,7 +274,7 @@ export interface ThreadMessage {
   side: 'team' | 'client';
   body: string;
   createdAt: string;
-  /** Time the reply took. Only ever present for Data Painters readers. */
+  /** Time the reply took. Only ever present for DataPainters readers. */
   minutes: number | null;
   charged: boolean;
   attachments: ThreadAttachment[];
@@ -920,7 +920,7 @@ export function updateTeamMember(
 
 export type PersonSide = 'team' | 'client';
 
-/** Someone who can be added: a Data Painters account, or a login at this client. */
+/** Someone who can be added: a DataPainters account, or a login at this client. */
 export interface PersonCandidate {
   userId: number;
   name: string;

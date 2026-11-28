@@ -96,7 +96,7 @@ public class MeetController {
                     .orElse(user.email());
             if (user.isAdmin()) {
                 role = "host";
-                name = display + " (Data Painters)";
+                name = display + " (DataPainters)";
             } else {
                 if (!a.getClientId().equals(user.requireClientId())) {
                     throw new ResponseStatusException(HttpStatus.NOT_FOUND);

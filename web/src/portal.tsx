@@ -81,7 +81,7 @@ const VIEWS: { id: View; label: string; blurb: string; icon: ReactNode }[] = [
   {
     id: 'team',
     label: 'Team Members',
-    blurb: 'The people at your organisation who have a login here.',
+    blurb: 'The people at your organization who have a login here.',
     icon: (
       <>
         <circle cx="9" cy="8" r="3.5" />
@@ -257,8 +257,8 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
     <div className="admin-shell portal-shell">
       <aside className={navOpen ? 'admin-side open' : 'admin-side'}>
         <div className="admin-brand">
-          <Link to="/" className="admin-brand-mark" aria-label="Data Painters home">
-            <img className="brand-logo" src="/brand/logo-horizontal.svg" alt="Data Painters" />
+          <Link to="/" className="admin-brand-mark" aria-label="DataPainters home">
+            <img className="brand-logo" src="/brand/logo-horizontal.svg" alt="DataPainters" />
           </Link>
           <span className="admin-brand-sub">Client portal</span>
         </div>
@@ -318,7 +318,7 @@ export function ClientPortal({ user, onSignOut }: { user: User; onSignOut: () =>
         <header className="admin-top portal-top">
           <div>
             <p className="crumbs">
-              {view === 'overview' ? new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : 'Client portal'}
+              {view === 'overview' ? new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : 'Client portal'}
             </p>
             <h1>{view === 'overview' ? `Welcome back, ${firstName}` : current.label}</h1>
             <p className="muted">{current.blurb}</p>
@@ -607,7 +607,7 @@ function Overview({
           <span className="kpi-value">{newReplies.length}</span>
           <span className="kpi-hint">
             {newReplies.length > 0
-              ? 'From Data Painters, waiting for you'
+              ? 'From DataPainters, waiting for you'
               : openThreads.length > 0
                 ? `${plural(openThreads.length, 'conversation')} open`
                 : 'No conversations yet'}
@@ -616,11 +616,11 @@ function Overview({
         <button className="kpi" onClick={() => onGo('meetings')}>
           <span className="kpi-label">Next meeting</span>
           <span className="kpi-value kpi-value-sm">
-            {next ? new Date(next.startsAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}
+            {next ? new Date(next.startsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
           </span>
           <span className="kpi-hint">
             {next
-              ? `${new Date(next.startsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ${statusLabel(next.status)}`
+              ? `${new Date(next.startsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · ${statusLabel(next.status)}`
               : 'Nothing booked'}
           </span>
         </button>
@@ -715,7 +715,7 @@ function Overview({
                   <div className="ml-row">
                     <span className="ml-date">
                       <b>{new Date(a.startsAt).getDate()}</b>
-                      <small>{new Date(a.startsAt).toLocaleDateString(undefined, { month: 'short' })}</small>
+                      <small>{new Date(a.startsAt).toLocaleDateString('en-US', { month: 'short' })}</small>
                     </span>
                     <span className="ml-main">
                       <strong>{formatRange(a.startsAt, a.endsAt)}</strong>
@@ -1245,7 +1245,7 @@ function BillingView({ billing }: { billing: ClientBilling | null }) {
                   {byMonth.slice(0, 6).map(([m, v]) => (
                     <div key={m}>
                       <span className="kpi-label">
-                        {new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1, 1).toLocaleDateString(undefined, {
+                        {new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1, 1).toLocaleDateString('en-US', {
                           month: 'short',
                           year: 'numeric',
                         })}

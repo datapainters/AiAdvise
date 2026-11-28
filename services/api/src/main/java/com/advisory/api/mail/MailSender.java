@@ -49,7 +49,7 @@ public class MailSender {
     public MailSender(
             @Value("${MAIL_ENABLED:false}") boolean enabled,
             @Value("${MAIL_FROM:}") String from,
-            @Value("${MAIL_FROM_NAME:Data Painters}") String fromName,
+            @Value("${MAIL_FROM_NAME:DataPainters}") String fromName,
             @Value("${MAIL_CONFIGURATION_SET:}") String configurationSet,
             @Value("${MAIL_ADMIN_RECIPIENT:}") String adminRecipient,
             @Value("${APP_BASE_URL:https://ai.datapainters.com}") String baseUrl,

@@ -1,6 +1,6 @@
 /**
  * The meeting room: the Daily call embedded in our own page, with a
- * Data Painters toolbar beside Daily's controls.
+ * DataPainters toolbar beside Daily's controls.
  *
  * - Hosts put templates (PDF), pre-recorded videos and images from the media
  *   library on a shared stage, and can share their screen.
@@ -164,7 +164,7 @@ export function MeetingRoom() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const applyingRemote = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  // Whether another Data Painters host is in the call. The clock follows
+  // Whether another DataPainters host is in the call. The clock follows
   // the hosts as a group: it stops when the last one leaves, not the first.
   const otherHost = useRef(false);
   const meetToken = useRef<string | null>(null);
@@ -190,7 +190,7 @@ export function MeetingRoom() {
   );
 
   useEffect(() => {
-    document.title = 'Meeting · Data Painters';
+    document.title = 'Meeting · DataPainters';
   }, []);
 
   // 1. Open a session: login for clients and admins, the email key for guests.
@@ -411,7 +411,7 @@ export function MeetingRoom() {
       <div className="meet-gate">
         <div className="meet-gate-card">
           <div className="doc-brand">
-            <img src="/brand/logo-horizontal.svg" alt="Data Painters" />
+            <img src="/brand/logo-horizontal.svg" alt="DataPainters" />
           </div>
           <h1>We could not open this meeting</h1>
           <p className="muted">{error}</p>
@@ -430,7 +430,7 @@ export function MeetingRoom() {
       <div className="meet-gate">
         <div className="meet-gate-card">
           <div className="doc-brand">
-            <img src="/brand/logo-horizontal.svg" alt="Data Painters" />
+            <img src="/brand/logo-horizontal.svg" alt="DataPainters" />
           </div>
           <h1>You have left the meeting</h1>
           <p className="muted">Thank you. You can rejoin while the room is open.</p>
@@ -465,7 +465,7 @@ export function MeetingRoom() {
             <strong>{m ? m.engagementTitle : 'Meeting'}</strong>
             <span className="muted">
               {m
-                ? `${m.clientName} · ${new Date(m.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
+                ? `${m.clientName} · ${new Date(m.startsAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`
                 : 'Connecting…'}
             </span>
           </div>
@@ -628,7 +628,7 @@ export function MeetingRoom() {
                 <div>
                   <strong>{s.title}</strong>
                   <span className="muted small">
-                    {s.sharedByName} · {new Date(s.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    {s.sharedByName} · {new Date(s.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                   </span>
                 </div>
                 <div className="button-row">
@@ -669,7 +669,7 @@ function clockText(totalSeconds: number): string {
 }
 
 /**
- * What the Data Painters host runs the meeting from, beside the video: the
+ * What the DataPainters host runs the meeting from, beside the video: the
  * clock that bills the meeting, and the agenda with a note field per topic.
  * Only the host sees it; clients and guests never receive this data.
  */

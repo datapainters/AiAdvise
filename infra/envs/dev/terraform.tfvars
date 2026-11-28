@@ -28,7 +28,7 @@ bootstrap_admin_email = "wes@schiesz.com"
 
 mail_enabled         = true
 mail_from            = "notifications@datapainters.com"
-mail_from_name       = "Data Painters (dev)"
+mail_from_name       = "DataPainters (dev)"
 mail_admin_recipient = "wes@schiesz.com"
 
 # Dev never emails a real client: everything goes here, with the intended

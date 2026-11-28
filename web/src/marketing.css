@@ -798,7 +798,7 @@
 
 .mk-footer-cols {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2rem;
 }
 
@@ -1515,4 +1515,113 @@
     transition: none;
     transform: none;
   }
+}
+
+
+/* ---------- contact, legal and not-found pages ---------- */
+
+.mk-footer-base a {
+  color: inherit;
+}
+
+.mk-footer-base a:hover {
+  color: #fff;
+}
+
+.mk-contact {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  max-width: 56rem;
+}
+
+.mk-contact-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1.75rem;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+
+.mk-contact-card h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.mk-contact-card p {
+  margin: 0 0 0.5rem;
+  color: var(--ink-soft);
+  line-height: 1.6;
+  flex: 1;
+}
+
+.mk-contact-note {
+  margin: 2rem 0 0;
+  max-width: 56rem;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+
+.mk-prose {
+  max-width: 46rem;
+  line-height: 1.7;
+}
+
+.mk-prose h2 {
+  margin: 2.25rem 0 0.6rem;
+  font-size: 1.2rem;
+  scroll-margin-top: 6rem;
+}
+
+.mk-prose h2:first-child {
+  margin-top: 0;
+}
+
+.mk-prose p,
+.mk-prose ul {
+  margin: 0 0 1rem;
+}
+
+.mk-prose ul {
+  padding-left: 1.25rem;
+}
+
+.mk-prose li + li {
+  margin-top: 0.4rem;
+}
+
+.mk-notfound-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+}
+
+.login-forgot {
+  margin-top: 1rem;
+}
+
+@media (max-width: 700px) {
+  .mk-contact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mk-footer-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.mk-contact-note a,
+.mk-prose a,
+.mk-faq-a a,
+.mk-aside-note a,
+.mk-lede a {
+  color: var(--accent);
+}
+
+.mk-contact-note {
+  margin-top: 2.5rem;
 }
